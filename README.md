@@ -94,10 +94,13 @@ Realtime and Google's Live best practices.
   (with what the paid tier would cost); call minutes (set `DIAL_USD_PER_MIN`).
   Shown live in the phone's Cost tab and per call in the monitor. These are
   list-price estimates. Gemini 3.5 Flash prices come from aggregators.
-- **Cockpit backdrop:** the demo phone sits in a vent mount in a tradesperson's van.
-  The photo is `web/assets/cockpit.jpg`, generated with Gemini (`npm run gen-cockpit`,
-  model `gemini-3.1-flash-image`); the mount is CSS so it lines up with the phone.
-  `/?cockpit=0` shows the plain background.
+- **Cockpit backdrop:** the demo phone sits in a dashboard mount in a tradesperson's van.
+  `npm run gen-cockpit` generates the photo with Gemini (`gemini-3.1-flash-image`, 2K)
+  with the phone's screen solid green. It then finds the screen's corners by fitting
+  the edges, keys the green out, and writes `web/assets/cockpit.jpg` and `cockpit.json`.
+  The page maps the live screen onto those corners (CSS `matrix3d`), so it takes the
+  photo's perspective and the buttons still work. `/?cockpit=0` and mobile use the plain
+  CSS phone frame.
 - **UI previews** for slides: `/?orb=speaking&tab=memory` (orb: `listening`,
   `thinking`, `speaking`; tab: `note`, `memory`, `cost`).
 
