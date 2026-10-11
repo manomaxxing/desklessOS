@@ -15,7 +15,8 @@
     "dial": "node --env-file-if-exists=.env scripts/dial.mjs",
     "test": "node --test test/*.test.mjs",
     "rebuild-memory": "node --env-file-if-exists=.env scripts/rebuild-memory.mjs",
-    "live-probe": "node --env-file-if-exists=.env scripts/live-probe.mjs"
+    "live-probe": "node --env-file-if-exists=.env scripts/live-probe.mjs",
+    "gen-cockpit": "node --env-file-if-exists=.env scripts/gen-cockpit.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"

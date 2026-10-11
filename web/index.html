@@ -224,6 +224,33 @@
   .phone .callbtn { width: clamp(50px, 9.5cqh, 72px); height: clamp(50px, 9.5cqh, 72px); }
   .phone .round { width: clamp(38px, 6.5cqh, 48px); height: clamp(38px, 6.5cqh, 48px); }
   .phone .controls .seg button { padding: clamp(4px, 0.8cqh, 6px) 2cqw; font-size: clamp(11px, 4.4cqw, 13px); min-width: 0; }
+  /* Demo backdrop: the phone sits in a vent mount in a tradesperson's van
+     (web/assets/cockpit.jpg, generated with Gemini; npm run gen-cockpit). The
+     vents are at ~52% / 60% of the photo, so the phone lands right in front of them. */
+  .stage.cockpit { isolation: isolate; }
+  .stage.cockpit::before { content: ""; position: absolute; inset: -12px; z-index: -1; pointer-events: none;
+    background: url(/assets/cockpit.jpg) 52% 60% / cover no-repeat; filter: blur(1.5px) saturate(.92) brightness(.97); }
+  .stage.cockpit::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 58%, transparent 30%, rgba(0,0,0,.28) 100%); }
+  .stage.cockpit .ambient { opacity: .25; mix-blend-mode: screen; }
+  .stage.cockpit[data-state="speaking"] .ambient, .stage.cockpit[data-state="thinking"] .ambient { opacity: .6; }
+  .stage.cockpit .demo-note { background: rgba(255,248,236,.94); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+  .stage.cockpit .phone { height: min(700px, 94%); box-shadow: 0 0 0 2px #3a3a3c, 0 0 0 3px #0b0b0c, 0 30px 60px rgba(0,0,0,.55), 0 8px 18px rgba(0,0,0,.35), inset 0 0 2px rgba(255,255,255,.25); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .stage.cockpit::before { filter: blur(1.5px) saturate(.8) brightness(.55); }
+    :root:not([data-theme="light"]) .stage.cockpit .demo-note { background: rgba(40,34,26,.92); }
+  }
+  /* the mount: rubber side clamps and two bottom hooks, scaled with the phone */
+  .mount { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+  .mount .grip { position: absolute; top: 41%; height: 14%; width: clamp(10px, 4.2%, 16px); border-radius: 7px;
+    background: linear-gradient(90deg, #141416, #36363a 45%, #1c1c1f); box-shadow: 0 6px 14px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.14); }
+  .mount .grip.l { left: -3.2%; } .mount .grip.r { right: -3.2%; }
+  .mount .grip::after { content: ""; position: absolute; top: 12%; bottom: 12%; width: 3px; border-radius: 2px; background: #0a0a0b; }
+  .mount .grip.l::after { right: 2px; } .mount .grip.r::after { left: 2px; }
+  .mount .foot { position: absolute; bottom: -1.6%; width: 17%; height: clamp(8px, 2.2%, 14px); border-radius: 0 0 9px 9px;
+    background: linear-gradient(180deg, #2a2a2d, #141416); box-shadow: 0 6px 12px rgba(0,0,0,.45); }
+  .mount .foot.l { left: 22%; } .mount .foot.r { right: 22%; }
+  @media (max-width: 560px) { .stage.cockpit::before, .stage.cockpit::after, .mount { display: none; } }
   @media (max-height: 600px) and (min-width: 561px) { .stage { overflow-y: auto; } .phone-wrap { flex: none; height: 540px; } }
   @media (max-width: 560px) {
     .phone-wrap { flex: none; }
@@ -257,11 +284,12 @@
 </div>
 
 <div class="app">
-  <section class="stage" id="stage" data-state="idle">
+  <section class="stage cockpit" id="stage" data-state="idle">
     <div class="demo-note" role="note"><b>Demo</b><span>Only a showcase of the conversation. In real use, the tradesperson calls a normal phone number from the car, with no app and no screen.</span></div>
     <div class="ambient"></div>
     <div class="edge"></div>
     <div class="phone-wrap"><div class="phone">
+      <div class="mount" aria-hidden="true"><i class="grip l"></i><i class="grip r"></i><i class="foot l"></i><i class="foot r"></i></div>
       <div class="island"></div>
       <div class="screen">
         <div class="statusbar"><span id="clock">9:41</span><span class="sig"><i></i><i></i><i></i><i></i></span></div>
@@ -598,6 +626,7 @@ for (const b of $("tabs").querySelectorAll("button")) b.onclick = () => {
   if (b.dataset.tab === "memory") loadMemory();
 };
 if (params.get("sheet")) setTimeout(() => openSheet(true), 300);
+if (params.get("cockpit") === "0") $("stage").classList.remove("cockpit"); // plain background
 if (params.get("tab")) document.querySelector(`#tabs [data-tab="${params.get("tab")}"]`)?.click();
 const openSheet = on => { $("sheet").classList.toggle("on", on); $("sheetBg").classList.toggle("on", on); };
 $("modeBtn").onclick = () => openSheet(!$("sheet").classList.contains("on"));
