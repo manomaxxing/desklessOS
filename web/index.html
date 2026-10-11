@@ -158,6 +158,36 @@
   .stage { padding-top: 84px; }
   .demo-note b { color: #c77700; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; flex: none; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo-note b { color: var(--orange); } }
+
+  /* phone frame around the call screen */
+  .phone { position: relative; z-index: 1; flex: none; width: 360px; height: min(740px, calc(100vh - 56px - 120px)); min-height: 600px;
+    border-radius: 54px; padding: 12px; background: #1d1d1f;
+    box-shadow: 0 0 0 2px #3a3a3c, 0 0 0 3px #0b0b0c, 0 40px 90px rgba(0,0,0,.28), inset 0 0 2px rgba(255,255,255,.25); }
+  .phone::before, .phone::after { content: ""; position: absolute; right: -5px; width: 4px; border-radius: 0 3px 3px 0; background: #2c2c2e; }
+  .phone::before { top: 150px; height: 70px; } .phone::after { left: -5px; right: auto; top: 120px; height: 36px; border-radius: 3px 0 0 3px; }
+  .island { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); width: 112px; height: 32px; border-radius: 20px; background: #000; z-index: 3; }
+  .screen { position: relative; height: 100%; border-radius: 42px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; align-items: center;
+    justify-content: space-between; gap: 10px; padding: 14px 18px 34px; }
+  .statusbar { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 2px 14px 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; height: 30px; }
+  .sig { display: flex; gap: 2px; align-items: flex-end; height: 11px; }
+  .sig i { width: 3px; background: var(--ink); border-radius: 1px; } .sig i:nth-child(1) { height: 4px; } .sig i:nth-child(2) { height: 6px; } .sig i:nth-child(3) { height: 8px; } .sig i:nth-child(4) { height: 11px; }
+  .contact { text-align: center; margin-top: 10px; }
+  .avatar { width: 44px; height: 44px; margin: 0 auto 6px; border-radius: 50%; background: conic-gradient(from 200deg, var(--g1), var(--g2), var(--g3), var(--g4), var(--g1)); }
+  .who { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; } .num { font-size: 12px; color: var(--muted); }
+  .phone .orb { --size: min(26vh, 200px); }
+  .phone .label { font-size: 22px; min-height: 28px; }
+  .phone .caption { font-size: 14px; min-height: 64px; max-height: 88px; overflow: hidden; padding: 0 4px; }
+  .phone .controls { gap: 14px; margin-top: 0; }
+  .phone .controls { display: grid; grid-template-columns: 1fr 72px 1fr; justify-items: center; column-gap: 18px; align-items: center; width: 100%; justify-content: center; }
+  .phone .controls .callbtn { grid-area: 1 / 2; } .phone .controls .round { grid-area: 1 / 3; justify-self: start; }
+  .phone .controls .seg { grid-area: 2 / 1 / 3 / -1; width: 100%; } .phone .controls .seg button { flex: 1; }
+  .stage .ambient { top: 50%; }
+  @media (max-width: 560px) {
+    .phone { width: 100%; height: auto; min-height: 0; padding: 0; border-radius: 0; background: none; box-shadow: none; }
+    .phone::before, .phone::after, .island, .statusbar { display: none; }
+    .screen { border-radius: 0; background: none; gap: 18px; }
+    .stage { padding-top: 140px; }
+  }
 </style>
 </head>
 <body>
@@ -172,24 +202,31 @@
     <div class="demo-note" role="note"><b>Demo</b><span>Only a showcase of the conversation. In real use, the tradesperson calls a normal phone number from the car, with no app and no screen.</span></div>
     <div class="ambient"></div>
     <div class="edge"></div>
-    <div class="orb" id="orb" data-state="idle" title="Tap to call">
-      <div class="scale"><div class="glow"></div><div class="ring"></div><div class="core"></div></div>
-    </div>
-    <div style="position:relative;z-index:1">
-      <div class="label" id="label">Tap to call</div>
-      <div class="sublabel" id="sublabel">Your notebook for the road</div>
-    </div>
-    <div class="caption" id="caption" style="position:relative;z-index:1"></div>
-    <div class="controls">
-      <div class="seg" id="langSeg" title="Greeting language. After that it follows the caller.">
-        <button data-lang="de" class="on">Deutsch</button><button data-lang="en">English</button><button data-lang="auto">Auto</button>
+    <div class="phone">
+      <div class="island"></div>
+      <div class="screen">
+        <div class="statusbar"><span id="clock">9:41</span><span class="sig"><i></i><i></i><i></i><i></i></span></div>
+        <div class="contact"><div class="avatar"></div><div class="who">DesklessOS</div><div class="num">Notizbuch · phone call</div></div>
+        <div class="orb" id="orb" data-state="idle" title="Tap to call">
+          <div class="scale"><div class="glow"></div><div class="ring"></div><div class="core"></div></div>
+        </div>
+        <div style="position:relative;z-index:1">
+          <div class="label" id="label">Tap to call</div>
+          <div class="sublabel" id="sublabel">Your notebook for the road</div>
+        </div>
+        <div class="caption" id="caption" style="position:relative;z-index:1"></div>
+        <div class="controls">
+          <div class="seg" id="langSeg" title="Greeting language. After that it follows the caller.">
+            <button data-lang="de" class="on">Deutsch</button><button data-lang="en">English</button><button data-lang="auto">Auto</button>
+          </div>
+          <button class="callbtn" id="call" aria-label="Call">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>
+          </button>
+          <button class="round" id="mute" aria-label="Mute" disabled title="Mute microphone">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </button>
+        </div>
       </div>
-      <button class="callbtn" id="call" aria-label="Call">
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>
-      </button>
-      <button class="round" id="mute" aria-label="Mute" disabled title="Mute microphone">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-      </button>
     </div>
   </section>
 
@@ -298,6 +335,8 @@ function frame() {
   $("orb").style.setProperty("--level", level.toFixed(3));
   micLevel *= 0.9;
   requestAnimationFrame(frame);
+const tickClock = () => { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M$/i, ""); };
+tickClock(); setInterval(tickClock, 10000);
 }
 requestAnimationFrame(frame);
 
