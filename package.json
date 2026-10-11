@@ -1,0 +1,22 @@
+{
+  "name": "deskless-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DesklessOS: voice-first assistant for tradespeople. Phone call in, notes out.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env server.mjs",
+    "smoke": "node --env-file-if-exists=.env scripts/smoke.mjs",
+    "fake-dial": "node --env-file-if-exists=.env scripts/fake-dial.mjs",
+    "tunnel": "cloudflared tunnel --url http://localhost:8787",
+    "dial": "node --env-file-if-exists=.env scripts/dial.mjs",
+    "test": "node --test test/*.test.mjs",
+    "rebuild-memory": "node --env-file-if-exists=.env scripts/rebuild-memory.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

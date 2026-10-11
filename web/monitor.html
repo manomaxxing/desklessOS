@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DesklessOS Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #f5f5f7; --bg2: #ffffff; --glass: rgba(255,255,255,.72);
+    --ink: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6; --sep: rgba(0,0,0,.08); --fill: rgba(118,118,128,.12);
+    --blue: #0a84ff; --green: #30d158; --red: #ff453a; --orange: #ff9f0a;
+    --bubble-agent: #e9e9eb; --bubble-agent-ink: #1d1d1f; --sel: rgba(10,132,255,.09);
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06);
+    --g1: #4285f4; --g2: #9b72cb; --g3: #d96570; --g4: #f6b26b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
+      --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
+      --bubble-agent: #262628; --bubble-agent-ink: #f5f5f7; --sel: rgba(10,132,255,.18);
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.47 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+  button { font: inherit; color: inherit; }
+  .bar { position: sticky; top: 0; z-index: 10; height: 56px; display: flex; align-items: center; gap: 16px; padding: 0 20px;
+    background: var(--glass); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--sep); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; letter-spacing: -0.02em; }
+  .brand i { width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(from 200deg, var(--g1), var(--g2), var(--g3), var(--g4), var(--g1)); box-shadow: 0 0 16px rgba(155,114,203,.5); }
+  .seg { display: inline-flex; background: var(--fill); border-radius: 9px; padding: 2px; }
+  .seg a, .seg button { border: 0; background: none; padding: 5px 14px; border-radius: 7px; font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; cursor: pointer; white-space: nowrap; }
+  .seg .on { background: var(--bg2); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .right { margin-left: auto; display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .pill { background: var(--fill); padding: 3px 10px; border-radius: 99px; }
+  .pill.live { color: #1f9e46; } .pill.lost { color: var(--red); }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .switch { width: 34px; height: 20px; border-radius: 99px; background: var(--fill); position: relative; transition: background .2s; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
+  input:checked + .switch { background: var(--green); } input:checked + .switch::after { transform: translateX(14px); }
+  .toggle input { display: none; }
+  @media (max-width: 900px) { .right .hide-s { display: none; } }
+
+  .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; height: calc(100vh - 56px); }
+  @media (max-width: 1180px) { .layout { grid-template-columns: 270px minmax(0, 1fr); } .rightcol { grid-column: 2; } }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; height: auto; } .rightcol { grid-column: 1; } aside { max-height: 45vh; } }
+  aside, .main, .rightcol { overflow-y: auto; min-width: 0; }
+  aside { border-right: 1px solid var(--sep); padding: 12px 10px; }
+  .rightcol { border-left: 1px solid var(--sep); padding: 4px 16px 24px; }
+  @media (max-width: 1180px) { .rightcol { border-left: 0; } .main { overflow: visible; } .layout { height: auto; } }
+  h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 16px 6px 8px; }
+
+  .call { padding: 10px 12px; border-radius: 12px; cursor: pointer; margin-bottom: 2px; }
+  .call:hover { background: var(--fill); }
+  .call.sel { background: var(--sel); }
+  .call .top { display: flex; gap: 6px; align-items: center; font-weight: 600; flex-wrap: wrap; }
+  .call .sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+  .call .sum { color: var(--muted); font-size: 12px; margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--fill); color: var(--muted); }
+  .badge.blue { background: rgba(10,132,255,.12); color: var(--blue); } .badge.green { background: rgba(48,209,88,.15); color: #1f9e46; }
+  .livedot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 0 rgba(255,69,58,.5); animation: ping 1.4s infinite; }
+  @keyframes ping { 70% { box-shadow: 0 0 0 8px rgba(255,69,58,0); } 100% { box-shadow: 0 0 0 0 rgba(255,69,58,0); } }
+  .sys { font-size: 12px; color: var(--muted); padding: 5px 8px; border-radius: 8px; }
+  .sys + .sys { border-top: 1px solid var(--sep); }
+  .sys.error { color: var(--red); } .sys.warn { color: #c77700; }
+
+  .main { padding: 18px 22px 40px; }
+  .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .head h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; margin: 0; }
+  .meta { color: var(--muted); font-size: 13px; margin: 4px 0 14px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--bg2); border-radius: 14px; box-shadow: var(--shadow); padding: 11px 13px; }
+  .stat b { display: block; font-size: 20px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .good { color: #1f9e46; } .warn { color: #c77700; } .bad { color: var(--red); }
+  .controls { display: flex; gap: 14px; color: var(--muted); font-size: 12px; margin-bottom: 8px; flex-wrap: wrap; align-items: center; }
+  .row { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 10px; align-items: start; margin: 6px 0; }
+  .t { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; padding-top: 8px; text-align: right; }
+  .bubble { padding: 9px 13px; border-radius: 18px; max-width: 720px; overflow-wrap: anywhere; font-size: 14.5px; }
+  .bubble.user { background: var(--blue); color: #fff; border-bottom-right-radius: 6px; justify-self: end; }
+  .bubble.agent { background: var(--bubble-agent); color: var(--bubble-agent-ink); border-bottom-left-radius: 6px; justify-self: start; }
+  .bubble .who { font-size: 10.5px; font-weight: 700; opacity: .75; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; display: flex; gap: 8px; align-items: center; }
+  .chip { display: inline-block; font-size: 12px; color: var(--muted); background: var(--fill); padding: 3px 10px; border-radius: 99px; }
+  .chip.good { color: #1f9e46; background: rgba(48,209,88,.13); } .chip.warn { color: #c77700; background: rgba(255,159,10,.14); } .chip.bad { color: var(--red); background: rgba(255,69,58,.12); font-weight: 600; }
+  button.play { border: 0; background: rgba(255,255,255,.25); color: inherit; border-radius: 99px; font-size: 11px; font-weight: 600; padding: 1px 9px; cursor: pointer; }
+  .bubble.agent button.play { background: var(--fill); }
+
+  .card { background: var(--bg2); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; margin-bottom: 12px; }
+  .rowi { display: flex; gap: 12px; padding: 10px 14px; font-size: 13px; }
+  .rowi + .rowi { border-top: 1px solid var(--sep); }
+  .rowi .k { width: 84px; flex: none; color: var(--muted); }
+  .rowi .v { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .crow { display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; font-size: 13px; }
+  .crow + .crow { border-top: 1px solid var(--sep); }
+  .crow small { display: block; color: var(--muted); font-size: 11.5px; }
+  .crow .usd { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .big { font-size: 34px; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; padding: 14px 14px 0; }
+  .bigsub { color: var(--muted); font-size: 12px; padding: 0 14px 12px; }
+  pre { font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--fill); padding: 10px; border-radius: 10px; margin: 0 14px 14px; }
+  .empty { color: var(--faint); padding: 40px 10px; text-align: center; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 0 14px 12px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><i></i>DesklessOS</div>
+  <nav class="seg"><a href="/" id="navPhone">Phone</a><a class="on" href="/monitor">Monitor</a></nav>
+  <div class="right">
+    <span class="pill" id="feed">connecting…</span>
+    <span class="pill hide-s" id="total">—</span>
+    <span class="pill hide-s" id="rec"></span>
+    <label class="toggle"><input type="checkbox" id="follow" checked><span class="switch"></span>Follow live</label>
+  </div>
+</header>
+<div class="layout">
+  <aside>
+    <h3>Calls</h3>
+    <div id="calls"><div class="empty">No calls yet.</div></div>
+    <h3>Connections</h3>
+    <div class="card" id="system" style="padding:4px 4px"></div>
+  </aside>
+  <div class="main" id="main"><div class="empty">Select a call.</div></div>
+  <div class="rightcol" id="rightcol"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const token = new URLSearchParams(location.search).get("token");
+const q = token ? `?token=${encodeURIComponent(token)}` : "";
+if (token) $("navPhone").href = "/" + q;
+const usd = v => (v == null ? "—" : v === 0 ? "$0" : v < 0.01 ? "$" + v.toFixed(4) : "$" + v.toFixed(3));
+const ktok = n => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n ?? 0));
+
+let calls = [], selected = null, showVad = false, player = null, systemEntries = [];
+
+const fmtTime = ms => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const fmtDur = ms => { const s = Math.round(ms / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
+const latClass = ms => (ms == null ? "" : ms <= 2500 ? "good" : ms <= 4000 ? "warn" : "bad");
+const audioUrl = (id, file) => `/api/calls/${encodeURIComponent(id)}/audio/${encodeURIComponent(file)}${q}`;
+const sourceLabel = s => ({ dial: "Dial", browser: "Browser", script: "Script" })[s] ?? s ?? "?";
+
+function renderCalls() {
+  const total = calls.reduce((s, c) => s + (c.usd || 0), 0);
+  $("total").textContent = `${calls.length} calls · ${usd(total)}`;
+  if (!calls.length) { $("calls").innerHTML = '<div class="empty">No calls yet.</div>'; return; }
+  $("calls").innerHTML = calls.map(c => `
+    <div class="call ${selected?.id === c.id ? "sel" : ""}" data-id="${esc(c.id)}">
+      <div class="top">${c.endedAt ? "" : '<span class="livedot"></span>'}<span>${esc(c.from || c.id)}</span>
+        <span class="badge ${c.source === "dial" ? "blue" : ""}">${esc(sourceLabel(c.source))}</span>${c.lang ? `<span class="badge">${esc(c.lang.toUpperCase())}</span>` : ""}${c.savedNoteId ? '<span class="badge green">note</span>' : ""}</div>
+      <div class="sub">${fmtTime(c.startedAt)} · ${c.endedAt ? fmtDur(c.endedAt - c.startedAt) : "live"} · ${c.turns} turns${c.usd != null ? " · " + usd(c.usd) : ""}</div>
+      ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}
+    </div>`).join("");
+  for (const el of document.querySelectorAll(".call")) el.onclick = () => { $("follow").checked = false; select(el.dataset.id); };
+}
+function renderSystem() {
+  $("system").innerHTML = systemEntries.slice(-25).reverse().map(e => `<div class="sys ${e.level}">${fmtTime(e.t)} · ${esc(e.text)}</div>`).join("") || '<div class="sys">No connections yet.</div>';
+}
+
+function items(call) {
+  const out = [];
+  const agentByTurn = new Map();
+  const turnCost = {};
+  for (const e of call.events) if (e.event === "cost" && e.step === "turn" && e.turn) turnCost[e.turn] = (turnCost[e.turn] || 0) + (e.usd || 0);
+  for (const e of call.events) {
+    const t = ((e.t - call.startedAt) / 1000).toFixed(1);
+    switch (e.event) {
+      case "heard": out.push({ t, kind: "user", text: e.text || "(nothing transcribed)", lang: e.lang, next: e.next, audio: e.audio }); break;
+      case "say": {
+        let a = agentByTurn.get(e.turn);
+        if (!a || out[out.length - 1] !== a) { a = { t, kind: "agent", text: "", turn: e.turn }; out.push(a); agentByTurn.set(e.turn, a); }
+        a.text += (a.text ? " " : "") + e.text + (e.note ? ` (${e.note})` : "");
+        break;
+      }
+      case "agent_audio": { const a = agentByTurn.get(e.turn); if (a) { a.audio = e.audio; a.interrupted = e.interrupted; } break; }
+      case "turn_start": out.push({ t, kind: "chip", text: e.text ? `turn ${e.turn} · ${e.text}` : `turn ${e.turn} · ${(e.utteranceMs / 1000).toFixed(1)} s speech${e.merged > 1 ? ` · ${e.merged} pieces merged` : ""}` }); break;
+      case "latency": out.push({ t, kind: "chip", cls: latClass(e.firstAudioMs), text: `first audio ${(e.firstAudioMs / 1000).toFixed(2)} s · Gemini ${(e.firstTokenMs / 1000).toFixed(2)} s · Fish ${e.fishFirstByteMs ?? "?"} ms${turnCost[e.turn] != null ? " · " + usd(turnCost[e.turn]) : ""}` }); break;
+      case "filler": out.push({ t, kind: "chip", text: "filler" }); break;
+      case "retry": out.push({ t, kind: "chip", cls: "warn", text: `Gemini retry · ${e.reason}` }); break;
+      case "barge_in": out.push({ t, kind: "chip", cls: "warn", text: "barge-in · playback cleared" }); break;
+      case "nudge": out.push({ t, kind: "chip", cls: "warn", text: `silence nudge · ${e.kind}` }); break;
+      case "note": out.push({ t, kind: "chip", text: `note · ${e.missing?.length ? "missing " + e.missing.join(", ") : "complete"}` }); break;
+      case "saved": out.push({ t, kind: "chip", cls: "good", text: `note saved · ${e.id}` }); break;
+      case "memory": out.push({ t, kind: "chip", cls: "good", text: `memory · ${e.callType}${e.added?.length ? ` · +${e.added.length} to-do` : ""}${e.completed?.length ? ` · ${e.completed.length} done` : ""}` }); break;
+      case "error": out.push({ t, kind: "chip", cls: "bad", text: `${e.where} error · ${e.message}` }); break;
+      case "connected": out.push({ t, kind: "chip", text: `connected · ${e.lang === "en" ? "English" : "German"} · ${e.formats?.inbound ?? "?"}` }); break;
+      case "hangup": out.push({ t, kind: "chip", text: "agent hung up" }); break;
+      case "ended": out.push({ t, kind: "chip", text: `ended · ${e.reason}` }); break;
+      case "duration_warning": out.push({ t, kind: "chip", cls: "warn", text: "Dial duration warning" }); break;
+      case "vad": if (showVad) out.push({ t, kind: "chip", text: e.speaking ? "speech start" : `speech end · ${e.ms} ms` }); break;
+    }
+  }
+  return out;
+}
+
+function stats(c) {
+  const lat = c.events.filter(e => e.event === "latency");
+  const avg = k => (lat.length ? lat.reduce((s, e) => s + (e[k] || 0), 0) / lat.length : null);
+  const n = ev => c.events.filter(e => e.event === ev).length;
+  const fa = avg("firstAudioMs");
+  return [
+    [n("heard"), "turns"],
+    [fa == null ? "—" : (fa / 1000).toFixed(2) + " s", "avg first audio", latClass(fa)],
+    [usd(c.cost?.usd ?? null), "cost"],
+    [n("barge_in"), "barge-ins"],
+    [n("retry") + n("error"), "retries / errors", n("error") ? "bad" : n("retry") ? "warn" : ""],
+  ];
+}
+
+function renderMain() {
+  if (!selected) { $("main").innerHTML = '<div class="empty">Select a call.</div>'; $("rightcol").innerHTML = ""; return; }
+  const c = selected;
+  const dur = (c.endedAt ?? Date.now()) - c.startedAt;
+  $("main").innerHTML = `
+    <div class="head"><h2>${esc(c.from || "Call")}</h2><span class="badge ${c.source === "dial" ? "blue" : ""}">${esc(sourceLabel(c.source))}</span>${c.endedAt ? "" : '<span class="badge" style="color:var(--red)">LIVE</span>'}</div>
+    <div class="meta">${fmtTime(c.startedAt)} · ${fmtDur(dur)}${c.endedReason ? " · " + esc(c.endedReason) : ""} · <span style="font-family:ui-monospace,monospace;font-size:11px">${esc(c.id)}</span></div>
+    <div class="stats">${stats(c).map(([v, l, cls]) => `<div class="stat"><b class="${cls || ""}">${v}</b><span>${l}</span></div>`).join("")}</div>
+    <div class="controls"><label class="toggle"><input type="checkbox" id="vad" ${showVad ? "checked" : ""}><span class="switch"></span>VAD events</label><span>▶ plays exactly what Gemini heard and what Fish said</span></div>
+    <div id="timeline">${items(c).map(rowHtml).join("") || '<div class="empty">Waiting for the first turn…</div>'}</div>`;
+  $("vad").onchange = e => { showVad = e.target.checked; renderMain(); };
+  for (const b of document.querySelectorAll("button.play")) b.onclick = () => play(b.dataset.src, b);
+  renderRight(c);
+  if ($("follow").checked && !c.endedAt) $("main").scrollTop = $("main").scrollHeight;
+}
+
+function rowHtml(it) {
+  if (it.kind === "chip") return `<div class="row"><div class="t">+${it.t}</div><div><span class="chip ${it.cls || ""}">${esc(it.text)}</span></div></div>`;
+  const who = it.kind === "user" ? `Caller${it.lang ? " · " + it.lang : ""}${it.next ? " · next " + it.next : ""}` : `Agent${it.interrupted ? " · interrupted" : ""}`;
+  const btn = it.audio ? `<button class="play" data-src="${audioUrl(selected.id, it.audio)}">▶ Play</button>` : "";
+  return `<div class="row"><div class="t">+${it.t}</div><div style="display:grid"><div class="bubble ${it.kind}"><div class="who">${esc(who)} ${btn}</div>${esc(it.text)}</div></div></div>`;
+}
+
+function play(src, btn) {
+  if (player) { player.pause(); document.querySelectorAll("button.play").forEach(b => (b.textContent = "▶ Play")); if (player.src.endsWith(src)) { player = null; return; } }
+  player = new Audio(src); btn.textContent = "■ Stop";
+  player.onended = () => { btn.textContent = "▶ Play"; player = null; };
+  player.play();
+}
+
+function renderRight(c) {
+  const n = c.note;
+  const missing = c.events.filter(e => e.event === "note").at(-1)?.missing ?? [];
+  const mem = c.events.filter(e => e.event === "memory").at(-1);
+  const t = c.cost, s = t?.byStep || {};
+  const noteRows = n ? [
+    ["Mode", n.modus], ["Customer", n.kunde_name], ["Place", [n.adresse, n.ort].filter(Boolean).join(", ")],
+    ["Work", (n.arbeiten || []).map(a => [a.raum, a.bereich, a.flaeche_m2 ? a.flaeche_m2 + " m²" : "", a.fliese_format, a.fliese_optik, a.beschaffung].filter(Boolean).join(", ")).join(" · ")],
+    ["Next", (n.naechste_schritte || []).map(x => x.was + (x.bis ? ` (${x.bis})` : "")).join(" · ")],
+    ["Confirmed", n.bestaetigt ? "yes" : "no"], ["Missing", missing.join(", ")],
+  ].filter(([, v]) => v) : [];
+  const crow = (name, sub, v) => `<div class="crow"><div>${name}<small>${sub}</small></div><div class="usd">${v}</div></div>`;
+  $("rightcol").innerHTML = `
+    <h3>Cost</h3>
+    ${t ? `<div class="card"><div class="big">${usd(t.usd)}</div><div class="bigsub">${t.llmCalls} model calls · ${ktok(t.inputTokens)} in (${ktok(t.audioTokens)} audio) · ${ktok(t.outputTokens)} out</div>
+      ${crow("Conversation", `${s.turn?.calls ?? 0} turns`, usd(s.turn?.usd ?? 0))}${crow("Note", `${s.note?.calls ?? 0} extractions`, usd(s.note?.usd ?? 0))}${crow("Memory", "after the call", usd(s.memory?.usd ?? 0))}
+      ${crow("Voice", `Fish · ${(t.ttsBytes / 1000).toFixed(1)} kB · paid tier ${usd(t.ttsPaidUsd)}`, usd(t.ttsUsd))}${crow("Phone", t.phoneMinutes ? t.phoneMinutes.toFixed(1) + " min" : "—", t.phoneUsd == null ? "—" : usd(t.phoneUsd))}</div>` : '<div class="card"><div class="empty" style="padding:18px">No cost yet.</div></div>'}
+    <h3>Note</h3>
+    ${n ? `<div class="card">${noteRows.map(([k, v]) => `<div class="rowi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}${n.zusammenfassung ? `<div class="rowi"><div class="v">${esc(n.zusammenfassung)}</div></div>` : ""}<details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(n, null, 2))}</pre></details></div>` : '<div class="card"><div class="empty" style="padding:18px">No note yet.</div></div>'}
+    <h3>Memory changes</h3>
+    ${mem ? `<div class="card">
+      <div class="rowi"><div class="k">Type</div><div class="v">${esc(mem.callType)}</div></div>
+      <div class="rowi"><div class="k">Summary</div><div class="v">${esc(mem.summary)}</div></div>
+      ${mem.customer ? `<div class="rowi"><div class="k">Customer</div><div class="v">${esc(mem.customer.name)} <span style="color:var(--faint)">${esc(mem.customer.id)}</span></div></div>` : ""}
+      ${(mem.added || []).map(a => `<div class="rowi"><div class="k good">+ to-do</div><div class="v">${esc(a.text)}${a.due ? ` · ${esc(a.due)}` : ""}</div></div>`).join("")}
+      ${(mem.completed || []).map(a => `<div class="rowi"><div class="k good">✓ done</div><div class="v">${esc(a.text)}</div></div>`).join("")}
+      ${(mem.updated || []).map(a => `<div class="rowi"><div class="k warn">updated</div><div class="v">${esc(a.text)}${a.due ? ` · ${esc(a.due)}` : ""}</div></div>`).join("")}
+    </div>` : `<div class="card"><div class="empty" style="padding:18px">${c.endedAt ? "No memory update." : "Written after the call."}</div></div>`}`;
+}
+
+async function select(id) {
+  const res = await fetch(`/api/calls/${encodeURIComponent(id)}${q}`);
+  if (!res.ok) return;
+  selected = await res.json();
+  renderCalls(); renderMain();
+}
+async function load() {
+  const body = await (await fetch("/api/calls" + q)).json();
+  calls = body.calls; systemEntries = body.system;
+  $("rec").textContent = body.recording ? "Recording on" : "Recording off";
+  renderCalls(); renderSystem();
+  if (calls.length && !selected) select(calls[0].id);
+}
+function connect() {
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/monitor-ws${q}`);
+  ws.onopen = () => { $("feed").textContent = "● Live"; $("feed").className = "pill live"; };
+  ws.onclose = () => { $("feed").textContent = "Reconnecting…"; $("feed").className = "pill lost"; setTimeout(connect, 2000); };
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "call") {
+      const i = calls.findIndex(c => c.id === msg.call.id);
+      if (i >= 0) calls[i] = msg.call; else calls.unshift(msg.call);
+      if (!msg.call.endedAt && $("follow").checked && selected?.id !== msg.call.id) { select(msg.call.id); return; }
+      if (selected?.id === msg.call.id) Object.assign(selected, { endedAt: msg.call.endedAt, endedReason: msg.call.endedReason });
+      renderCalls(); if (selected?.id === msg.call.id) renderMain();
+    } else if (msg.type === "event") {
+      const c = calls.find(c => c.id === msg.id);
+      if (c) {
+        if (msg.ev.event === "heard") c.turns += 1;
+        if (msg.ev.event === "note") c.summary = msg.ev.note?.zusammenfassung ?? c.summary;
+        if (msg.ev.event === "memory") c.summary = msg.ev.summary ?? c.summary;
+        if (msg.ev.event === "cost") c.usd = msg.ev.totals?.usd ?? c.usd;
+        if ((msg.ev.event === "connected" || msg.ev.event === "heard") && msg.ev.lang) c.lang = msg.ev.lang;
+      }
+      if (selected?.id === msg.id) {
+        selected.events.push(msg.ev);
+        if (msg.ev.event === "note") selected.note = msg.ev.note;
+        if (msg.ev.event === "cost") selected.cost = msg.ev.totals;
+        if (msg.ev.event !== "vad" || showVad) renderMain();
+      }
+      if (["heard", "note", "saved", "connected", "memory", "cost"].includes(msg.ev.event)) renderCalls();
+    } else if (msg.type === "system") { systemEntries.push(msg.entry); renderSystem(); }
+  };
+}
+load().then(connect);
+setInterval(() => { if (selected && !selected.endedAt) renderCalls(); }, 5000);
+</script>
+</body>
+</html>
