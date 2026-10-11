@@ -150,6 +150,14 @@
   .bars { display: flex; align-items: flex-end; gap: 4px; height: 56px; padding: 6px 14px 2px; }
   .bars i { flex: 1; min-width: 6px; max-width: 22px; border-radius: 4px 4px 2px 2px; background: linear-gradient(180deg, var(--g2), var(--g1)); opacity: .85; }
   .foot { color: var(--faint); font-size: 11px; text-align: center; padding: 6px; }
+
+  /* demo notice: this page only showcases the conversation */
+  .demo-note { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 2; width: max-content; max-width: calc(100% - 32px);
+    display: flex; gap: 10px; align-items: center; padding: 8px 14px; border-radius: 12px; font-size: 13px; line-height: 1.4;
+    background: rgba(255,159,10,.14); color: var(--ink); border: 1px solid rgba(255,159,10,.35); }
+  .stage { padding-top: 84px; }
+  .demo-note b { color: #c77700; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; flex: none; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .demo-note b { color: var(--orange); } }
 </style>
 </head>
 <body>
@@ -161,6 +169,7 @@
 
 <div class="app">
   <section class="stage" id="stage" data-state="idle">
+    <div class="demo-note" role="note"><b>Demo</b><span>Only a showcase of the conversation. In real use, the tradesperson calls a normal phone number from the car, with no app and no screen.</span></div>
     <div class="ambient"></div>
     <div class="edge"></div>
     <div class="orb" id="orb" data-state="idle" title="Tap to call">
