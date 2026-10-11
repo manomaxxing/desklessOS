@@ -18,6 +18,7 @@ export function createReplyParser({ onHeader, onSentence }) {
   let heard = "";
   let lang = "";
   let next = "listen";
+  let act = "none"; // DO: execute → the office runs the order workflow after this turn
   let pending = "";
 
   let emitted = 0;
@@ -47,9 +48,9 @@ export function createReplyParser({ onHeader, onSentence }) {
     if (!/^\s*HEARD/i.test(buf)) {
       // Model skipped the header: treat everything as reply rather than go silent.
       if (final || buf.length > 40) {
-        pending = buf.replace(/^\s*(HEARD|LANG|NEXT):.*\n?/gim, "");
+        pending = buf.replace(/^\s*(HEARD|LANG|NEXT|DO):.*\n?/gim, "");
         headerDone = true;
-        onHeader({ heard, lang, next });
+        onHeader({ heard, lang, next, act });
       }
       return;
     }
@@ -61,18 +62,19 @@ export function createReplyParser({ onHeader, onSentence }) {
     for (const line of complete) {
       // Blank lines inside the header are tolerated until NEXT has been seen.
       if (!line.trim() && !("NEXT" in fields)) { consumed += line.length + 1; continue; }
-      const m = line.match(/^\s*(HEARD|LANG|NEXT):[ \t]*(.*)$/i);
+      const m = line.match(/^\s*(HEARD|LANG|NEXT|DO):[ \t]*(.*)$/i);
       if (!m) { done = true; break; }
       fields[m[1].toUpperCase()] = m[2].trim();
       consumed += line.length + 1;
-      if ("HEARD" in fields && "LANG" in fields && "NEXT" in fields) { done = true; break; }
+      if ("HEARD" in fields && "LANG" in fields && "NEXT" in fields && "DO" in fields) { done = true; break; }
     }
     if (!done && !final && buf.length < 600) return;
     pending = buf.slice(consumed).replace(/^\s+/, "");
     // Tags the model squeezed onto one line ("LANG: de NEXT: hangup Alles klar…") or into the reply.
-    for (const [, k, v] of String(fields.LANG ?? "").matchAll(/\b(NEXT)\s*:\s*([a-z]+)/gi)) fields[k.toUpperCase()] = v;
+    for (const [, k, v] of String(fields.LANG ?? "").matchAll(/\b(NEXT|DO)\s*:\s*([a-z]+)/gi)) fields[k.toUpperCase()] = v;
+    for (const [, k, v] of String(fields.NEXT ?? "").matchAll(/\b(DO)\s*:\s*([a-z]+)/gi)) fields[k.toUpperCase()] = v;
     let m;
-    while ((m = pending.match(/^(LANG|NEXT)\s*:\s*([a-z]+)\b[ \t]*\n?\s*/i))) {
+    while ((m = pending.match(/^(LANG|NEXT|DO)\s*:\s*([a-z]+)\b[ \t]*\n?\s*/i))) {
       fields[m[1].toUpperCase()] = m[2];
       pending = pending.slice(m[0].length);
     }
@@ -80,8 +82,9 @@ export function createReplyParser({ onHeader, onSentence }) {
     lang = /^(de|en)/i.test(fields.LANG ?? "") ? fields.LANG.slice(0, 2).toLowerCase() : "";
     const n = (fields.NEXT ?? "").toLowerCase().match(/[a-z]+/)?.[0];
     next = NEXT_VALUES.has(n) ? n : "listen";
+    act = /^execute/i.test(fields.DO ?? "") ? "execute" : "none";
     headerDone = true;
-    onHeader({ heard, lang, next });
+    onHeader({ heard, lang, next, act });
   };
 
   return {
@@ -98,7 +101,7 @@ export function createReplyParser({ onHeader, onSentence }) {
     end() {
       if (!headerDone) readHeader(true);
       emitSentences(true);
-      return { heard, lang, next };
+      return { heard, lang, next, act };
     },
   };
 }

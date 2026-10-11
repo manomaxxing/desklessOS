@@ -37,7 +37,7 @@ const pick = (arr, i) => (Array.isArray(arr) ? arr[i % arr.length] : arr);
 
 // `onEvent` feeds the monitor (every call); dev callers also get the events inline.
 // `recordDir(callId)` → directory for per-turn audio, or null to not record.
-export function createCallSession({ send, dev = false, skill, endpoint, model, extractModel, fish, geminiTts, store, memory, assets, config = {}, initialTurns = [], initialLang = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null }) {
+export function createCallSession({ send, dev = false, skill, endpoint, model, extractModel, fish, geminiTts, store, memory, office = null, assets, config = {}, initialTurns = [], initialLang = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null }) {
   const cfg = { model, tts: "fish", mask: "typing", ...Object.fromEntries(Object.entries(config).filter(([, v]) => v)) };
   const fastModel = cfg.model;
   const slowModel = extractModel || model; // notes and memory stay on one model so modes compare fairly
@@ -335,8 +335,9 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     })();
 
     const parser = createReplyParser({
-      onHeader: ({ heard, lang: l, next: n }) => {
-        if (n === "wait" && (force || text)) n = "listen"; // he's been quiet: answer now
+      onHeader: ({ heard, lang: l, next: n, act }) => {
+        if (n === "wait" && (force || text || lastNext === "confirm")) n = "listen"; // he's been quiet, or answered a yes/no question: answer now
+        if (act === "execute" && office) turn.execute = true;
         next = n;
         if (l) lang = l;
         if (n === "wait") {
@@ -370,7 +371,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     });
 
     try {
-      const system = skill.systemPrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", lang });
+      const system = skill.systemPrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang });
       const extra = force ? "(The caller is speaking in the audio above. He has now been silent for a few seconds: his thought is complete, so respond. Do not answer wait.)" : undefined;
       for await (const piece of geminiStream({ endpoint, system, history: turns.slice(-16), audio, text, extra }, signal, turn)) {
         if (!turn.firstTokenAt) turn.firstTokenAt = performance.now();
@@ -413,6 +414,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     }
     if (reply) turns.push({ role: "model", text: reply });
     if (current === turn) current = null;
+    if (turn.execute) { runWorkflow().catch(err => fail("workflow", err)); return; }
     lastNext = next;
     lastWasBackchannel = next === "listen" && BACKCHANNEL.test(reply.replace(/\(schon als Füller gesagt\)/, ""));
     if (!text) refreshNote();
@@ -420,12 +422,32 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     else if (!marks.size) armIdle();
   }
 
+  // ---------- the office: book, add to-dos, quote and send ----------
+  // Runs after he confirmed (DO: execute). Typing plays while it works; the agent
+  // then gets "(System: done …)" and tells him what was created.
+  async function runWorkflow() {
+    typist?.start();
+    debug("workflow_start");
+    try {
+      await extracting;
+      await refreshNote(); // the draft from the full transcript, including his "yes"
+      const result = office.execute({ draft: note, lang, callId: call.id });
+      debug("workflow", { result });
+      log(`workflow: ${result.summary}`);
+      await runTurn({ text: `(System: done. ${result.summary}. Tell him in one or two sentences what was done, in his language, then ask if there's anything else.)` });
+    } catch (err) {
+      typist?.stop();
+      fail("workflow", err);
+      await runTurn({ text: `(System: the office could not complete it: ${err.message}. Apologize in one short sentence and offer to try again.)` });
+    }
+  }
+
   // ---------- slow path ----------
   // Chained, so an older extraction can never overwrite a newer one.
   function refreshNote() {
     const snapshot = turns.slice();
     extracting = (extracting ?? Promise.resolve())
-      .then(() => extractJsonResilient({ endpoint, models: [slowModel, fallbackModel], system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u) }))
+      .then(() => extractJsonResilient({ endpoint, models: [slowModel, fallbackModel], system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note, lang }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u) }))
       .then(updated => {
         note = updated;
         missing = skill.missingFields(note);

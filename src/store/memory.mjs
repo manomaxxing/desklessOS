@@ -85,6 +85,37 @@ export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
       return changed;
     },
 
+    reset() { for (const k of Object.keys(cache)) delete cache[k]; mkdirSync(dir, { recursive: true }); },
+
+    /** Creates or updates a customer from the order workflow; returns it. */
+    upsertCustomer({ name, company = "", email = "", phone = "", address = "", place = "", summary = "" }, { callId = null, date = new Date().toISOString().slice(0, 10), type = "order" } = {}) {
+      if (!name) return null;
+      const all = structuredClone(customers());
+      let c = findCustomer(all, { name, place });
+      if (!c) {
+        c = { id: slug(`${name}-${place || ""}`) || randomUUID().slice(0, 8), name, createdAt: new Date().toISOString(), history: [] };
+        if (all[c.id]) c.id += `-${randomUUID().slice(0, 4)}`;
+        all[c.id] = c;
+      }
+      Object.assign(c, {
+        company: company || c.company || "", email: email || c.email || "", phone: phone || c.phone || "",
+        address: address || c.address || "", place: place || c.place || "", summary: summary || c.summary || "", lastContact: date,
+      });
+      if (summary) c.history = [...(c.history ?? []), { date, callId, type, summary }].slice(-30);
+      write("customers.json", all);
+      return c;
+    },
+
+    /** Adds one to-do directly (the order workflow), skipping exact duplicates that are still open. */
+    addAction({ text, due = "", customerId = null, customerName = "", sourceCallId = null }) {
+      const list = structuredClone(actions());
+      const dupe = list.find(a => a.status === "open" && a.text === text && a.customerName === customerName);
+      if (dupe) return dupe;
+      const action = { id: randomUUID().slice(0, 8), text, due, status: "open", customerId, customerName, createdAt: new Date().toISOString(), sourceCallId };
+      write("actions.json", [...list, action]);
+      return action;
+    },
+
     setActionStatus(id, status) {
       const list = structuredClone(actions());
       const a = list.find(x => x.id === id);

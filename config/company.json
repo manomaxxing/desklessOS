@@ -1,0 +1,22 @@
+{
+  "_comment": "Demo company. Fictional: name, address, license, tax and bank details are placeholders.",
+  "name": "Fischer Tile & Stone",
+  "owner": "Max Fischer",
+  "tagline": "Tile · Stone · Bathrooms",
+  "street": "Mission District",
+  "city": "San Francisco, CA",
+  "phone": "(415) 555-0142",
+  "email": "quotes@fischertile.example",
+  "web": "fischertile.example",
+  "license": "CSLB Lic. #000000 (demo)",
+  "bank": "Payments by check, ACH or card",
+  "currency": "USD",
+  "locale": "en-US",
+  "taxRate": 0.08625,
+  "taxLabel": { "en": "San Francisco sales tax 8.625% (materials)", "de": "Verkaufssteuer San Francisco 8,625 % (Material)" },
+  "quoteValidDays": 30,
+  "paymentTerms": {
+    "en": "50% deposit to schedule the job, balance due on completion. Labor is not taxed; sales tax applies to materials.",
+    "de": "50 % Anzahlung zur Terminierung, Rest bei Fertigstellung. Arbeitsleistung ist steuerfrei; auf Material fällt Verkaufssteuer an."
+  }
+}

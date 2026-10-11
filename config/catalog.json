@@ -1,0 +1,23 @@
+{
+  "_comment": "Demo price list (USD). Fictional but plausible for a San Francisco tile contractor. taxable: materials yes, labor and service no.",
+  "currency": "USD",
+  "items": [
+    { "id": "porcelain-24x24-gray", "name": { "en": "Porcelain tile 24×24 in, gray matte", "de": "Feinsteinzeug 60×60 cm, grau matt" }, "unit": "sq ft", "price": 4.50, "taxable": true },
+    { "id": "porcelain-24x48-concrete", "name": { "en": "Porcelain tile 24×48 in, concrete look", "de": "Feinsteinzeug 60×120 cm, Betonoptik" }, "unit": "sq ft", "price": 6.90, "taxable": true },
+    { "id": "porcelain-8x48-oak", "name": { "en": "Porcelain plank 8×48 in, oak wood look", "de": "Feinsteinzeug 20×120 cm, Holzoptik Eiche" }, "unit": "sq ft", "price": 5.75, "taxable": true },
+    { "id": "porcelain-48x48-marble", "name": { "en": "Porcelain slab 48×48 in, marble look", "de": "Feinsteinzeug 120×120 cm, Marmoroptik" }, "unit": "sq ft", "price": 9.80, "taxable": true },
+    { "id": "wall-12x24-white", "name": { "en": "Wall tile 12×24 in, white gloss", "de": "Wandfliese 30×60 cm, weiß glänzend" }, "unit": "sq ft", "price": 3.20, "taxable": true },
+    { "id": "subway-3x6-white", "name": { "en": "Subway tile 3×6 in, white", "de": "Metrofliese 7,5×15 cm, weiß" }, "unit": "sq ft", "price": 2.95, "taxable": true },
+    { "id": "mosaic-glass-2x2", "name": { "en": "Glass mosaic 2×2 in, 12×12 sheets", "de": "Glasmosaik 5×5 cm, Netz 30×30" }, "unit": "sq ft", "price": 14.50, "taxable": true },
+    { "id": "paver-24x24-outdoor", "name": { "en": "Outdoor porcelain paver 24×24 in, 3/4 in thick", "de": "Terrassenplatte Feinsteinzeug 2 cm, 60×60" }, "unit": "sq ft", "price": 7.25, "taxable": true },
+    { "id": "thinset-50lb", "name": { "en": "Modified thinset mortar, 50 lb bag", "de": "Flexkleber, Sack 23 kg" }, "unit": "bag", "price": 32.00, "taxable": true },
+    { "id": "grout-25lb", "name": { "en": "Sanded grout, 25 lb bag", "de": "Fugenmörtel, Sack 11 kg" }, "unit": "bag", "price": 28.00, "taxable": true },
+    { "id": "waterproofing-kit", "name": { "en": "Shower waterproofing membrane kit", "de": "Abdichtungsset Dusche" }, "unit": "kit", "price": 145.00, "taxable": true },
+    { "id": "install-floor", "name": { "en": "Floor tile installation (labor)", "de": "Verlegung Bodenfliesen (Arbeit)" }, "unit": "sq ft", "price": 9.50, "taxable": false },
+    { "id": "install-wall", "name": { "en": "Wall tile installation (labor)", "de": "Verlegung Wandfliesen (Arbeit)" }, "unit": "sq ft", "price": 12.00, "taxable": false },
+    { "id": "demo-disposal", "name": { "en": "Remove and dispose of existing tile", "de": "Altbelag entfernen und entsorgen" }, "unit": "sq ft", "price": 4.00, "taxable": false },
+    { "id": "caulk", "name": { "en": "Silicone caulking", "de": "Silikonfugen" }, "unit": "lin ft", "price": 3.50, "taxable": false },
+    { "id": "delivery", "name": { "en": "Delivery to job site", "de": "Lieferung frei Baustelle" }, "unit": "flat", "price": 150.00, "taxable": false },
+    { "id": "trip-setup", "name": { "en": "Trip charge and site setup", "de": "Anfahrt und Baustelleneinrichtung" }, "unit": "flat", "price": 95.00, "taxable": false }
+  ]
+}

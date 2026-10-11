@@ -21,7 +21,7 @@ import { resample, frames, wav, durationMs } from "./audio.mjs";
 
 const MARK_EVERY_MS = 800; // playback checkpoints, to know how much the caller actually heard
 
-export function createLiveSession({ send, dev = false, skill, endpoint, extractModel, store, memory, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null }) {
+export function createLiveSession({ send, dev = false, skill, endpoint, extractModel, store, memory, office = null, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null }) {
   const cfg = { liveModel: "vertex-eu:gemini-3.8-live", liveVoice: "Kore", mask: "typing", ...config };
   // Live answers fast, but thinks before longer replies (the wrap-up summary): type meanwhile.
   const typist = assets.typing && cfg.mask === "typing" ? createTypist(assets.typing, chunk => send({ type: "media", payload: chunk.toString("base64") })) : null;
@@ -101,14 +101,17 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
             responseModalities: ["AUDIO"],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.liveVoice } }, ...(target.vertex ? { languageCode: lang === "en" ? "en-US" : "de-DE" } : {}) },
           },
-          systemInstruction: { parts: [{ text: skill.livePrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", lang }) }] },
+          systemInstruction: { parts: [{ text: skill.livePrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang }) }] },
           realtimeInputConfig: {
             automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: "START_SENSITIVITY_LOW", endOfSpeechSensitivity: "END_SENSITIVITY_LOW", prefixPaddingMs: 100, silenceDurationMs: Number(process.env.LIVE_SILENCE_MS || 800) },
             activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
           },
           inputAudioTranscription: {},
           outputAudioTranscription: {},
-          tools: [{ functionDeclarations: [{ name: "end_call", description: "Hang up the phone. Call this only right after you have said goodbye and the conversation is finished.", parameters: { type: "OBJECT", properties: {} } }] }],
+          tools: [{ functionDeclarations: [
+            { name: "end_call", description: "Hang up the phone. Call this only right after you have said goodbye and the conversation is finished.", parameters: { type: "OBJECT", properties: {} } },
+            ...(office ? [{ name: "execute_order", description: "Book the calendar entry, create the to-dos, build the quote and email it to the customer, from everything said in this call. Call this only right after he confirmed your recap.", parameters: { type: "OBJECT", properties: {} } }] : []),
+          ] }],
         },
       }));
     });
@@ -154,6 +157,10 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
     if (sc?.turnComplete) onTurnComplete();
     if (msg.toolCall?.functionCalls) {
       for (const fc of msg.toolCall.functionCalls) {
+        if (fc.name === "execute_order" && office) {
+          runWorkflow(fc).catch(err => fail("workflow", err));
+          continue;
+        }
         if (fc.name === "end_call") {
           hangupWanted = true;
           debug("live", { text: "model called end_call" });
@@ -233,11 +240,31 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
     if (hangupWanted && !hangupMark) hangupMark = sendMark("bye");
   }
 
+  // ---------- the office (tool call) ----------
+  async function runWorkflow(fc) {
+    typist?.start();
+    debug("workflow_start");
+    let response;
+    try {
+      commitUser();
+      await extracting;
+      await refreshNote();
+      const result = office.execute({ draft: note, lang, callId: call.id });
+      debug("workflow", { result });
+      log(`workflow: ${result.summary}`);
+      response = { result: { status: "done", summary: result.summary } };
+    } catch (err) {
+      fail("workflow", err);
+      response = { result: { status: "failed", error: err.message, retryable: true } };
+    }
+    if (gem?.readyState === 1) gem.send(JSON.stringify({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response }] } }));
+  }
+
   // ---------- slow path (same as the cascade engine) ----------
   function refreshNote() {
     const snapshot = turns.slice();
     extracting = (extracting ?? Promise.resolve())
-      .then(() => extractJsonResilient({ endpoint, models: [extractModel, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u, null, extractModel) }))
+      .then(() => extractJsonResilient({ endpoint, models: [extractModel, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note, lang }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u, null, extractModel) }))
       .then(updated => { note = updated; missing = skill.missingFields(note); debug("note", { note, missing }); })
       .catch(err => fail("extract", err));
     return extracting;

@@ -182,6 +182,8 @@ function items(call) {
       case "recovered": out.push({ t, kind: "chip", cls: "good", text: `recovered on ${e.model} (attempt ${e.attempt})` }); break;
       case "fallback": out.push({ t, kind: "chip", cls: "warn", text: `${e.what}: ${e.from} failed → ${e.to} · ${e.reason ?? ""}` }); break;
       case "mask": out.push({ t, kind: "chip", text: "typing sound (masking the wait)" }); break;
+      case "workflow_start": out.push({ t, kind: "chip", text: "office: booking calendar, to-dos, quote…" }); break;
+      case "workflow": out.push({ t, kind: "chip", cls: "good", text: `office done · ${e.result?.summary ?? ""}` }); break;
       case "live": out.push({ t, kind: "chip", cls: e.level === "error" ? "bad" : "", text: `live · ${e.text}` }); break;
       case "barge_in": out.push({ t, kind: "chip", cls: "warn", text: "barge-in · playback cleared" }); break;
       case "nudge": out.push({ t, kind: "chip", cls: "warn", text: `silence nudge · ${e.kind}` }); break;
@@ -249,9 +251,10 @@ function renderRight(c) {
   const mem = c.events.filter(e => e.event === "memory").at(-1);
   const t = c.cost, s = t?.byStep || {};
   const noteRows = n ? [
-    ["Mode", n.modus], ["Customer", n.kunde_name], ["Place", [n.adresse, n.ort].filter(Boolean).join(", ")],
-    ["Work", (n.arbeiten || []).map(a => [a.raum, a.bereich, a.flaeche_m2 ? a.flaeche_m2 + " m²" : "", a.fliese_format, a.fliese_optik, a.beschaffung].filter(Boolean).join(", ")).join(" · ")],
-    ["Next", (n.naechste_schritte || []).map(x => x.was + (x.bis ? ` (${x.bis})` : "")).join(" · ")],
+    ["Mode", n.modus], ["Customer", [n.customer_name, n.customer_company].filter(Boolean).join(", ")], ["Email", n.customer_email],
+    ["Items", (n.items || []).map(i => `${i.quantity ?? "?"} ${i.unit || ""} ${i.description || i.catalog_id}${i.unit_price != null ? ` @ ${i.unit_price}` : ""}`).join(" · ")],
+    ["Needed by", n.needed_by], ["Calendar", n.appointment?.date ? `${n.appointment.date} ${n.appointment.start_time || ""} ${n.appointment.title || ""}` : ""],
+    ["To-dos", (n.todos || []).map(t => t.text + (t.due ? ` (${t.due})` : "")).join(" · ")],
     ["Confirmed", n.bestaetigt ? "yes" : "no"], ["Missing", missing.join(", ")],
   ].filter(([, v]) => v) : [];
   const crow = (name, sub, v) => `<div class="crow"><div>${name}<small>${sub}</small></div><div class="usd">${v}</div></div>`;
@@ -261,7 +264,7 @@ function renderRight(c) {
       ${crow("Conversation", `${s.turn?.calls ?? 0} turns`, usd(s.turn?.usd ?? 0))}${crow("Note", `${s.note?.calls ?? 0} extractions`, usd(s.note?.usd ?? 0))}${crow("Memory", "after the call", usd(s.memory?.usd ?? 0))}
       ${crow("Voice", `Fish · ${(t.ttsBytes / 1000).toFixed(1)} kB · paid tier ${usd(t.ttsPaidUsd)}`, usd(t.ttsUsd))}${crow("Phone", t.phoneMinutes ? t.phoneMinutes.toFixed(1) + " min" : "—", t.phoneUsd == null ? "—" : usd(t.phoneUsd))}</div>` : '<div class="card"><div class="empty" style="padding:18px">No cost yet.</div></div>'}
     <h3>Note</h3>
-    ${n ? `<div class="card">${noteRows.map(([k, v]) => `<div class="rowi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}${n.zusammenfassung ? `<div class="rowi"><div class="v">${esc(n.zusammenfassung)}</div></div>` : ""}<details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(n, null, 2))}</pre></details></div>` : '<div class="card"><div class="empty" style="padding:18px">No note yet.</div></div>'}
+    ${n ? `<div class="card">${noteRows.map(([k, v]) => `<div class="rowi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}${n.summary || n.zusammenfassung ? `<div class="rowi"><div class="v">${esc(n.summary || n.zusammenfassung)}</div></div>` : ""}<details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(n, null, 2))}</pre></details></div>` : '<div class="card"><div class="empty" style="padding:18px">No note yet.</div></div>'}
     <h3>Memory changes</h3>
     ${mem ? `<div class="card">
       <div class="rowi"><div class="k">Type</div><div class="v">${esc(mem.callType)}</div></div>

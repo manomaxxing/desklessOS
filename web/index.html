@@ -219,7 +219,7 @@
   .phone .who { font-size: clamp(15px, 2.7cqh, 20px); }
   .phone .label { font-size: clamp(17px, 3cqh, 22px); min-height: 0; }
   .phone .sublabel { font-size: clamp(11px, 1.7cqh, 13px); min-height: 0; }
-  .phone .caption { min-height: 0; max-height: 12cqh; font-size: clamp(12px, 1.9cqh, 14px); }
+  .phone .caption { display: none; } /* the phone stays clean; the transcript lives in the side panel */
   .phone .controls { grid-template-columns: 1fr auto 1fr; row-gap: 1.6cqh; }
   .phone .callbtn { width: clamp(50px, 9.5cqh, 72px); height: clamp(50px, 9.5cqh, 72px); }
   .phone .round { width: clamp(38px, 6.5cqh, 48px); height: clamp(38px, 6.5cqh, 48px); }
@@ -257,6 +257,83 @@
     .phone .orb { --size: min(62vw, 32vh); }
     .stage { padding-top: 16px; }
   }
+
+  /* ---------- office demo: notifications on the phone ---------- */
+  .notifs { position: absolute; top: 9%; left: 4%; right: 4%; z-index: 6; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+  .notif { display: flex; gap: 9px; align-items: flex-start; padding: 9px 11px; border-radius: 16px; background: rgba(250,250,252,.88);
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+    font-size: clamp(10px, 3.6cqw, 12.5px); line-height: 1.3; color: #1d1d1f; animation: notif-in .45s cubic-bezier(.2,.9,.3,1.2); }
+  .notif.out { animation: notif-out .35s ease forwards; }
+  @keyframes notif-in { from { transform: translateY(-120%) scale(.96); opacity: 0; } }
+  @keyframes notif-out { to { transform: translateY(-60%) scale(.96); opacity: 0; } }
+  .notif .ico { flex: none; width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 11px; }
+  .notif .app { font-size: .82em; color: #6e6e73; text-transform: uppercase; letter-spacing: .03em; }
+  .notif b { display: block; font-weight: 600; }
+  .ico.cal { background: #fff; color: #ff3b30; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); flex-direction: column; line-height: 1; font-size: 13px; }
+  .ico.cal small { font-size: 7px; font-weight: 700; letter-spacing: .02em; }
+  .ico.rem { background: linear-gradient(180deg, #ff9f0a, #ff7a00); } .ico.mail { background: linear-gradient(180deg, #4fa8ff, #0a84ff); }
+
+  /* tab badge when something new landed */
+  .tabs .seg button { position: relative; }
+  .tabs .seg button.badge::after { content: ""; position: absolute; top: 4px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); }
+
+  /* ---------- order card (Call tab) ---------- */
+  #order:empty { display: none; }
+  .order { margin: 4px 0 12px; }
+  .order .head { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 14px 4px; }
+  .order .head b { font-size: 16px; letter-spacing: -0.02em; } .order .head span { font-size: 12px; color: var(--muted); }
+  .item { display: flex; justify-content: space-between; gap: 10px; padding: 8px 14px; font-size: 14px; }
+  .item + .item { border-top: 1px solid var(--sep); }
+  .item small { display: block; color: var(--muted); font-size: 12px; }
+  .item .usd { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 500; }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 14px 12px; border-top: 1px solid var(--sep); }
+  .chip.done { background: rgba(48,209,88,.15); color: #1f9e46; }
+
+  /* ---------- calendar ---------- */
+  .calhead { display: flex; align-items: center; gap: 8px; margin: 8px 2px 10px; }
+  .calhead b { font-size: 15px; letter-spacing: -0.02em; flex: 1; }
+  .iconbtn { border: 0; background: var(--fill); width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--ink); }
+  .week { display: grid; grid-template-columns: 30px repeat(7, minmax(0, 1fr)); background: var(--bg2); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .week .dh { text-align: center; padding: 6px 0 5px; font-size: 10.5px; color: var(--muted); border-bottom: 1px solid var(--sep); }
+  .week .dh b { display: block; font-size: 15px; color: var(--ink); font-weight: 600; }
+  .week .dh.today b { color: #fff; background: var(--red); border-radius: 50%; width: 24px; height: 24px; line-height: 24px; margin: 1px auto 0; font-size: 13px; }
+  .week .hours { position: relative; }
+  .week .hl { font-size: 9.5px; color: var(--faint); text-align: right; padding-right: 4px; transform: translateY(-6px); }
+  .week .col { position: relative; border-left: 1px solid var(--sep); }
+  .week .line { position: absolute; left: 0; right: 0; border-top: 1px solid var(--sep); }
+  .ev { position: absolute; left: 2px; right: 2px; border-radius: 6px; padding: 3px 4px; font-size: 10px; line-height: 1.2; overflow: hidden; cursor: pointer;
+    background: rgba(10,132,255,.16); color: #0a5bd6; border-left: 3px solid var(--blue); }
+  .ev b { display: block; font-weight: 600; }
+  .ev.new { animation: pulse 1.2s ease 3; background: rgba(48,209,88,.18); color: #187a37; border-left-color: var(--green); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(48,209,88,.35); } }
+  .upcoming .rowi .k { width: 96px; font-variant-numeric: tabular-nums; }
+
+  /* ---------- quotes ---------- */
+  .qcard { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .qcard + .qcard { border-top: 1px solid var(--sep); }
+  .qtop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .qtop b { font-size: 15px; } .qtop .usd { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .qsub { font-size: 12.5px; color: var(--muted); }
+  .qbtns { display: flex; gap: 6px; }
+  .qcard.new { animation: flash 1.6s ease 2; }
+  @keyframes flash { 50% { background: rgba(48,209,88,.12); } }
+
+  /* ---------- viewer (quote / email / big calendar) ---------- */
+  .viewer-bg { position: fixed; inset: 0; background: rgba(0,0,0,.32); z-index: 30; display: none; }
+  .viewer { position: fixed; z-index: 31; inset: 5vh 5vw; background: var(--bg); border-radius: 18px; box-shadow: 0 30px 90px rgba(0,0,0,.35); display: none; flex-direction: column; overflow: hidden; }
+  .viewer.on, .viewer-bg.on { display: flex; } .viewer-bg.on { display: block; }
+  .viewer-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--sep); background: var(--glass); }
+  .viewer-bar b { flex: 1; font-size: 15px; }
+  .viewer-body { flex: 1; overflow: auto; min-height: 0; }
+  .viewer-body iframe { width: 100%; height: 100%; border: 0; background: #e9e9ee; }
+  .mail { max-width: 720px; margin: 24px auto; background: var(--bg2); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .mail .hdr { padding: 14px 18px; border-bottom: 1px solid var(--sep); font-size: 13.5px; line-height: 1.7; }
+  .mail .hdr span { color: var(--muted); display: inline-block; width: 64px; }
+  .mail pre { margin: 0; padding: 18px; font: 14px/1.6 inherit; font-family: inherit; white-space: pre-wrap; }
+  .mail .att { margin: 0 18px 18px; display: inline-flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--sep); border-radius: 12px; cursor: pointer; }
+  .mail .att i { width: 30px; height: 36px; border-radius: 4px; background: #ff3b30; color: #fff; font-style: normal; font-size: 9px; font-weight: 700; display: grid; place-items: center; }
+  .demo-flag { margin: 0 18px 18px; font-size: 12px; color: #c77700; }
+  .bigcal { padding: 18px; } .bigcal .week { grid-template-columns: 44px repeat(7, minmax(0, 1fr)); } .bigcal .ev { font-size: 12px; padding: 5px 7px; }
 </style>
 </head>
 <body>
@@ -266,6 +343,11 @@
   <div class="status"><button class="modebtn" id="modeBtn" title="Choose the voice engine"><i></i><span id="modeLabel">Mode</span></button></div>
 </header>
 <div class="sheet-bg" id="sheetBg"></div>
+<div class="viewer-bg" id="viewerBg"></div>
+<div class="viewer" id="viewer" role="dialog" aria-modal="true">
+  <div class="viewer-bar"><b id="viewerTitle"></b><span id="viewerActions"></span><button class="btn" id="viewerClose">Close</button></div>
+  <div class="viewer-body" id="viewerBody"></div>
+</div>
 <div class="sheet" id="sheet" data-engine="cascade">
   <h4>Mode</h4>
   <div class="field"><span>Engine</span><div class="seg" id="engineSeg"><button data-v="cascade" class="on">Gemini + voice</button><button data-v="live">Gemini Live</button></div></div>
@@ -278,6 +360,7 @@
   <div class="field live-only"><span>Live voice</span><select id="liveVoiceSel"></select></div>
   <div class="actions"><button class="btn" id="applyPhone" title="Real Dial calls will use this mode">Use for phone calls</button><button class="btn primary" id="sheetDone">Done</button></div>
   <div class="hint" id="phoneMode" style="margin:10px 2px 0"></div>
+  <div class="hint" style="margin:14px 2px 0;border-top:1px solid var(--sep);padding-top:12px">Demo data <button class="btn" id="resetDemo" style="margin-left:8px">Reset demo</button><br><span style="font-size:11px">Clears calendar, to-dos, quotes, customers and calls (kept in data/backups).</span></div>
 </div>
 
 <div class="app">
@@ -290,18 +373,19 @@
       <div class="island"></div>
       <div class="screen">
         <div class="statusbar"><span id="clock">9:41</span><span class="sig"><i></i><i></i><i></i><i></i></span></div>
-        <div class="contact"><div class="avatar"></div><div class="who">DesklessOS</div><div class="num">Notizbuch · phone call</div></div>
+        <div class="notifs" id="notifs" aria-live="polite"></div>
+        <div class="contact"><div class="avatar"></div><div class="who">DesklessOS</div><div class="num">Office · phone call</div></div>
         <div class="orb" id="orb" data-state="idle" title="Tap to call">
           <div class="scale"><div class="glow"></div><div class="ring"></div><div class="core"></div></div>
         </div>
         <div style="position:relative;z-index:1">
           <div class="label" id="label">Tap to call</div>
-          <div class="sublabel" id="sublabel">Your notebook for the road</div>
+          <div class="sublabel" id="sublabel">Your office on the phone</div>
         </div>
         <div class="caption" id="caption" style="position:relative;z-index:1"></div>
         <div class="controls">
           <div class="seg" id="langSeg" title="Greeting language. After that it follows the caller.">
-            <button data-lang="de" class="on">Deutsch</button><button data-lang="en">English</button><button data-lang="auto">Auto</button>
+            <button data-lang="en" class="on">English</button><button data-lang="de">Deutsch</button><button data-lang="auto">Auto</button>
           </div>
           <button class="callbtn" id="call" aria-label="Call">
             <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>
@@ -316,11 +400,12 @@
 
   <aside class="side">
     <div class="tabs"><div class="seg" id="tabs">
-      <button data-tab="transcript" class="on">Transcript</button><button data-tab="note">Note</button><button data-tab="memory">Memory</button><button data-tab="cost">Cost</button>
+      <button data-tab="call" class="on">Call</button><button data-tab="calendar">Calendar</button><button data-tab="todos">To-dos</button><button data-tab="quotes">Quotes</button><button data-tab="cost">Cost</button>
     </div></div>
-    <div class="pane on" id="pane-transcript"><div class="msgs" id="msgs"><div class="empty">The conversation shows up here, live.</div></div></div>
-    <div class="pane" id="pane-note"><div id="note"><div class="empty">Call and tell it about an appointment.</div></div></div>
-    <div class="pane" id="pane-memory"><div id="memory"><div class="empty">Loading…</div></div></div>
+    <div class="pane on" id="pane-call"><div id="order"></div><div class="msgs" id="msgs"><div class="empty">Call and say something like: “I just met Peter Steinberger, he needs 400 square feet of the gray 24 by 24 tiles, installed. Put it in my calendar and my to-do list, and send him a first quote.”</div></div></div>
+    <div class="pane" id="pane-calendar"><div id="calendar"><div class="empty">Loading…</div></div></div>
+    <div class="pane" id="pane-todos"><div id="memory"><div class="empty">Loading…</div></div></div>
+    <div class="pane" id="pane-quotes"><div id="quotes"><div class="empty">Loading…</div></div></div>
     <div class="pane" id="pane-cost"><div id="cost"><div class="empty">Costs appear once the call starts.</div></div></div>
   </aside>
 </div>
@@ -381,7 +466,7 @@ async function loadModes() {
 }
 
 let ws, ctx, stream, node, outGain, analyser, seq = 0, ping, nextTime = 0, sources = [], markTimers = [];
-let lang = "de", inCall = false, muted = false, startedAt = 0, timer = null;
+let lang = "en", inCall = false, muted = false, startedAt = 0, timer = null;
 let callerSpeaking = false, awaiting = false, awaitingSince = 0, micLevel = 0, level = 0;
 let agentBubble = null, lastLang = null, turnMeta = {}, costTotals = null, turnCosts = {};
 
@@ -468,7 +553,7 @@ async function start() {
     ping = setInterval(() => send({ type: "ping_pong", timestamp: Date.now() }), 2000);
     inCall = true; startedAt = Date.now();
     $("call").classList.add("live"); $("call").setAttribute("aria-label", "Hang up"); $("mute").disabled = false;
-    timer = setInterval(() => { const s = Math.floor((Date.now() - startedAt) / 1000); $("sublabel").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}${costTotals ? " · " + usd(costTotals.usd) : ""}`; }, 500);
+    timer = setInterval(() => { const s = Math.floor((Date.now() - startedAt) / 1000); $("sublabel").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }, 500);
   };
   ws.onmessage = e => onFrame(JSON.parse(e.data));
   ws.onclose = () => stop(false);
@@ -483,7 +568,7 @@ function stop(sendEnd = true) {
   ws = null; stream = null; ctx = null; inCall = false; awaiting = false; muted = false;
   $("call").classList.remove("live"); $("call").setAttribute("aria-label", "Call");
   $("mute").disabled = true; $("mute").classList.remove("on");
-  $("sublabel").textContent = costTotals ? `Call ended · ${usd(costTotals.usd)}` : "Call ended";
+  $("sublabel").textContent = "Call ended";
   $("caption").innerHTML = "";
   setTimeout(loadMemory, 3000); setTimeout(loadMemory, 9000);
 }
@@ -501,10 +586,10 @@ function onFrame(f) {
 // ---------- transcript ----------
 function resetPanels() {
   $("msgs").innerHTML = ""; agentBubble = null; lastLang = null; turnMeta = {}; turnCosts = {}; costTotals = null;
-  $("note").innerHTML = '<div class="empty">Tell it about an appointment.</div>';
+  $("order").innerHTML = ""; lastDraft = null; orderStatus = "";
   renderCost();
 }
-function scrollMsgs() { const p = $("pane-transcript"); p.scrollTop = p.scrollHeight; }
+function scrollMsgs() { const p = $("pane-call"); p.scrollTop = p.scrollHeight; }
 function addEl(cls, text) { const el = document.createElement("div"); el.className = cls; el.textContent = text; $("msgs").append(el); scrollMsgs(); return el; }
 
 function onDebug(d) {
@@ -536,35 +621,159 @@ function onDebug(d) {
     case "barge_in": addEl("sys warn", "You interrupted"); agentBubble = null; break;
     case "retry": addEl("sys warn", `Gemini hiccup → retrying${d.next ? " with " + d.next : ""}`); break;
     case "error": addEl("sys bad", `${d.where} error`); break;
-    case "note": renderNote(d.note, d.missing); break;
-    case "saved": addEl("sys good", "Note saved"); break;
-    case "memory": addEl("sys good", memoryLine(d)); loadMemory(); break;
+    case "note": renderOrder(d.note, d.missing); break;
+    case "memory": loadMemory(); break;
+    case "workflow_start": addEl("sys", "Office is on it: calendar, to-dos, quote…"); orderStatus = "working"; renderOrder(lastDraft, []); break;
+    case "workflow": onWorkflow(d.result); break;
   }
 }
 function paintMeta(turn) { const m = turnMeta[turn]; if (!m) return; m.textContent = [m.dataset.lat, turnCosts[turn] != null ? usd(turnCosts[turn]) : ""].filter(Boolean).join(" · "); }
-function memoryLine(d) {
-  const parts = [];
-  if (d.added?.length) parts.push(`${d.added.length} to-do${d.added.length > 1 ? "s" : ""} added`);
-  if (d.completed?.length) parts.push(`${d.completed.length} ticked off`);
-  return "Memory updated" + (parts.length ? " · " + parts.join(" · ") : "");
-}
 
 // ---------- note ----------
-function renderNote(n, missing) {
-  if (!n || n.modus === "unklar") return;
-  const work = (n.arbeiten || []).map(a => `<div style="margin-bottom:8px"><b>${esc([a.raum, a.bereich].filter(Boolean).join(" · ") || "Work")}</b><div class="chips" style="margin-top:5px">${[a.flaeche_m2 ? a.flaeche_m2 + " m²" : "", a.fliese_format, a.fliese_optik, a.fliese_material, a.beschaffung ? "tiles: " + a.beschaffung : ""].filter(Boolean).map(x => `<span class="chip">${esc(x)}</span>`).join("")}</div>${a.beschreibung ? `<div style="color:var(--muted);font-size:13px;margin-top:4px">${esc(a.beschreibung)}</div>` : ""}</div>`).join("");
-  const rows = [
-    ["Customer", esc(n.kunde_name)], ["Place", esc([n.adresse, n.ort].filter(Boolean).join(", "))], ["Work", work],
-    ["Substrate", esc(n.untergrund)], ["Wishes", (n.sonderwuensche || []).map(x => `<span class="chip">${esc(x)}</span>`).join(" ")],
-    ["Next", `<div class="chips">${(n.naechste_schritte || []).map(s => `<span class="chip blue">${esc(s.was)}${s.bis ? " · " + esc(s.bis) : ""}</span>`).join("")}</div>`],
-    ["Open", (n.offene_fragen || []).map(x => esc(x)).join("<br>")],
-  ].filter(([, v]) => v && v !== '<div class="chips"></div>');
-  $("note").innerHTML =
-    `<h3>${n.modus === "briefing" ? "Briefing" : n.modus === "agenda" ? "Agenda" : "This appointment"}</h3>
-     <div class="card">${rows.map(([k, v]) => `<div class="rowi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("") || '<div class="rowi"><div class="v" style="color:var(--faint)">Listening…</div></div>'}</div>
-     <div class="chips">${n.bestaetigt ? '<span class="chip green">✓ Confirmed</span>' : ""}${(missing || []).map(m => `<span class="chip orange">Missing: ${esc(m)}</span>`).join("")}</div>
-     ${n.zusammenfassung ? `<h3>Summary</h3><div class="card"><div class="rowi"><div class="v">${esc(n.zusammenfassung)}</div></div></div>` : ""}`;
+let catalogData = null, lastDraft = null, orderStatus = "";
+const money = n => (n == null ? "—" : new Intl.NumberFormat(lastLang === "de" ? "de-DE" : "en-US", { style: "currency", currency: catalogData?.catalog.currency ?? "USD" }).format(n));
+fetch("/api/catalog" + tq).then(r => r.json()).then(d => { catalogData = d; }).catch(() => {});
+
+function renderOrder(n, missing) {
+  if (!n || n.modus !== "auftrag") return;
+  lastDraft = n;
+  const items = (n.items || []).map(i => {
+    const c = catalogData?.catalog.items.find(x => x.id === i.catalog_id);
+    const price = i.unit_price ?? c?.price ?? null;
+    const name = c ? (c.name[lastLang === "de" ? "de" : "en"] ?? c.name.en) : i.description;
+    return { name, qty: i.quantity, unit: i.unit || c?.unit || "", price, total: price != null && i.quantity ? price * i.quantity : null };
+  });
+  const net = items.reduce((a, i) => a + (i.total ?? 0), 0);
+  const act = (on, label, done) => `<span class="chip ${done ? "done" : on === false ? "" : "blue"}">${done ? "✓ " : ""}${label}</span>`;
+  const done = orderStatus === "done";
+  $("order").innerHTML = `<div class="card order">
+    <div class="head"><b>${esc(n.customer_name || "New order")}</b><span>${esc([n.customer_company, n.customer_email].filter(Boolean).join(" · ") || (orderStatus === "working" ? "working…" : "order"))}</span></div>
+    ${items.map(i => `<div class="item"><div>${esc(i.name || "?")}<small>${i.qty ?? "?"} ${esc(i.unit)}${i.price != null ? ` × ${money(i.price)}` : " · price?"}</small></div><div class="usd">${i.total != null ? money(i.total) : ""}</div></div>`).join("") || '<div class="item"><div style="color:var(--faint)">Listening…</div></div>'}
+    ${items.length ? `<div class="item"><div><b>Subtotal</b><small>${n.needed_by ? "needed by " + esc(n.needed_by) : "date?"}</small></div><div class="usd"><b>${money(net)}</b></div></div>` : ""}
+    <div class="acts">${act(n.add_calendar, "Calendar", done && n.add_calendar !== false)}${act(n.add_todo, "To-do", done && n.add_todo !== false)}${act(n.send_quote, "Quote", done && n.send_quote !== false)}
+      ${(missing || []).map(m => `<span class="chip orange">${esc(m)}</span>`).join("")}${n.bestaetigt && !done ? '<span class="chip green">confirmed</span>' : ""}</div>
+  </div>`;
 }
+
+// ---------- notifications on the phone ----------
+function notify(kind, app, title, body) {
+  const day = new Date();
+  const icon = kind === "cal" ? `<span class="ico cal"><small>${day.toLocaleDateString("en", { weekday: "short" }).toUpperCase()}</small>${day.getDate()}</span>`
+    : kind === "rem" ? `<span class="ico rem">✓</span>` : `<span class="ico mail"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span>`;
+  const el = document.createElement("div");
+  el.className = "notif";
+  el.innerHTML = `${icon}<div><span class="app">${esc(app)}</span><b>${esc(title)}</b>${esc(body)}</div>`;
+  $("notifs").prepend(el);
+  while ($("notifs").children.length > 3) $("notifs").lastChild.remove();
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 400); }, 6500);
+}
+function badge(tab) { const b = document.querySelector(`#tabs [data-tab="${tab}"]`); if (b && !b.classList.contains("on")) b.classList.add("badge"); }
+
+function onWorkflow(r) {
+  orderStatus = "done";
+  if (lastDraft) renderOrder(lastDraft, []);
+  const de = lastLang === "de";
+  const steps = [];
+  if (r.event) steps.push(() => notify("cal", de ? "Kalender" : "Calendar", r.event.title, new Date(r.event.start).toLocaleString(de ? "de-DE" : "en-US", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })));
+  for (const t of r.todos || []) steps.push(() => notify("rem", de ? "Erinnerungen" : "Reminders", t.text, t.due ? (de ? "fällig " : "due ") + new Date(t.due + "T12:00").toLocaleDateString(de ? "de-DE" : "en-US", { day: "numeric", month: "short" }) : ""));
+  if (r.quote) steps.push(() => notify("mail", "Mail", `${de ? "Gesendet an" : "Sent to"} ${r.email?.to ?? r.quote.customer?.name}`, `${r.quote.number} · ${money(r.quote.gross)}`));
+  steps.forEach((f, i) => setTimeout(f, i * 700));
+  if (r.event) { newEventId = r.event.id; calWeek = mondayOf(new Date(r.event.start)); badge("calendar"); }
+  if (r.todos?.length) badge("todos");
+  if (r.quote) { newQuoteId = r.quote.id; badge("quotes"); }
+  loadCalendar(); loadMemory(); loadQuotes();
+  if (r.quote) {
+    const el = addEl("sys good", `Quote ${r.quote.number} sent · ${money(r.quote.gross)} `);
+    const btn = document.createElement("button"); btn.className = "btn"; btn.style.cssText = "padding:2px 8px;font-size:11px;margin-left:6px"; btn.textContent = "Open";
+    btn.onclick = () => openQuote(r.quote.id); el.append(btn);
+  }
+}
+
+// ---------- calendar ----------
+let calWeek = null, newEventId = null, calEvents = [];
+function mondayOf(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+async function loadCalendar() {
+  calWeek ??= mondayOf(new Date());
+  try { calEvents = (await (await fetch("/api/calendar" + tq)).json()).events; } catch { calEvents = []; }
+  renderCalendar($("calendar"), false);
+}
+function weekGrid(big) {
+  const H0 = 7, H1 = 19, hh = big ? 46 : 30;
+  const days = [...Array(7)].map((_, i) => { const d = new Date(calWeek); d.setDate(d.getDate() + i); return d; });
+  const today = ymd(new Date());
+  const locale = lastLang === "de" ? "de-DE" : "en-US";
+  const head = `<div class="dh"></div>` + days.map(d => `<div class="dh ${ymd(d) === today ? "today" : ""}">${d.toLocaleDateString(locale, { weekday: "short" })}<b>${d.getDate()}</b></div>`).join("");
+  const height = (H1 - H0) * hh;
+  const lines = [...Array(H1 - H0)].map((_, i) => `<div class="line" style="top:${i * hh}px"></div>`).join("");
+  const hours = `<div class="hours" style="height:${height}px">${[...Array(H1 - H0)].map((_, i) => `<div class="hl" style="position:absolute;top:${i * hh}px;right:0">${H0 + i}</div>`).join("")}</div>`;
+  const cols = days.map(d => {
+    const evs = calEvents.filter(e => e.start.slice(0, 10) === ymd(d)).map(e => {
+      const [sh, sm] = e.start.slice(11, 16).split(":").map(Number), [eh, em] = e.end.slice(11, 16).split(":").map(Number);
+      const top = Math.max(0, (sh + sm / 60 - H0) * hh), bottom = Math.min(height, (eh + em / 60 - H0) * hh);
+      return `<div class="ev ${e.id === newEventId ? "new" : ""}" data-id="${esc(e.id)}" style="top:${top}px;height:${Math.max(18, bottom - top - 2)}px" title="${esc(e.title)}"><b>${esc(e.start.slice(11, 16))}</b>${esc(e.title)}</div>`;
+    }).join("");
+    return `<div class="col" style="height:${height}px">${lines}${evs}</div>`;
+  }).join("");
+  return `<div class="week">${head}${hours}${cols}</div>`;
+}
+function renderCalendar(target, big) {
+  const locale = lastLang === "de" ? "de-DE" : "en-US";
+  const end = new Date(calWeek); end.setDate(end.getDate() + 6);
+  const label = `${calWeek.toLocaleDateString(locale, { day: "numeric", month: "short" })} – ${end.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })}`;
+  const upcoming = calEvents.filter(e => e.end >= ymd(new Date())).slice(0, 8);
+  target.innerHTML = `<div class="calhead"><button class="iconbtn" data-cal="-1">‹</button><b>${label}</b><button class="iconbtn" data-cal="0" title="This week">•</button><button class="iconbtn" data-cal="1">›</button>${big ? "" : '<button class="iconbtn" data-cal="big" title="Expand">⤢</button>'}</div>
+    ${weekGrid(big)}
+    ${big ? "" : `<h3>Upcoming</h3><div class="card upcoming">${upcoming.length ? upcoming.map(e => `<div class="rowi"><div class="k">${new Date(e.start).toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short" })} ${e.start.slice(11, 16)}</div><div class="v">${esc(e.title)}${e.location ? `<div style="color:var(--muted);font-size:12px">${esc(e.location)}</div>` : ""}</div></div>`).join("") : '<div class="empty" style="padding:18px">Nothing booked.</div>'}</div>`}`;
+  target.querySelectorAll("[data-cal]").forEach(b => (b.onclick = () => {
+    const v = b.dataset.cal;
+    if (v === "big") return openViewer("Calendar", `<div class="bigcal" id="bigcal"></div>`, "", () => renderCalendar($("bigcal"), true));
+    calWeek = v === "0" ? mondayOf(new Date()) : new Date(calWeek.getTime() + Number(v) * 7 * 86400000);
+    renderCalendar(target, big);
+    if (!big) return;
+    renderCalendar($("calendar"), false);
+  }));
+  target.querySelectorAll(".ev").forEach(el => (el.onclick = () => {
+    const e = calEvents.find(x => x.id === el.dataset.id);
+    if (e) openViewer(e.title, `<div class="mail"><div class="hdr"><span>When</span>${esc(new Date(e.start).toLocaleString(locale, { dateStyle: "full", timeStyle: "short" }))} – ${esc(e.end.slice(11, 16))}<br><span>Where</span>${esc(e.location || "—")}<br><span>Customer</span>${esc(e.customer || "—")}</div><pre>${esc(e.notes || "")}</pre></div>`);
+  }));
+}
+
+// ---------- quotes + outbox ----------
+let newQuoteId = null, quoteData = { quotes: [], outbox: [] };
+async function loadQuotes() {
+  try { quoteData = await (await fetch("/api/quotes" + tq)).json(); } catch {}
+  const qs = quoteData.quotes;
+  $("quotes").innerHTML = `<h3>Quotes · ${qs.length}</h3><div class="card">${qs.length ? qs.map(q => `
+    <div class="qcard ${q.id === newQuoteId ? "new" : ""}">
+      <div class="qtop"><b>${esc(q.customer?.name ?? "?")}</b><span class="usd">${money(q.gross)}</span></div>
+      <div class="qsub">${esc(q.number)} · ${q.lines.length} item${q.lines.length === 1 ? "" : "s"} · ${q.status === "sent" ? `<span style="color:#1f9e46">✓ sent ${esc(new Date(q.sentAt).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))}</span> to ${esc(q.sentTo ?? "—")}` : "draft"}</div>
+      <div class="qbtns"><button class="btn" data-q="${esc(q.id)}">Open quote</button>${q.status === "sent" ? `<button class="btn" data-m="${esc(q.id)}">Email</button>` : ""}</div>
+    </div>`).join("") : '<div class="empty" style="padding:18px">No quotes yet. Ask for one on a call.</div>'}</div>
+    <div class="foot">Demo: “sent” quotes land in this outbox; no email service is connected.</div>`;
+  $("quotes").querySelectorAll("[data-q]").forEach(b => (b.onclick = () => openQuote(b.dataset.q)));
+  $("quotes").querySelectorAll("[data-m]").forEach(b => (b.onclick = () => openMail(b.dataset.m)));
+}
+function openQuote(id) {
+  const q = quoteData.quotes.find(x => x.id === id);
+  openViewer(`${q?.number ?? "Quote"} · ${q?.customer?.name ?? ""}`, `<iframe src="/quote/${encodeURIComponent(id)}${tq}" title="Quote"></iframe>`,
+    `<button class="btn" onclick="window.open('/quote/${encodeURIComponent(id)}${tq}','_blank')">Open / Print</button>`);
+}
+function openMail(quoteId) {
+  const m = quoteData.outbox.find(x => x.quoteId === quoteId);
+  if (!m) return;
+  openViewer("Sent email", `<div class="mail"><div class="hdr"><span>To</span>${esc(m.to)}<br><span>Subject</span><b>${esc(m.subject)}</b><br><span>Sent</span>${esc(new Date(m.sentAt).toLocaleString())}</div>
+    <pre>${esc(m.body)}</pre><div class="att" id="mailAtt"><i>PDF</i><div><b>${esc(m.quoteNumber)}.pdf</b><div style="color:var(--muted);font-size:12px">Quote</div></div></div>
+    <div class="demo-flag">Demo outbox: this email was not actually delivered.</div></div>`, "", () => { $("mailAtt").onclick = () => openQuote(quoteId); });
+}
+
+// ---------- viewer ----------
+function openViewer(title, html, actions = "", after) {
+  $("viewerTitle").textContent = title; $("viewerActions").innerHTML = actions; $("viewerBody").innerHTML = html;
+  $("viewer").classList.add("on"); $("viewerBg").classList.add("on");
+  after?.();
+}
+function closeViewer() { $("viewer").classList.remove("on"); $("viewerBg").classList.remove("on"); $("viewerBody").innerHTML = ""; }
 
 // ---------- memory ----------
 function duePill(due) {
@@ -586,7 +795,7 @@ async function loadMemory() {
       `<h3>To-dos · ${open.length} open</h3><div class="card">${open.length ? open.map(todo).join("") : '<div class="empty" style="padding:20px">Nothing open.</div>'}</div>
        ${done.length ? `<h3>Recently done</h3><div class="card">${done.map(todo).join("")}</div>` : ""}
        <h3>Customers · ${people.length}</h3><div class="card">${people.length ? people.map(c => `<div class="rowi cust"><div class="v"><div class="n">${esc(c.name)}${c.place ? ` <span style="color:var(--muted);font-weight:400">· ${esc(c.place)}</span>` : ""}</div><div class="s">${esc(c.summary || "")}</div><div class="t2" style="margin-top:6px"><span class="chip">${esc(c.lastContact || "")}</span><span class="chip">${(c.history || []).length} call${(c.history || []).length === 1 ? "" : "s"}</span></div></div></div>`).join("") : '<div class="empty" style="padding:20px">Customers appear after the first call.</div>'}</div>
-       <div class="foot">The agent reads this at the start of every call.</div>`;
+       <div class="foot">The office reads this at the start of every call.</div>`;
     for (const b of document.querySelectorAll(".check")) b.onclick = async () => { await fetch(`/api/actions/${encodeURIComponent(b.dataset.id)}${tq ? tq + "&" : "?"}status=${b.dataset.status}`, { method: "POST" }); loadMemory(); };
   } catch { $("memory").innerHTML = '<div class="empty">Memory unavailable.</div>'; }
 }
@@ -660,7 +869,10 @@ for (const b of $("langSeg").querySelectorAll("button")) b.onclick = () => { lan
 for (const b of $("tabs").querySelectorAll("button")) b.onclick = () => {
   $("tabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
   document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "pane-" + b.dataset.tab));
-  if (b.dataset.tab === "memory") loadMemory();
+  b.classList.remove("badge");
+  if (b.dataset.tab === "todos") loadMemory();
+  if (b.dataset.tab === "calendar") loadCalendar();
+  if (b.dataset.tab === "quotes") loadQuotes();
 };
 if (params.get("sheet")) setTimeout(() => openSheet(true), 300);
 if (params.get("cockpit") === "0") $("stage").classList.remove("cockpit"); // plain background
@@ -674,8 +886,16 @@ $("applyPhone").onclick = async () => {
   $("phoneMode").textContent = r.error ? "Error: " + r.error : "Phone calls use: " + modeLabel(r.phone);
 };
 loadModes().catch(() => {});
-loadMemory();
-setInterval(() => { if (!inCall) loadMemory(); }, 15000);
+loadMemory(); loadCalendar(); loadQuotes();
+setInterval(() => { if (!inCall) { loadMemory(); loadQuotes(); } }, 15000);
+$("viewerClose").onclick = $("viewerBg").onclick = closeViewer;
+addEventListener("keydown", e => { if (e.key === "Escape") closeViewer(); });
+$("resetDemo").onclick = async () => {
+  if (!confirm("Reset the demo? Calendar, to-dos, quotes, customers and calls are moved to data/backups.")) return;
+  await fetch("/api/demo/reset" + tq, { method: "POST" });
+  newEventId = newQuoteId = null; lastDraft = null; orderStatus = ""; $("order").innerHTML = "";
+  loadMemory(); loadCalendar(); loadQuotes(); openSheet(false);
+};
 </script>
 </body>
 </html>

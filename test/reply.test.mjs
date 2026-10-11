@@ -12,13 +12,13 @@ function run(chunks) {
 
 test("parses header and splits sentences while streaming", () => {
   const out = run(["HEARD: Ich komm von der Frau Müller.\nLANG: de\nNEXT: con", "firm\n\nAlles klar, notiert. ", "Bis wann soll das Angebot raus?"]);
-  assert.deepEqual(out.header, { heard: "Ich komm von der Frau Müller.", lang: "de", next: "confirm" });
+  assert.deepEqual(out.header, { heard: "Ich komm von der Frau Müller.", lang: "de", next: "confirm", act: "none" });
   assert.equal(out.sentences.join(" "), "Alles klar, notiert. Bis wann soll das Angebot raus?");
 });
 
 test("an empty HEARD line still parses NEXT", () => {
   const out = run(["HEARD:\nLANG: de\nNEXT: hangup\n\nGespeichert. Gute Fahrt!"]);
-  assert.deepEqual(out.header, { heard: "", lang: "de", next: "hangup" });
+  assert.deepEqual(out.header, { heard: "", lang: "de", next: "hangup", act: "none" });
   assert.match(out.sentences.join(" "), /Gespeichert/);
 });
 
@@ -40,24 +40,24 @@ test("missing header falls back to speaking the text", () => {
 
 test("English turn, header lines in any order, no blank line", () => {
   const out = run(["HEARD: Just came from Mrs Miller's.\nNEXT: listen\nLA", "NG: en\nGot it. Which town was that in?"]);
-  assert.deepEqual(out.header, { heard: "Just came from Mrs Miller's.", lang: "en", next: "listen" });
+  assert.deepEqual(out.header, { heard: "Just came from Mrs Miller's.", lang: "en", next: "listen", act: "none" });
   assert.equal(out.sentences.join(" "), "Got it. Which town was that in?");
 });
 
 test("missing LANG leaves it empty (session keeps the last language)", () => {
   const out = run(["HEARD: Passt.\nNEXT: hangup\n\nGespeichert. Gute Fahrt!"]);
-  assert.deepEqual(out.header, { heard: "Passt.", lang: "", next: "hangup" });
+  assert.deepEqual(out.header, { heard: "Passt.", lang: "", next: "hangup", act: "none" });
 });
 
 test("blank line inside the header, tags on the reply line", () => {
   const out = run(["HEARD: Passt\n\nLANG: de NEXT: hangup\nAlles klar, dann gute Fahrt!"]);
-  assert.deepEqual(out.header, { heard: "Passt", lang: "de", next: "hangup" });
+  assert.deepEqual(out.header, { heard: "Passt", lang: "de", next: "hangup", act: "none" });
   assert.equal(out.sentences.join(" "), "Alles klar, dann gute Fahrt!");
 });
 
 test("tags leaked into the start of the reply are stripped", () => {
   const out = run(["HEARD: Passt\n\nLANG: de\nNEXT: hangup\n\nTschüss!"]);
-  assert.deepEqual(out.header, { heard: "Passt", lang: "de", next: "hangup" });
+  assert.deepEqual(out.header, { heard: "Passt", lang: "de", next: "hangup", act: "none" });
   assert.equal(out.sentences.join(" "), "Tschüss!");
 });
 
@@ -65,4 +65,16 @@ test("wait means silence", () => {
   const out = run(["HEARD: Also Küche und\nLANG: de\nNEXT: wait\n"]);
   assert.equal(out.header.next, "wait");
   assert.equal(out.sentences.length, 0);
+});
+
+test("DO: execute is parsed and never spoken", () => {
+  const out = run(["HEARD: Ja, schick's raus.\nLANG: de\nNEXT: listen\nDO: execute\n\nMach ich."]);
+  assert.deepEqual(out.header, { heard: "Ja, schick's raus.", lang: "de", next: "listen", act: "execute" });
+  assert.equal(out.sentences.join(" "), "Mach ich.");
+});
+
+test("DO squeezed onto the NEXT line", () => {
+  const out = run(["HEARD: Yes.\nLANG: en\nNEXT: listen DO: execute\n\nOn it."]);
+  assert.equal(out.header.act, "execute");
+  assert.equal(out.sentences.join(" "), "On it.");
 });

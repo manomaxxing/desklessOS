@@ -25,7 +25,12 @@ import { consolidateCall } from "./src/engine/consolidate.mjs";
 import { createNotesStore } from "./src/store/notes.mjs";
 import { createMonitor } from "./src/monitor.mjs";
 import { createMemory } from "./src/store/memory.mjs";
-import * as skill from "./src/skills/termin-notiz.mjs";
+import * as skill from "./src/skills/office.mjs";
+import { createCalendar } from "./src/store/calendar.mjs";
+import { createQuotes } from "./src/store/quotes.mjs";
+import { createOffice } from "./src/workflow/order.mjs";
+import { renderQuoteHtml } from "./src/workflow/quote-template.mjs";
+import { renameSync, mkdirSync } from "node:fs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -40,6 +45,23 @@ const fish = createFish();
 const store = createNotesStore();
 const monitor = createMonitor();
 const memory = createMemory();
+const calendar = createCalendar();
+const quotes = createQuotes();
+const company = JSON.parse(readFileSync(path.join(here, "config", "company.json"), "utf8"));
+const catalog = JSON.parse(readFileSync(path.join(here, "config", "catalog.json"), "utf8"));
+const office = createOffice({ company, catalog, calendar, quotes, memory });
+
+// Demo reset: move all data aside (data/backups/<time>/) and start clean.
+function resetDemo() {
+  const root = process.env.DATA_DIR || "data";
+  const backup = path.join(root, "backups", new Date().toISOString().replace(/[:.]/g, "-"));
+  mkdirSync(backup, { recursive: true });
+  for (const sub of ["notes", "memory", "calls", "calendar", "quotes"]) {
+    try { renameSync(path.join(root, sub), path.join(backup, sub)); } catch {}
+  }
+  for (const s of [store, memory, calendar, quotes, monitor]) s.reset();
+  return backup;
+}
 const geminiTts = endpoint ? createGeminiTts({ endpoint }) : null;
 
 // Modes for the selector. The phone default applies to real Dial calls; the
@@ -121,6 +143,22 @@ const server = http.createServer((req, res) => {
     return json(res, { phone: phoneConfig, modes: MODES });
   }
   if (url.pathname === "/api/memory") return json(res, { actions: memory.actions(), customers: Object.values(memory.customers()) });
+  if (url.pathname === "/api/catalog") return json(res, { company: { name: company.name, vatRate: company.vatRate }, catalog });
+  if (url.pathname === "/api/calendar") return json(res, { events: calendar.list({ from: url.searchParams.get("from") ?? undefined, to: url.searchParams.get("to") ?? undefined }) });
+  if (url.pathname === "/api/quotes") return json(res, { quotes: quotes.list(), outbox: quotes.outbox(), company: { name: company.name } });
+  if (url.pathname === "/api/demo/reset" && req.method === "POST") {
+    const backup = resetDemo();
+    monitor.system(`demo reset; previous data moved to ${backup}`, "warn");
+    return json(res, { ok: true, backup });
+  }
+  const quoteMatch = url.pathname.match(/^\/quote\/([^/]+)$/);
+  if (quoteMatch) {
+    if (!authorized(url)) return json(res, { error: "token required" }, 401);
+    const q = quotes.get(decodeURIComponent(quoteMatch[1]));
+    if (!q) return json(res, { error: "unknown quote" }, 404);
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    return res.end(renderQuoteHtml(q, company));
+  }
   const actionMatch = url.pathname.match(/^\/api\/actions\/([^/]+)$/);
   if (actionMatch && req.method === "POST") {
     const status = url.searchParams.get("status");
@@ -224,7 +262,7 @@ function attach(ws, { callId, dev }) {
         const config = { ...phoneConfig, ...(dev && msg.config ? msg.config : {}) };
         monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describe(config), source: dev ? (msg.from === "+49-browser" || msg.from === "+1-browser" ? "browser" : "script") : "dial" });
         const common = {
-          send, dev, skill, endpoint, extractModel: MODEL, store, memory, config,
+          send, dev, skill, endpoint, extractModel: MODEL, store, memory, office, config,
           log: (...a) => log(`[${id.slice(-6)}]`, ...a),
           onEvent: ev => monitor.event(id, ev),
           onEnd: reason => monitor.end(id, reason),

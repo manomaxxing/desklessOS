@@ -18,7 +18,7 @@ const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[
 const lines = args.flatMap((a, i) => (a === "--say" ? [args[i + 1]] : []));
 const base = opt("--url", "ws://localhost:8787/dial");
 const signed = args.includes("--signed");
-const lang = opt("--lang", "de");
+const lang = opt("--lang", "en");
 // Mode, like the selector: --engine cascade|live  --model <gemini>  --mask typing|filler|none  --live-model <door:model>  --live-voice Kore
 const config = Object.fromEntries(Object.entries({ engine: opt("--engine"), model: opt("--model"), mask: opt("--mask"), tts: opt("--tts"), liveModel: opt("--live-model"), liveVoice: opt("--live-voice") }).filter(([, v]) => v));
 const callerVoice = opt("--voice", process.env.FISH_CALLER_VOICE || (lang === "en" ? "536d3a5e000945adb7038665781a4aca" /* Ethan */ : "a20517d0d23048319e4ced960899187e" /* Ben */));
@@ -48,27 +48,27 @@ let lastAgentAudio = 0;
 let markTimers = [];
 let lastSayAt = 0; // dev mode: when the agent last produced a real sentence
 let ended = false;
-const t0 = Date.now();
-const stamp = () => `${((Date.now() - t0) / 1000).toFixed(1).padStart(5)}s`;
+const t0 = performance.now();
+const stamp = () => `${((performance.now() - t0) / 1000).toFixed(1).padStart(5)}s`;
 
 ws.on("message", data => {
   const f = JSON.parse(data);
   if (f.type === "media") {
     const pcm = Buffer.from(f.payload, "base64");
     agentAudio.push(pcm);
-    playhead = Math.max(Date.now(), playhead) + durationMs(pcm);
-    lastAgentAudio = Date.now();
+    playhead = Math.max(performance.now(), playhead) + durationMs(pcm);
+    lastAgentAudio = performance.now();
   } else if (f.type === "mark") {
-    markTimers.push(setTimeout(() => ws.send(JSON.stringify(f)), Math.max(0, playhead - Date.now())));
+    markTimers.push(setTimeout(() => ws.send(JSON.stringify(f)), Math.max(0, playhead - performance.now())));
   } else if (f.type === "clear") {
-    markTimers.forEach(clearTimeout); markTimers = []; playhead = Date.now();
+    markTimers.forEach(clearTimeout); markTimers = []; playhead = performance.now();
     console.log(stamp(), "⟂ clear (barge-in)");
   } else if (f.type === "end_call") {
     console.log(stamp(), "☎ agent hung up");
     ended = true;
   } else if (f.type === "debug") {
     if (f.event === "heard") console.log(stamp(), `🗣  ${f.text}   [${f.lang}, next: ${f.next}]`);
-    if (f.event === "say") { lastSayAt = Date.now(); if (f.delta) process.stdout.write(f.text); else console.log(stamp(), `🤖 ${f.text}`); }
+    if (f.event === "say") { lastSayAt = performance.now(); if (f.delta) process.stdout.write(f.text); else console.log(stamp(), `🤖 ${f.text}`); }
     if (f.event === "fallback") console.log(stamp(), `↪ fallback ${f.what}: ${f.from} → ${f.to} (${f.reason})`);
     if (f.event === "retry") console.log(stamp(), `↻ retry → ${f.next}: ${f.reason}`);
     if (f.event === "live") console.log(stamp(), `◉ ${f.text}`);
@@ -95,16 +95,16 @@ const line = setInterval(() => {
   const frame = queue.length ? queue.shift() : silence(20);
   if (ws.readyState === 1) ws.send(JSON.stringify({ type: "media", payload: frame.toString("base64"), seq: ++seq }));
 }, 20);
-const ping = setInterval(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: "ping_pong", timestamp: Date.now() })), 2000);
+const ping = setInterval(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: "ping_pong", timestamp: performance.now() })), 2000);
 
 // Agent is done when it has said something since `since`, its audio has played
 // out, and nothing new came for a while.
 async function agentDone(since, quietMs = 1800, maxMs = 30000, audioOnly = signed) {
-  const start = Date.now();
-  while (Date.now() - start < maxMs && !ended) {
+  const start = performance.now();
+  while (performance.now() - start < maxMs && !ended) {
     // Dev mode knows real sentences (a filler isn't an answer); signed mode only hears audio.
     const spoke = audioOnly ? lastAgentAudio > since : lastSayAt > since && lastAgentAudio > lastSayAt;
-    if (spoke && Date.now() > playhead + quietMs && Date.now() - lastAgentAudio > quietMs) return;
+    if (spoke && performance.now() > playhead + quietMs && performance.now() - lastAgentAudio > quietMs) return;
     await sleep(100);
   }
 }
@@ -114,10 +114,10 @@ for (const [i, pcm] of utterances.entries()) {
   console.log(stamp(), `☏ caller speaks line ${i + 1} (${(durationMs(pcm) / 1000).toFixed(1)} s)`);
   queue.push(...frames(pcm, 20));
   while (queue.length) await sleep(50);
-  await agentDone(Date.now(), 2500);
+  await agentDone(performance.now(), 2500);
   if (ended) break;
 }
-if (!ended) await agentDone(Date.now(), 3000, 8000);
+if (!ended) await agentDone(performance.now(), 3000, 8000);
 if (!ended) ws.send(JSON.stringify({ type: "call_ended", reason: "caller_hangup" }));
 clearInterval(line); clearInterval(ping);
 await sleep(500);

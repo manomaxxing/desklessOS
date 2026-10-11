@@ -9,7 +9,7 @@ import { geminiEndpoint } from "../src/engine/gemini-endpoint.mjs";
 import { extractJson } from "../src/engine/gemini.mjs";
 import { createNotesStore } from "../src/store/notes.mjs";
 import { createMemory } from "../src/store/memory.mjs";
-import * as skill from "../src/skills/termin-notiz.mjs";
+import * as skill from "../src/skills/office.mjs";
 
 if (process.argv.includes("--fresh")) rmSync(process.env.MEMORY_DIR || path.join(process.env.DATA_DIR || "data", "memory"), { recursive: true, force: true });
 const endpoint = geminiEndpoint();

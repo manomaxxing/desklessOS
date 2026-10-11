@@ -17,7 +17,7 @@ export function createMonitor({ dir = dataDir("calls", "CALLS_DIR"), record = pr
   const summary = c => ({
     id: c.id, from: c.from, to: c.to, lang: c.lang, source: c.source, startedAt: c.startedAt, endedAt: c.endedAt,
     endedReason: c.endedReason, turns: c.events.filter(e => e.event === "heard").length, savedNoteId: c.savedNoteId ?? null,
-    summary: c.memorySummary ?? c.note?.zusammenfassung ?? "",
+    summary: c.workflowSummary ?? c.memorySummary ?? c.note?.summary ?? c.note?.zusammenfassung ?? "",
     usd: c.cost?.usd ?? null,
     mode: c.mode ?? null,
   });
@@ -52,6 +52,7 @@ export function createMonitor({ dir = dataDir("calls", "CALLS_DIR"), record = pr
       if (ev.event === "saved") c.savedNoteId = ev.id;
       if (ev.event === "cost") c.cost = ev.totals;
       if (ev.event === "memory") c.memorySummary = ev.summary;
+      if (ev.event === "workflow") c.workflowSummary = ev.result?.summary;
       publish({ type: "event", id, ev: entry });
     },
     end(id, reason) {
@@ -88,6 +89,7 @@ export function createMonitor({ dir = dataDir("calls", "CALLS_DIR"), record = pr
       return existsSync(file) ? file : null;
     },
     systemLog: () => system.slice(-50),
+    reset() { calls.clear(); system.length = 0; mkdirSync(dir, { recursive: true }); },
     subscribe(fn) { subscribers.add(fn); return () => subscribers.delete(fn); },
   };
 }
