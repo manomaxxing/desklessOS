@@ -32,19 +32,7 @@ export function initialLanguage({ language, from } = {}, fallback = process.env.
 
 const today = () => new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-function notesIndex(notes) {
-  if (!notes.length) return "(no saved notes yet)";
-  return notes
-    .slice(0, 12)
-    .map(n => {
-      const steps = (n.naechste_schritte ?? []).map(s => `${s.was}${s.bis ? ` (${s.bis})` : ""}`).join("; ");
-      const open = (n.offene_fragen ?? []).join("; ");
-      return `- ${n.termin_datum || n.created_at?.slice(0, 10)} | ${n.kunde_name || "?"} | ${[n.adresse, n.ort].filter(Boolean).join(", ") || "?"} | ${n.zusammenfassung || ""}${steps ? ` | next: ${steps}` : ""}${open ? ` | open: ${open}` : ""}`;
-    })
-    .join("\n");
-}
-
-export function systemPrompt({ note, missing, notes, memory = "", lang = "de" }) {
+export function systemPrompt({ note, missing, memory = "", lang = "de" }) {
   return `You are the voice notebook of a tiler (DesklessOS). He calls you from his car, hands-free.
 Everything you write is read aloud by a text-to-speech voice. Today is ${today()}.
 
@@ -68,9 +56,10 @@ A) AFTER A CUSTOMER APPOINTMENT: take a note.
 
 B) BEFORE AN APPOINTMENT: briefing.
 - If he says "ich fahr zu …", "was war bei …", "I'm heading to …", "what was the deal with …" or
-  names a customer, find the matching saved note below. In at most 30 seconds say who and where,
-  what was discussed, what's open and what's next. Then "Soll ich noch was vorlesen?" /
-  "Want me to read anything else?" (NEXT: confirm).
+  names a customer, find that customer in MEMORY below (also by place or job if the name is
+  fuzzy). In at most 30 seconds say who and where, what was discussed (key specs: area, tile,
+  special wishes), what's open and what's next. If he asks a detail, answer it from the notes.
+  Then "Soll ich noch was vorlesen?" / "Want me to read anything else?" (NEXT: confirm).
 - If there's no matching note, say so honestly and offer to take one now.
 - Notes may be in either language; brief him in his language.
 
@@ -107,15 +96,8 @@ How you speak:
 - If the audio is unclear (noise, silence, nothing intelligible), write "HEARD: (unclear)" and ask
   him briefly to say it again (NEXT: listen).
 
-Current state of the note in this call (may lag one turn behind):
-${JSON.stringify(note ?? {}, null, 0)}
-Required details still missing: ${missing?.length ? missing.join(", ") : "none"}
-
-MEMORY (persists across calls; use it to know where to look):
+MEMORY (persists across calls: to-dos, customers and their appointment notes):
 ${memory || "(empty)"}
-
-Detailed notes from earlier appointments (newest first):
-${notesIndex(notes)}
 
 Output format, always, exactly:
 HEARD: <word for word what he just said, in his language>
@@ -125,7 +107,12 @@ NEXT: <listen | confirm | hangup>
 <your spoken reply>
 
 LANG is the language of your reply. NEXT means: listen = you expect him to talk at length;
-confirm = you asked a short question (yes/no, one detail); hangup = the call is over, you said goodbye.`;
+confirm = you asked a short question (yes/no, one detail); hangup = the call is over, you said goodbye.
+
+THIS CALL (changes every turn, so it comes last):
+Current state of the note in this call (may lag one turn behind):
+${JSON.stringify(note ?? {}, null, 0)}
+Required details still missing: ${missing?.length ? missing.join(", ") : "none"}`;
 }
 
 // ---------- slow path: structured note ----------

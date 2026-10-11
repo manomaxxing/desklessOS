@@ -256,7 +256,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, f
     });
 
     try {
-      const system = skill.systemPrompt({ note, missing, notes: store.list(), memory: memory?.context() ?? "", lang });
+      const system = skill.systemPrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", lang });
       for await (const piece of geminiStream({ endpoint, model, system, history: turns.slice(-16), audio, text, onUsage: u => record("turn", u, turn.id) }, signal, turn)) {
         if (!turn.firstTokenAt) turn.firstTokenAt = performance.now();
         parser.push(piece);
@@ -344,6 +344,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, f
         onUsage: u => record("memory", u),
       });
       const changed = memory.apply(result, { callId: call.id, noteId, lang });
+      if (noteId && changed.customer) store.update(noteId, { customerId: changed.customer.id });
       log(`memory: ${result.call_type}, +${changed.added.length} to-dos, ${changed.completed.length} done`);
       debug("memory", { callType: result.call_type, summary: result.call_summary, customer: changed.customer, added: changed.added, completed: changed.completed, updated: changed.updated });
     } catch (err) {

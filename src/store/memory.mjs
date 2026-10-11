@@ -1,21 +1,24 @@
 // Long-term memory across calls: customers (rolling summary + history) and
 // to-dos (due date, open/done). Updated once per call by a consolidation step;
-// read at the start of every call so the agent knows where to look.
+// read at the start of every turn so the agent knows where to look.
 //   data/memory/customers.json   { [id]: customer }
 //   data/memory/actions.json     [ action ]
+// Notes link to their customer via note.customerId (set after consolidation).
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { dataDir, readJson, writeJson, slug } from "./files.mjs";
 
-const slug = s => String(s ?? "").toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
-  .normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/^(frau|herr|familie|fam\.?|mrs?\.?|ms\.?|mr\.?)\s+/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const MAX_CUSTOMERS_IN_PROMPT = 25;
+const NOTES_PER_CUSTOMER = 3;
 
-export function createMemory(dir = process.env.MEMORY_DIR || "data/memory") {
+export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
   mkdirSync(dir, { recursive: true });
   const file = name => path.join(dir, name);
-  const read = (name, fallback) => { try { return existsSync(file(name)) ? JSON.parse(readFileSync(file(name), "utf8")) : fallback; } catch { return fallback; } };
-  const write = (name, data) => writeFileSync(file(name), JSON.stringify(data, null, 2));
+  const cache = {};
+  const read = (name, fallback) => (cache[name] ??= readJson(file(name), fallback));
+  const write = (name, data) => { writeJson(file(name), data); cache[name] = data; };
 
   const customers = () => read("customers.json", {});
   const actions = () => read("actions.json", []);
@@ -27,14 +30,20 @@ export function createMemory(dir = process.env.MEMORY_DIR || "data/memory") {
     return Object.values(all).find(c => slug(c.name) === key && (!place || !c.place || slug(c.place) === slug(place))) ?? null;
   }
 
+  // Which customer a note belongs to: its link if it has one, else by name (notes saved before linking).
+  function customerOf(note, all) {
+    if (note.customerId && all[note.customerId]) return all[note.customerId];
+    return note.kunde_name ? findCustomer(all, { name: note.kunde_name, place: note.ort }) : null;
+  }
+
   return {
     customers,
     actions,
 
     /** Applies one call's consolidation result. Returns what changed (for the monitor). */
     apply(result, { callId, noteId, date = new Date().toISOString().slice(0, 10), lang }) {
-      const all = customers();
-      const list = actions();
+      const all = structuredClone(customers());
+      const list = structuredClone(actions());
       const changed = { customer: null, added: [], completed: [], updated: [] };
       let customer = null;
       const c = result.customer ?? {};
@@ -42,6 +51,7 @@ export function createMemory(dir = process.env.MEMORY_DIR || "data/memory") {
         customer = findCustomer(all, c);
         if (!customer) {
           customer = { id: slug(`${c.name}-${c.place || ""}`) || randomUUID().slice(0, 8), name: c.name, createdAt: new Date().toISOString(), history: [] };
+          if (all[customer.id]) customer.id += `-${randomUUID().slice(0, 4)}`;
           all[customer.id] = customer;
         }
         Object.assign(customer, {
@@ -76,7 +86,7 @@ export function createMemory(dir = process.env.MEMORY_DIR || "data/memory") {
     },
 
     setActionStatus(id, status) {
-      const list = actions();
+      const list = structuredClone(actions());
       const a = list.find(x => x.id === id);
       if (!a) return null;
       a.status = status === "done" ? "done" : "open";
@@ -85,26 +95,49 @@ export function createMemory(dir = process.env.MEMORY_DIR || "data/memory") {
       return a;
     },
 
-    /** Compact memory for the system prompt: open to-dos first, then customers. */
-    context(today = new Date()) {
+    /**
+     * Everything the agent knows, for the system prompt: open to-dos first, then
+     * customers (most recent first), each with the details of their latest notes,
+     * so a briefing can answer "what format did she want?" for any recent customer.
+     */
+    context({ notes = [], today = new Date() } = {}) {
       const day = today.toISOString().slice(0, 10);
-      const open = actions().filter(a => a.status === "open").sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999")).slice(0, 15);
-      const recentlyDone = actions().filter(a => a.status === "done").sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt))).slice(0, 5);
-      const people = Object.values(customers()).sort((a, b) => String(b.lastContact).localeCompare(String(a.lastContact))).slice(0, 20);
+      const all = customers();
+      const list = actions();
+      const open = list.filter(a => a.status === "open").sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999")).slice(0, 15);
+      const recentlyDone = list.filter(a => a.status === "done").sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt))).slice(0, 5);
       const dueLabel = due => {
         if (!due) return "no due date";
         const days = Math.round((Date.parse(due) - Date.parse(day)) / 86400000);
         return `due ${due}${days < 0 ? ` (OVERDUE by ${-days} d)` : days === 0 ? " (today)" : days === 1 ? " (tomorrow)" : ` (in ${days} d)`}`;
       };
+
+      const notesBy = new Map(); // customer id → notes, newest first
+      const unlinked = [];
+      for (const n of notes) {
+        const c = customerOf(n, all);
+        if (c) notesBy.set(c.id, [...(notesBy.get(c.id) ?? []), n]);
+        else unlinked.push(n);
+      }
+      const people = Object.values(all).sort((a, b) => String(b.lastContact).localeCompare(String(a.lastContact)));
+      const shown = people.slice(0, MAX_CUSTOMERS_IN_PROMPT);
+      const customerBlock = c => {
+        const own = (notesBy.get(c.id) ?? []).slice(0, NOTES_PER_CUSTOMER);
+        return [
+          `- [${c.id}] ${c.name}${c.place ? `, ${c.place}` : ""}${c.address ? ` (${c.address})` : ""}${c.phone ? ` tel ${c.phone}` : ""} | last contact ${c.lastContact} | ${c.summary || ""}`,
+          ...own.map(n => `    note ${noteLine(n)}`),
+        ].join("\n");
+      };
+
       return [
         "OPEN TO-DOS (id | customer | task | due):",
         open.length ? open.map(a => `- [${a.id}] ${a.customerName || "?"} | ${a.text} | ${dueLabel(a.due)}`).join("\n") : "- none",
         recentlyDone.length ? `RECENTLY DONE: ${recentlyDone.map(a => `${a.customerName}: ${a.text}`).join("; ")}` : "",
         "",
-        "CUSTOMERS (most recent contact first):",
-        people.length
-          ? people.map(c => `- [${c.id}] ${c.name}${c.place ? `, ${c.place}` : ""} | last contact ${c.lastContact} | ${c.summary || ""}`).join("\n")
-          : "- none yet",
+        "CUSTOMERS (most recent contact first; under each, their appointment notes, newest first; a newer note overrides an older one):",
+        shown.length ? shown.map(customerBlock).join("\n") : "- none yet",
+        people.length > shown.length ? `OLDER CUSTOMERS (name only): ${people.slice(shown.length).map(c => `${c.name}${c.place ? ` (${c.place})` : ""}`).join("; ")}` : "",
+        unlinked.length ? `\nOTHER NOTES (not linked to a customer yet):\n${unlinked.slice(0, 10).map(n => `- ${noteLine(n)}`).join("\n")}` : "",
       ].filter(line => line !== "").join("\n");
     },
 
@@ -116,4 +149,25 @@ export function createMemory(dir = process.env.MEMORY_DIR || "data/memory") {
       };
     },
   };
+}
+
+// One note, compact but with the specs a briefing needs.
+export function noteLine(n) {
+  const work = (n.arbeiten ?? []).map(a => [
+    a.raum, a.bereich, a.flaeche_m2 ? `${a.flaeche_m2} m²` : "", a.fliese_format, a.fliese_material, a.fliese_optik,
+    a.beschaffung ? `tiles: ${a.beschaffung}` : "", a.beschreibung,
+  ].filter(Boolean).join(" ")).filter(Boolean);
+  const parts = [
+    n.termin_datum || n.created_at?.slice(0, 10),
+    [n.kunde_name, n.adresse, n.ort].filter(Boolean).join(", ") || "?",
+    n.zusammenfassung,
+    work.length ? `work: ${work.join("; ")}` : "",
+    n.untergrund ? `substrate: ${n.untergrund}` : "",
+    n.sonderwuensche?.length ? `wishes: ${n.sonderwuensche.join("; ")}` : "",
+    n.zeitrahmen ? `timeframe: ${n.zeitrahmen}` : "",
+    n.budget ? `budget: ${n.budget}` : "",
+    n.naechste_schritte?.length ? `next: ${n.naechste_schritte.map(s => `${s.was}${s.bis ? ` (${s.bis})` : ""}`).join("; ")}` : "",
+    n.offene_fragen?.length ? `open: ${n.offene_fragen.join("; ")}` : "",
+  ];
+  return parts.filter(Boolean).join(" | ");
 }

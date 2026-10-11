@@ -37,6 +37,15 @@ that calls it uses that same protocol:
   to-dos; "Angebot Müller ist raus" ticks one off. You can also tick them off
   in the UI. `npm run rebuild-memory -- --fresh` rebuilds memory from the saved
   notes.
+- **Notes and memory are linked.** Each saved note gets the `customerId` it was
+  filed under. Every turn the prompt lists the 25 most recent customers, each
+  with the full specs from their latest 3 notes (area, tile, wishes, next steps).
+  So a briefing can answer "what format did she want?" for any of them, not
+  just the last few calls.
+- **Storage** is JSON on disk under `DATA_DIR` (default `data/`: `notes/`,
+  `memory/`, `calls/`). Writes are atomic. A corrupt file stops the write
+  instead of being replaced with an empty one; a `.corrupt-<ts>` copy is kept.
+  On Fly, `DATA_DIR=/data` is the volume.
 - **Cost per call** (`src/engine/cost.mjs`): Gemini tokens (text, audio,
   output) for the conversation, note extraction and memory step; Fish bytes
   (with what the paid tier would cost); call minutes (set `DIAL_USD_PER_MIN`).

@@ -4,9 +4,10 @@
 // data/calls/<id>.json, with per-turn audio when RECORD_CALLS=1.
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { dataDir } from "./store/files.mjs";
 import path from "node:path";
 
-export function createMonitor({ dir = process.env.CALLS_DIR || "data/calls", record = process.env.RECORD_CALLS === "1", keepLive = 30 } = {}) {
+export function createMonitor({ dir = dataDir("calls", "CALLS_DIR"), record = process.env.RECORD_CALLS === "1", keepLive = 30 } = {}) {
   mkdirSync(dir, { recursive: true });
   const calls = new Map(); // id → record (live and recent)
   const subscribers = new Set();
