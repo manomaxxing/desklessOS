@@ -1,6 +1,6 @@
 FROM node:24-slim
 WORKDIR /app
-ENV NODE_ENV=production PORT=8787 NOTES_DIR=/data/notes
+ENV NODE_ENV=production PORT=8787 DATA_DIR=/data
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev || npm install --omit=dev
 COPY server.mjs ./

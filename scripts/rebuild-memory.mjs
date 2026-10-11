@@ -4,17 +4,19 @@
 //   npm run rebuild-memory -- --fresh (wipes data/memory first)
 
 import { rmSync } from "node:fs";
+import path from "node:path";
 import { geminiEndpoint } from "../src/engine/gemini-endpoint.mjs";
 import { extractJson } from "../src/engine/gemini.mjs";
 import { createNotesStore } from "../src/store/notes.mjs";
 import { createMemory } from "../src/store/memory.mjs";
 import * as skill from "../src/skills/termin-notiz.mjs";
 
-if (process.argv.includes("--fresh")) rmSync(process.env.MEMORY_DIR || "data/memory", { recursive: true, force: true });
+if (process.argv.includes("--fresh")) rmSync(process.env.MEMORY_DIR || path.join(process.env.DATA_DIR || "data", "memory"), { recursive: true, force: true });
 const endpoint = geminiEndpoint();
 const model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const memory = createMemory();
-const notes = createNotesStore().list().reverse();
+const store = createNotesStore();
+const notes = [...store.list()].reverse();
 
 for (const note of notes) {
   const { transcript = [], ...rest } = note;
@@ -28,6 +30,7 @@ for (const note of notes) {
     try { result = await run(); } catch (err2) { console.log(`  skipped ${note.id}: ${err2.message}`); continue; }
   }
   const changed = memory.apply(result, { callId: note.call_id, noteId: note.id, date: note.created_at.slice(0, 10), lang: note.sprache || "de" });
+  if (changed.customer) store.update(note.id, { customerId: changed.customer.id });
   console.log(`${note.kunde_name || note.id}: ${changed.customer ? "customer " + changed.customer.id : "no customer"}, +${changed.added.length} to-dos, ${changed.completed.length} done`);
 }
 console.log(`\n${Object.keys(memory.customers()).length} customers, ${memory.actions().filter(a => a.status === "open").length} open to-dos`);

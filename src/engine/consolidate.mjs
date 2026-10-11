@@ -3,7 +3,7 @@
 
 import { extractJsonResilient } from "./gemini.mjs";
 
-export async function consolidateCall({ endpoint, model, skill, memory, turns, note, callId, noteId, lang, date, onUsage }) {
+export async function consolidateCall({ endpoint, model, skill, memory, store, turns, note, callId, noteId, lang, date, onUsage }) {
   const result = await extractJsonResilient({
     models: [model, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], timeoutMs: 20000,
     endpoint, system: skill.MEMORY_SYSTEM, schema: skill.MEMORY_SCHEMA,
@@ -11,5 +11,7 @@ export async function consolidateCall({ endpoint, model, skill, memory, turns, n
     onUsage,
   });
   const changed = memory.apply(result, { callId, noteId, lang, ...(date ? { date } : {}) });
+  // Link the saved note to its customer, so the customer's memory entry carries the note's details.
+  if (noteId && changed.customer && store?.update) store.update(noteId, { customerId: changed.customer.id });
   return { result, changed };
 }

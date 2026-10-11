@@ -101,7 +101,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
             responseModalities: ["AUDIO"],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.liveVoice } }, ...(target.vertex ? { languageCode: lang === "en" ? "en-US" : "de-DE" } : {}) },
           },
-          systemInstruction: { parts: [{ text: skill.livePrompt({ note, missing, notes: store.list(), memory: memory?.context() ?? "", lang }) }] },
+          systemInstruction: { parts: [{ text: skill.livePrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", lang }) }] },
           realtimeInputConfig: {
             automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: "START_SENSITIVITY_LOW", endOfSpeechSensitivity: "END_SENSITIVITY_LOW", prefixPaddingMs: 100, silenceDurationMs: Number(process.env.LIVE_SILENCE_MS || 800) },
             activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
@@ -247,7 +247,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
     const job = { turns, note, callId: call.id, noteId, lang, date: new Date().toISOString().slice(0, 10) };
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const { result, changed } = await consolidateCall({ endpoint, model: extractModel, skill, memory, ...job, onUsage: u => record("memory", u, null, extractModel) });
+        const { result, changed } = await consolidateCall({ endpoint, model: extractModel, skill, memory, store, ...job, onUsage: u => record("memory", u, null, extractModel) });
         debug("memory", { callType: result.call_type, summary: result.call_summary, customer: changed.customer, added: changed.added, completed: changed.completed, updated: changed.updated });
         return;
       } catch (err) {

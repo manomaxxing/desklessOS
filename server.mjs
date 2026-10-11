@@ -79,7 +79,7 @@ assets.typing = typingLoop();
 async function retryPending() {
   for (const job of memory.listPending()) {
     try {
-      const { changed } = await consolidateCall({ endpoint, model: MODEL, skill, memory, ...job });
+      const { changed } = await consolidateCall({ endpoint, model: MODEL, skill, memory, store, ...job });
       memory.removePending(job);
       monitor.system(`memory retry ok for ${job.callId}: +${changed.added.length} to-dos, ${changed.completed.length} done`);
     } catch (err) {

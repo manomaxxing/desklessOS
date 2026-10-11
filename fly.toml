@@ -1,6 +1,6 @@
 # Fly.io: a public wss:// endpoint for Dial.
 #   fly launch --no-deploy --copy-config   (pick an app name; this file uses deskless-os)
-#   fly volumes create notes --size 1 -r fra
+#   fly volumes create notes --size 1 -r fra   (holds /data: notes, memory, calls)
 #   fly secrets set FISH_AUDIO_API_KEY=… FISH_VOICE=… GEMINI_MODEL=gemini-3.5-flash \
 #     GOOGLE_CLOUD_PROJECT=… GOOGLE_SERVICE_ACCOUNT_JSON="$(base64 -w0 sa.json)" \
 #     DIAL_SIGNING_SECRET=… DEV_TOKEN=…
@@ -15,7 +15,7 @@ primary_region = "fra"
 
 [env]
   PORT = "8787"
-  NOTES_DIR = "/data/notes"
+  DATA_DIR = "/data"   # notes, memory and calls all live on the volume
 
 [http_service]
   internal_port = 8787

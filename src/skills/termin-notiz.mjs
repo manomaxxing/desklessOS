@@ -32,18 +32,6 @@ export function initialLanguage({ language, from } = {}, fallback = process.env.
 
 const today = () => new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-function notesIndex(notes) {
-  if (!notes.length) return "(no saved notes yet)";
-  return notes
-    .slice(0, 12)
-    .map(n => {
-      const steps = (n.naechste_schritte ?? []).map(s => `${s.was}${s.bis ? ` (${s.bis})` : ""}`).join("; ");
-      const open = (n.offene_fragen ?? []).join("; ");
-      return `- ${n.termin_datum || n.created_at?.slice(0, 10)} | ${n.kunde_name || "?"} | ${[n.adresse, n.ort].filter(Boolean).join(", ") || "?"} | ${n.zusammenfassung || ""}${steps ? ` | next: ${steps}` : ""}${open ? ` | open: ${open}` : ""}`;
-    })
-    .join("\n");
-}
-
 const CORE_RULES = ({ lang }) => `LANGUAGE: he speaks German or English. Answer in the language of his latest utterance; if he
 switches, you switch. The call is currently in ${lang === "en" ? "English: RESPOND IN ENGLISH" : "German: RESPOND IN GERMAN"} unless he switches.
 
@@ -70,10 +58,13 @@ A) AFTER A CUSTOMER APPOINTMENT: he dictates, you take the note.
   confirm only the corrected detail.
 
 B) BEFORE AN APPOINTMENT: briefing.
-- "ich fahr zu …", "was war bei …", "I'm heading to …": find the customer in MEMORY/notes. In at
-  most 30 seconds: who and where, what was discussed, what's open, what's next. Then
-  "Soll ich noch was vorlesen?" / "Want anything else?" (NEXT: confirm). No match: say so, offer to
-  take a note.
+- If he says "ich fahr zu …", "was war bei …", "I'm heading to …", "what was the deal with …" or
+  names a customer, find that customer in MEMORY below (also by place or job if the name is
+  fuzzy). In at most 30 seconds say who and where, what was discussed (key specs: area, tile,
+  special wishes), what's open and what's next. If he asks a detail, answer it from the notes.
+  Then "Soll ich noch was vorlesen?" / "Want anything else?" (NEXT: confirm).
+- If there's no matching note, say so honestly and offer to take one now.
+- Notes may be in either language; brief him in his language.
 
 C) AGENDA: his to-dos (MEMORY).
 - "Was steht an?", "What's on my list?": the most urgent open to-dos, overdue and soonest first,
@@ -108,24 +99,23 @@ SILENCE: "(Silence: …)" means he's quiet. "for a few seconds": ask "Bist du no
 there?" (never hang up the first time). "second time": short goodbye (NEXT: hangup), say it's saved
 only if he told you about an appointment.`;
 
-const CONTEXT = ({ note, missing, notes, memory }) => `Current state of the note in this call (may lag one turn behind):
+const MEMORY_BLOCK = memory => `MEMORY (persists across calls: to-dos, customers and their appointment notes):
+${memory || "(empty)"}`;
+
+// Changes every turn, so it comes last in the prompt.
+const THIS_CALL = ({ note, missing }) => `THIS CALL (changes every turn, so it comes last):
+Current state of the note in this call (may lag one turn behind):
 ${JSON.stringify(note ?? {}, null, 0)}
-Required details still missing: ${missing?.length ? missing.join(", ") : "none"}
-
-MEMORY (persists across calls; use it to know where to look):
-${memory || "(empty)"}
-
-Detailed notes from earlier appointments (newest first):
-${notesIndex(notes)}`;
+Required details still missing: ${missing?.length ? missing.join(", ") : "none"}`;
 
 // Cascade mode: Gemini writes, a TTS voice speaks.
-export function systemPrompt({ note, missing, notes, memory = "", lang = "de" }) {
+export function systemPrompt({ note, missing, memory = "", lang = "de" }) {
   return `You are the voice notebook of a tiler (DesklessOS). He calls you from his car, hands-free.
 Everything you write is read aloud by a text-to-speech voice. Today is ${today()}.
 
 ${CORE_RULES({ lang })}
 
-${CONTEXT({ note, missing, notes, memory })}
+${MEMORY_BLOCK(memory)}
 
 OUTPUT FORMAT, always, exactly:
 HEARD: <word for word what he just said, in his language>
@@ -134,20 +124,25 @@ NEXT: <listen | wait | confirm | hangup>
 
 <your spoken reply>
 
-NEXT: listen = you expect him to keep talking; wait = his thought is clearly unfinished (he stopped
-mid-sentence, mid-list, on "und…" / "äh" / "and…"): write NO reply at all and stay silent;
-confirm = you asked a short question; hangup = the call is over, you said goodbye.`;
+LANG is the language of your reply. NEXT: listen = you expect him to keep talking; wait = his
+thought is clearly unfinished (he stopped mid-sentence, mid-list, on "und…" / "äh" / "and…"): write
+NO reply at all and stay silent; confirm = you asked a short question; hangup = the call is over,
+you said goodbye.
+
+${THIS_CALL({ note, missing })}`;
 }
 
 // Live mode: Gemini's native audio model hears and speaks itself (no header, no TTS).
-export function livePrompt({ note, missing, notes, memory = "", lang = "de" }) {
+export function livePrompt({ note, missing, memory = "", lang = "de" }) {
   return `You are the voice notebook of a tiler (DesklessOS). He calls you from his car, hands-free.
 You speak directly; keep it brief and natural. Today is ${today()}.
 When he pauses mid-thought, stay silent and let him continue.
 
 ${CORE_RULES({ lang })}
 
-${CONTEXT({ note, missing, notes, memory })}`;
+${MEMORY_BLOCK(memory)}
+
+${THIS_CALL({ note, missing })}`;
 }
 
 // ---------- slow path: structured note ----------

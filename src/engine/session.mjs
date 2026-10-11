@@ -370,7 +370,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     });
 
     try {
-      const system = skill.systemPrompt({ note, missing, notes: store.list(), memory: memory?.context() ?? "", lang });
+      const system = skill.systemPrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", lang });
       const extra = force ? "(The caller is speaking in the audio above. He has now been silent for a few seconds: his thought is complete, so respond. Do not answer wait.)" : undefined;
       for await (const piece of geminiStream({ endpoint, system, history: turns.slice(-16), audio, text, extra }, signal, turn)) {
         if (!turn.firstTokenAt) turn.firstTokenAt = performance.now();
@@ -469,7 +469,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     const job = { turns, note, callId: call.id, noteId, lang, date: new Date().toISOString().slice(0, 10) };
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const { result, changed } = await consolidateCall({ endpoint, model: slowModel, skill, memory, ...job, onUsage: u => record("memory", u) });
+        const { result, changed } = await consolidateCall({ endpoint, model: slowModel, skill, memory, store, ...job, onUsage: u => record("memory", u) });
         log(`memory: ${result.call_type}, +${changed.added.length} to-dos, ${changed.completed.length} done`);
         debug("memory", { callType: result.call_type, summary: result.call_summary, customer: changed.customer, added: changed.added, completed: changed.completed, updated: changed.updated });
         return;
