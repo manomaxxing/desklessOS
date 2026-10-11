@@ -14,6 +14,7 @@ export function createVad({
   maxUtteranceMs = 120000,
   minThreshold = 0.012,
   floorFactor = 3,
+  interruptMs = 500, // while the agent talks: this much loud speech before it counts (a "mhm" doesn't)
 } = {}) {
   let floor = 0.004;
   let speaking = false;
@@ -45,9 +46,9 @@ export function createVad({
         if (!voiced) floor = floor * 0.97 + level * 0.03; // learn the background only from non-speech
         preRoll.push(frame);
         preRollLen += ms;
-        while (preRollLen > preRollMs + (strict ? 300 : startMs) && preRoll.length > 1) preRollLen -= durationMs(preRoll.shift());
+        while (preRollLen > preRollMs + (strict ? interruptMs : startMs) && preRoll.length > 1) preRollLen -= durationMs(preRoll.shift());
         voicedMs = voiced ? voicedMs + ms : Math.max(0, voicedMs - ms * 0.5);
-        if (voicedMs >= (strict ? 300 : startMs)) {
+        if (voicedMs >= (strict ? interruptMs : startMs)) {
           speaking = true;
           silenceMs = 0;
           utterance = preRoll;

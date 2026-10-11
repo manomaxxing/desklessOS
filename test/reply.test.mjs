@@ -48,3 +48,21 @@ test("missing LANG leaves it empty (session keeps the last language)", () => {
   const out = run(["HEARD: Passt.\nNEXT: hangup\n\nGespeichert. Gute Fahrt!"]);
   assert.deepEqual(out.header, { heard: "Passt.", lang: "", next: "hangup" });
 });
+
+test("blank line inside the header, tags on the reply line", () => {
+  const out = run(["HEARD: Passt\n\nLANG: de NEXT: hangup\nAlles klar, dann gute Fahrt!"]);
+  assert.deepEqual(out.header, { heard: "Passt", lang: "de", next: "hangup" });
+  assert.equal(out.sentences.join(" "), "Alles klar, dann gute Fahrt!");
+});
+
+test("tags leaked into the start of the reply are stripped", () => {
+  const out = run(["HEARD: Passt\n\nLANG: de\nNEXT: hangup\n\nTschüss!"]);
+  assert.deepEqual(out.header, { heard: "Passt", lang: "de", next: "hangup" });
+  assert.equal(out.sentences.join(" "), "Tschüss!");
+});
+
+test("wait means silence", () => {
+  const out = run(["HEARD: Also Küche und\nLANG: de\nNEXT: wait\n"]);
+  assert.equal(out.header.next, "wait");
+  assert.equal(out.sentences.length, 0);
+});

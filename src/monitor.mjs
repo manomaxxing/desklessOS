@@ -18,6 +18,7 @@ export function createMonitor({ dir = process.env.CALLS_DIR || "data/calls", rec
     endedReason: c.endedReason, turns: c.events.filter(e => e.event === "heard").length, savedNoteId: c.savedNoteId ?? null,
     summary: c.memorySummary ?? c.note?.zusammenfassung ?? "",
     usd: c.cost?.usd ?? null,
+    mode: c.mode ?? null,
   });
 
   function persist(c) {
@@ -31,10 +32,10 @@ export function createMonitor({ dir = process.env.CALLS_DIR || "data/calls", rec
       mkdirSync(d, { recursive: true });
       return d;
     },
-    start({ id, from, to, lang, source }) {
+    start({ id, from, to, lang, source, mode }) {
       const existing = calls.get(id);
       if (existing) { existing.endedAt = null; return existing; } // reconnect
-      const c = { id, from, to, lang, source, startedAt: Date.now(), endedAt: null, endedReason: null, events: [], note: null };
+      const c = { id, from, to, lang, source, mode, startedAt: Date.now(), endedAt: null, endedReason: null, events: [], note: null };
       calls.set(id, c);
       while (calls.size > keepLive) calls.delete(calls.keys().next().value);
       publish({ type: "call", call: summary(c) });

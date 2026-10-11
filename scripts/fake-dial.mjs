@@ -19,6 +19,8 @@ const lines = args.flatMap((a, i) => (a === "--say" ? [args[i + 1]] : []));
 const base = opt("--url", "ws://localhost:8787/dial");
 const signed = args.includes("--signed");
 const lang = opt("--lang", "de");
+// Mode, like the selector: --engine cascade|live  --model <gemini>  --mask typing|filler|none  --live-model <door:model>  --live-voice Kore
+const config = Object.fromEntries(Object.entries({ engine: opt("--engine"), model: opt("--model"), mask: opt("--mask"), tts: opt("--tts"), liveModel: opt("--live-model"), liveVoice: opt("--live-voice") }).filter(([, v]) => v));
 const callerVoice = opt("--voice", process.env.FISH_CALLER_VOICE || (lang === "en" ? "536d3a5e000945adb7038665781a4aca" /* Ethan */ : "a20517d0d23048319e4ced960899187e" /* Ben */));
 const callId = `fake-${Date.now().toString(36)}`;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -66,10 +68,14 @@ ws.on("message", data => {
     ended = true;
   } else if (f.type === "debug") {
     if (f.event === "heard") console.log(stamp(), `🗣  ${f.text}   [${f.lang}, next: ${f.next}]`);
-    if (f.event === "say") { lastSayAt = Date.now(); console.log(stamp(), `🤖 ${f.text}`); }
+    if (f.event === "say") { lastSayAt = Date.now(); if (f.delta) process.stdout.write(f.text); else console.log(stamp(), `🤖 ${f.text}`); }
+    if (f.event === "fallback") console.log(stamp(), `↪ fallback ${f.what}: ${f.from} → ${f.to} (${f.reason})`);
+    if (f.event === "retry") console.log(stamp(), `↻ retry → ${f.next}: ${f.reason}`);
+    if (f.event === "live") console.log(stamp(), `◉ ${f.text}`);
     if (f.event === "latency") console.log(stamp(), `⏱  first audio ${f.firstAudioMs} ms (gemini first token ${f.firstTokenMs} ms)`);
     if (f.event === "filler") console.log(stamp(), "… filler");
     if (f.event === "note") console.log(stamp(), `📝 note: ${f.note.zusammenfassung || "(…)"}  missing: ${f.missing.join(", ") || "none"}`);
+    if (f.event === "mask") console.log(stamp(), "⌨ typing");
     if (f.event === "vad") console.log(stamp(), f.speaking ? "🎙  speech start" : `🎙  speech end (${f.ms} ms)`);
     if (f.event === "barge_in") console.log(stamp(), "✋ barge-in");
     if (f.event === "saved") console.log(stamp(), `💾 saved ${f.id}`);
@@ -80,7 +86,7 @@ ws.on("message", data => {
 
 await new Promise((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); ws.once("unexpected-response", (_, res) => reject(new Error(`HTTP ${res.statusCode}`))); });
 console.log(stamp(), "connected", url);
-ws.send(JSON.stringify({ type: "call_connected", call_id: callId, direction: "inbound", from: lang === "en" ? "+14155550100" : "+4915100000000", to: "+10000000000", instruction: null, language: lang === "en" ? "en-US" : "de-DE", formats: { inbound: "l16_16000", outbound: "l16_16000" }, reconnect: false }));
+ws.send(JSON.stringify({ type: "call_connected", call_id: callId, direction: "inbound", from: lang === "en" ? "+14155550100" : "+4915100000000", to: "+10000000000", instruction: null, language: lang === "en" ? "en-US" : "de-DE", formats: { inbound: "l16_16000", outbound: "l16_16000" }, reconnect: false, ...(Object.keys(config).length ? { config } : {}) }));
 
 // The phone line: one 20 ms frame every 20 ms, caller speech when queued, silence otherwise.
 let queue = [];
@@ -104,7 +110,8 @@ async function agentDone(since, quietMs = 1800, maxMs = 30000, audioOnly = signe
 }
 
 await agentDone(0, 1800, 30000, true); // greeting: pre-recorded audio, no "say" event
-for (const pcm of utterances) {
+for (const [i, pcm] of utterances.entries()) {
+  console.log(stamp(), `☏ caller speaks line ${i + 1} (${(durationMs(pcm) / 1000).toFixed(1)} s)`);
   queue.push(...frames(pcm, 20));
   while (queue.length) await sleep(50);
   await agentDone(Date.now(), 2500);

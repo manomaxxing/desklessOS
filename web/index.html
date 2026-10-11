@@ -47,6 +47,24 @@
   .pill { background: var(--fill); padding: 3px 10px; border-radius: 99px; }
   @media (max-width: 560px) { .bar .status { display: none; } }
 
+  /* ---------- mode sheet ---------- */
+  .modebtn { border: 0; background: var(--fill); border-radius: 99px; padding: 5px 12px 5px 10px; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+  .modebtn i { width: 8px; height: 8px; border-radius: 50%; background: conic-gradient(var(--g1), var(--g2), var(--g3), var(--g4)); flex: none; }
+  .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.18); z-index: 20; display: none; }
+  .sheet { position: fixed; z-index: 21; top: 64px; right: 16px; width: min(380px, calc(100vw - 32px)); background: var(--glass); backdrop-filter: saturate(180%) blur(30px); -webkit-backdrop-filter: saturate(180%) blur(30px);
+    border: 1px solid var(--sep); border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.18); padding: 16px; display: none; }
+  .sheet.on, .sheet-bg.on { display: block; }
+  .sheet h4 { margin: 0 0 12px; font-size: 17px; letter-spacing: -0.02em; }
+  .field { margin-bottom: 14px; }
+  .field > span { display: block; font-size: 12px; color: var(--muted); margin: 0 2px 6px; font-weight: 500; }
+  .field .seg { width: 100%; } .field .seg button { flex: 1; }
+  .field select { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--sep); background: var(--bg2); color: var(--ink); }
+  .hint { font-size: 12px; color: var(--muted); margin: -6px 2px 12px; }
+  .sheet .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+  .btn { border: 0; border-radius: 10px; padding: 8px 14px; font-weight: 600; font-size: 13px; cursor: pointer; background: var(--fill); }
+  .btn.primary { background: var(--blue); color: #fff; }
+  [data-engine="live"] .cascade-only, [data-engine="cascade"] .live-only { display: none; }
+
   /* ---------- layout ---------- */
   .app { position: absolute; inset: 56px 0 0 0; display: grid; grid-template-columns: minmax(0, 1fr) 440px; }
   @media (max-width: 960px) { body { overflow: auto; } .app { position: static; padding-top: 56px; grid-template-columns: 1fr; } }
@@ -156,8 +174,22 @@
 <header class="bar">
   <div class="brand"><i></i>DesklessOS</div>
   <nav class="seg"><a class="on" href="/" id="navPhone">Phone</a><a href="/monitor" id="navMonitor">Monitor</a></nav>
-  <div class="status"><span class="pill" id="health">…</span></div>
+  <div class="status"><button class="modebtn" id="modeBtn" title="Choose the voice engine"><i></i><span id="modeLabel">Mode</span></button></div>
 </header>
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet" data-engine="cascade">
+  <h4>Mode</h4>
+  <div class="field"><span>Engine</span><div class="seg" id="engineSeg"><button data-v="cascade" class="on">Gemini + voice</button><button data-v="live">Gemini Live</button></div></div>
+  <div class="hint cascade-only">Gemini listens and writes; a separate voice speaks. Most control.</div>
+  <div class="hint live-only">Gemini's native audio model hears and speaks by itself. Most natural, least control.</div>
+  <div class="field cascade-only"><span>Gemini model</span><select id="modelSel"></select></div>
+  <div class="field cascade-only"><span>Voice</span><div class="seg" id="ttsSeg"><button data-v="fish" class="on">Fish Audio</button><button data-v="gemini">Gemini TTS (slow)</button></div></div>
+  <div class="field"><span>While thinking</span><div class="seg" id="maskSeg"><button data-v="typing" class="on">Typing</button><button data-v="filler">“Mhm”</button><button data-v="none">Silence</button></div></div>
+  <div class="field live-only"><span>Live model</span><select id="liveModelSel"></select></div>
+  <div class="field live-only"><span>Live voice</span><select id="liveVoiceSel"></select></div>
+  <div class="actions"><button class="btn" id="applyPhone" title="Real Dial calls will use this mode">Use for phone calls</button><button class="btn primary" id="sheetDone">Done</button></div>
+  <div class="hint" id="phoneMode" style="margin:10px 2px 0"></div>
+</div>
 
 <div class="app">
   <section class="stage" id="stage" data-state="idle">
@@ -225,6 +257,30 @@ class Mic extends AudioWorkletProcessor {
   }
 }
 registerProcessor("mic", Mic);`;
+
+// ---------- mode ----------
+let mode = { engine: "cascade", model: "gemini-3.5-flash", tts: "fish", mask: "typing", liveModel: "", liveVoice: "Kore" };
+try { Object.assign(mode, JSON.parse(localStorage.getItem("deskless-mode") || "{}")); } catch {}
+const modeLabel = m => (m.engine === "live" ? `Gemini Live · ${m.liveVoice}` : `${m.model.replace("gemini-", "")} + ${m.tts === "gemini" ? "Gemini TTS" : "Fish"} · ${m.mask}`);
+function segBind(id, key) {
+  const seg = document.getElementById(id);
+  const paint = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === mode[key]));
+  seg.querySelectorAll("button").forEach(b => (b.onclick = () => { mode[key] = b.dataset.v; paint(); saveMode(); }));
+  paint();
+}
+function saveMode() {
+  try { localStorage.setItem("deskless-mode", JSON.stringify(mode)); } catch {}
+  document.getElementById("sheet").dataset.engine = mode.engine;
+  document.getElementById("modeLabel").textContent = modeLabel(mode);
+}
+async function loadModes() {
+  const r = await (await fetch("/api/config" + (new URLSearchParams(location.search).get("token") ? "?token=" + encodeURIComponent(new URLSearchParams(location.search).get("token")) : ""))).json();
+  const fill = (id, list, key) => { const el = document.getElementById(id); el.innerHTML = list.map(v => `<option>${v}</option>`).join(""); if (!list.includes(mode[key])) mode[key] = list[0]; el.value = mode[key]; el.onchange = () => { mode[key] = el.value; saveMode(); }; };
+  fill("modelSel", r.modes.models, "model"); fill("liveModelSel", r.modes.liveModels, "liveModel"); fill("liveVoiceSel", r.modes.liveVoices, "liveVoice");
+  segBind("engineSeg", "engine"); segBind("ttsSeg", "tts"); segBind("maskSeg", "mask");
+  document.getElementById("phoneMode").textContent = "Phone calls use: " + modeLabel(r.phone);
+  saveMode();
+}
 
 let ws, ctx, stream, node, outGain, analyser, seq = 0, ping, nextTime = 0, sources = [], markTimers = [];
 let lang = "de", inCall = false, muted = false, startedAt = 0, timer = null;
@@ -307,7 +363,7 @@ async function start() {
   ws.onopen = () => {
     const pick = lang === "auto" ? (navigator.language || "de").slice(0, 2) : lang;
     const en = pick === "en";
-    send({ type: "call_connected", call_id: callId, direction: "inbound", from: en ? "+1-browser" : "+49-browser", to: "+1-dev", instruction: null, language: en ? "en-US" : "de-DE", formats: { inbound: "l16_16000", outbound: "l16_16000" }, reconnect: false });
+    send({ type: "call_connected", call_id: callId, direction: "inbound", from: en ? "+1-browser" : "+49-browser", to: "+1-dev", instruction: null, language: en ? "en-US" : "de-DE", formats: { inbound: "l16_16000", outbound: "l16_16000" }, reconnect: false, config: mode });
     node.port.onmessage = e => { send({ type: "media", payload: b64FromInt16(e.data.frame), seq: ++seq }); micLevel = Math.max(micLevel, e.data.peak); };
     ping = setInterval(() => send({ type: "ping_pong", timestamp: Date.now() }), 2000);
     inCall = true; startedAt = Date.now();
@@ -353,7 +409,9 @@ function addEl(cls, text) { const el = document.createElement("div"); el.classNa
 
 function onDebug(d) {
   switch (d.event) {
-    case "connected": lastLang = d.lang; addEl("sys", `${d.lang === "en" ? "English" : "Deutsch"} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`); break;
+    case "connected": lastLang = d.lang; addEl("sys", `${d.lang === "en" ? "English" : "Deutsch"} · ${d.config ? modeLabel(d.config) : ""} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`); break;
+    case "fallback": addEl("sys warn", `${d.from} failed → ${d.to}`); break;
+    case "recovered": addEl("sys warn", `Recovered on ${d.model}`); break;
     case "vad":
       callerSpeaking = d.speaking;
       if (!d.speaking && d.ms > 250) { awaiting = true; awaitingSince = performance.now(); }
@@ -367,16 +425,16 @@ function onDebug(d) {
       agentBubble = null; break;
     case "say":
       if (d.note === "already said as filler") break;
-      if (!agentBubble) { agentBubble = addEl("msg agent", d.text); turnMeta[d.turn] = addEl("meta", ""); }
-      else { agentBubble.textContent += " " + d.text; scrollMsgs(); }
-      $("caption").textContent = d.text; break;
+      if (!agentBubble) { agentBubble = addEl("msg agent", d.text.trimStart()); turnMeta[d.turn] = addEl("meta", ""); }
+      else { agentBubble.textContent += (d.delta ? "" : " ") + d.text; scrollMsgs(); }
+      $("caption").textContent = d.delta ? agentBubble.textContent.slice(-140) : d.text; break;
     case "latency": { const m = turnMeta[d.turn]; if (m) { m.dataset.lat = (d.firstAudioMs / 1000).toFixed(1) + " s"; paintMeta(d.turn); } break; }
     case "cost":
       if (d.totals) costTotals = d.totals;
       if (d.turn && d.step === "turn") { turnCosts[d.turn] = (turnCosts[d.turn] || 0) + (d.usd || 0); paintMeta(d.turn); }
       renderCost(); break;
     case "barge_in": addEl("sys warn", "You interrupted"); agentBubble = null; break;
-    case "retry": addEl("sys warn", "Gemini was slow, retried"); break;
+    case "retry": addEl("sys warn", `Gemini hiccup → retrying${d.next ? " with " + d.next : ""}`); break;
     case "error": addEl("sys bad", `${d.where} error`); break;
     case "note": renderNote(d.note, d.missing); break;
     case "saved": addEl("sys good", "Note saved"); break;
@@ -464,8 +522,16 @@ for (const b of $("tabs").querySelectorAll("button")) b.onclick = () => {
   document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "pane-" + b.dataset.tab));
   if (b.dataset.tab === "memory") loadMemory();
 };
+if (params.get("sheet")) setTimeout(() => openSheet(true), 300);
 if (params.get("tab")) document.querySelector(`#tabs [data-tab="${params.get("tab")}"]`)?.click();
-fetch("/api/health").then(r => r.json()).then(h => { $("health").textContent = `${h.model} · Fish ${h.fishModel}`; }).catch(() => {});
+const openSheet = on => { $("sheet").classList.toggle("on", on); $("sheetBg").classList.toggle("on", on); };
+$("modeBtn").onclick = () => openSheet(!$("sheet").classList.contains("on"));
+$("sheetBg").onclick = $("sheetDone").onclick = () => openSheet(false);
+$("applyPhone").onclick = async () => {
+  const r = await (await fetch("/api/config" + tq, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(mode) })).json();
+  $("phoneMode").textContent = r.error ? "Error: " + r.error : "Phone calls use: " + modeLabel(r.phone);
+};
+loadModes().catch(() => {});
 loadMemory();
 setInterval(() => { if (!inCall) loadMemory(); }, 15000);
 </script>

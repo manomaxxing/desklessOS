@@ -150,6 +150,7 @@ function renderCalls() {
       <div class="top">${c.endedAt ? "" : '<span class="livedot"></span>'}<span>${esc(c.from || c.id)}</span>
         <span class="badge ${c.source === "dial" ? "blue" : ""}">${esc(sourceLabel(c.source))}</span>${c.lang ? `<span class="badge">${esc(c.lang.toUpperCase())}</span>` : ""}${c.savedNoteId ? '<span class="badge green">note</span>' : ""}</div>
       <div class="sub">${fmtTime(c.startedAt)} · ${c.endedAt ? fmtDur(c.endedAt - c.startedAt) : "live"} · ${c.turns} turns${c.usd != null ? " · " + usd(c.usd) : ""}</div>
+      ${c.mode ? `<div class="sub">${esc(c.mode)}</div>` : ""}
       ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}
     </div>`).join("");
   for (const el of document.querySelectorAll(".call")) el.onclick = () => { $("follow").checked = false; select(el.dataset.id); };
@@ -170,14 +171,18 @@ function items(call) {
       case "say": {
         let a = agentByTurn.get(e.turn);
         if (!a || out[out.length - 1] !== a) { a = { t, kind: "agent", text: "", turn: e.turn }; out.push(a); agentByTurn.set(e.turn, a); }
-        a.text += (a.text ? " " : "") + e.text + (e.note ? ` (${e.note})` : "");
+        a.text += (a.text && !e.delta ? " " : "") + e.text + (e.note ? ` (${e.note})` : "");
         break;
       }
       case "agent_audio": { const a = agentByTurn.get(e.turn); if (a) { a.audio = e.audio; a.interrupted = e.interrupted; } break; }
       case "turn_start": out.push({ t, kind: "chip", text: e.text ? `turn ${e.turn} · ${e.text}` : `turn ${e.turn} · ${(e.utteranceMs / 1000).toFixed(1)} s speech${e.merged > 1 ? ` · ${e.merged} pieces merged` : ""}` }); break;
       case "latency": out.push({ t, kind: "chip", cls: latClass(e.firstAudioMs), text: `first audio ${(e.firstAudioMs / 1000).toFixed(2)} s · Gemini ${(e.firstTokenMs / 1000).toFixed(2)} s · Fish ${e.fishFirstByteMs ?? "?"} ms${turnCost[e.turn] != null ? " · " + usd(turnCost[e.turn]) : ""}` }); break;
       case "filler": out.push({ t, kind: "chip", text: "filler" }); break;
-      case "retry": out.push({ t, kind: "chip", cls: "warn", text: `Gemini retry · ${e.reason}` }); break;
+      case "retry": out.push({ t, kind: "chip", cls: "warn", text: `Gemini retry${e.next ? " → " + e.next : ""} · ${e.reason}` }); break;
+      case "recovered": out.push({ t, kind: "chip", cls: "good", text: `recovered on ${e.model} (attempt ${e.attempt})` }); break;
+      case "fallback": out.push({ t, kind: "chip", cls: "warn", text: `${e.what}: ${e.from} failed → ${e.to} · ${e.reason ?? ""}` }); break;
+      case "mask": out.push({ t, kind: "chip", text: "typing sound (masking the wait)" }); break;
+      case "live": out.push({ t, kind: "chip", cls: e.level === "error" ? "bad" : "", text: `live · ${e.text}` }); break;
       case "barge_in": out.push({ t, kind: "chip", cls: "warn", text: "barge-in · playback cleared" }); break;
       case "nudge": out.push({ t, kind: "chip", cls: "warn", text: `silence nudge · ${e.kind}` }); break;
       case "note": out.push({ t, kind: "chip", text: `note · ${e.missing?.length ? "missing " + e.missing.join(", ") : "complete"}` }); break;
@@ -214,7 +219,7 @@ function renderMain() {
   const dur = (c.endedAt ?? Date.now()) - c.startedAt;
   $("main").innerHTML = `
     <div class="head"><h2>${esc(c.from || "Call")}</h2><span class="badge ${c.source === "dial" ? "blue" : ""}">${esc(sourceLabel(c.source))}</span>${c.endedAt ? "" : '<span class="badge" style="color:var(--red)">LIVE</span>'}</div>
-    <div class="meta">${fmtTime(c.startedAt)} · ${fmtDur(dur)}${c.endedReason ? " · " + esc(c.endedReason) : ""} · <span style="font-family:ui-monospace,monospace;font-size:11px">${esc(c.id)}</span></div>
+    <div class="meta">${c.mode ? `<b>${esc(c.mode)}</b> · ` : ""}${fmtTime(c.startedAt)} · ${fmtDur(dur)}${c.endedReason ? " · " + esc(c.endedReason) : ""} · <span style="font-family:ui-monospace,monospace;font-size:11px">${esc(c.id)}</span></div>
     <div class="stats">${stats(c).map(([v, l, cls]) => `<div class="stat"><b class="${cls || ""}">${v}</b><span>${l}</span></div>`).join("")}</div>
     <div class="controls"><label class="toggle"><input type="checkbox" id="vad" ${showVad ? "checked" : ""}><span class="switch"></span>VAD events</label><span>▶ plays exactly what Gemini heard and what Fish said</span></div>
     <div id="timeline">${items(c).map(rowHtml).join("") || '<div class="empty">Waiting for the first turn…</div>'}</div>`;

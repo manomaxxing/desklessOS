@@ -63,3 +63,23 @@ export function* frames(pcm, ms = 20) {
 export function durationMs(pcm) {
   return pcm.length / BYTES_PER_MS;
 }
+
+/** Linear resample of PCM16 mono (light smoothing first when downsampling). Good enough for speech. */
+export function resample(pcm, fromRate, toRate) {
+  if (fromRate === toRate) return pcm;
+  const n = pcm.length >> 1;
+  const src = new Float32Array(n);
+  for (let i = 0; i < n; i++) src[i] = pcm.readInt16LE(i * 2);
+  if (toRate < fromRate) for (let i = n - 1; i > 0; i--) src[i] = (src[i] + src[i - 1]) / 2;
+  const outLen = Math.floor((n * toRate) / fromRate);
+  const out = Buffer.alloc(outLen * 2);
+  const step = fromRate / toRate;
+  for (let j = 0; j < outLen; j++) {
+    const x = j * step;
+    const i = Math.floor(x);
+    const f = x - i;
+    const v = src[i] * (1 - f) + (src[Math.min(i + 1, n - 1)] ?? 0) * f;
+    out.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(v))), j * 2);
+  }
+  return out;
+}

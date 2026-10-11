@@ -17,7 +17,11 @@ import { WebSocketServer } from "ws";
 import { geminiEndpoint } from "./src/engine/gemini-endpoint.mjs";
 import { createFish } from "./src/engine/fish.mjs";
 import { createCallSession } from "./src/engine/session.mjs";
+import { createLiveSession } from "./src/engine/live-session.mjs";
 import { warmModel } from "./src/engine/gemini.mjs";
+import { createGeminiTts } from "./src/engine/gemini-tts.mjs";
+import { typingLoop } from "./src/engine/ambience.mjs";
+import { consolidateCall } from "./src/engine/consolidate.mjs";
 import { createNotesStore } from "./src/store/notes.mjs";
 import { createMonitor } from "./src/monitor.mjs";
 import { createMemory } from "./src/store/memory.mjs";
@@ -36,6 +40,20 @@ const fish = createFish();
 const store = createNotesStore();
 const monitor = createMonitor();
 const memory = createMemory();
+const geminiTts = endpoint ? createGeminiTts({ endpoint }) : null;
+
+// Modes for the selector. The phone default applies to real Dial calls; the
+// browser test phone sends its own choice with each call.
+const MODES = {
+  engines: ["cascade", "live"],
+  models: ["gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+  tts: ["fish", "gemini"],
+  masks: ["typing", "filler", "none"],
+  // Probed 2026-10-11: all four connect; Vertex EU keeps audio in the EU and runs on the Vertex credits.
+  liveModels: (process.env.LIVE_MODELS || "vertex-eu:gemini-3.8-live,vertex@us-central1:gemini-3.8-live,studio:gemini-3.8-live,vertex@europe-west4:gemini-live-2.5-flash-native-audio").split(","),
+  liveVoices: ["Kore", "Aoede", "Leda", "Zephyr", "Callirrhoe", "Puck", "Charon", "Fenrir", "Orus", "Achird"],
+};
+let phoneConfig = { engine: process.env.ENGINE || "cascade", model: MODEL, tts: "fish", mask: process.env.MASK || "typing", liveModel: MODES.liveModels[0], liveVoice: "Kore" };
 if (!endpoint) throw new Error("no Gemini: set GOOGLE_CLOUD_PROJECT (Vertex) or GEMINI_API_KEY");
 if (!fish) throw new Error("no Fish: set FISH_AUDIO_API_KEY");
 
@@ -50,10 +68,29 @@ const assetsReady = Promise.all(
   skill.LANGS.map(async lang => {
     const lines = skill.VOICE_LINES[lang];
     const synth = text => fish.synth(text, { lang }).catch(err => { log(`asset synth failed (${lang}):`, text, err.message); return null; });
-    const [greeting, wrapUp, oops, ...fillers] = await Promise.all([lines.greeting, lines.wrapUp, lines.oops, ...lines.fillers].map(synth));
-    assets[lang] = { greeting, wrapUp, oops, fillers: fillers.filter(Boolean) };
+    const oopsLines = [].concat(lines.oops);
+    const [greeting, wrapUp, ...rest] = await Promise.all([lines.greeting, lines.wrapUp, ...oopsLines, ...lines.fillers].map(synth));
+    assets[lang] = { greeting, wrapUp, oops: rest.slice(0, oopsLines.length).filter(Boolean), fillers: rest.slice(oopsLines.length).filter(Boolean) };
   }),
-).then(() => log(`voice assets ready (${skill.LANGS.map(l => `${l}: ${assets[l].fillers.length} fillers`).join(", ")})`));
+).then(() => log(`voice assets ready (${skill.LANGS.map(l => `${l}: ${assets[l].fillers.length} fillers, ${assets[l].oops.length} oops`).join("; ")})`));
+assets.typing = typingLoop();
+
+// Memory updates that failed during a call (API down) are retried here.
+async function retryPending() {
+  for (const job of memory.listPending()) {
+    try {
+      const { changed } = await consolidateCall({ endpoint, model: MODEL, skill, memory, ...job });
+      memory.removePending(job);
+      monitor.system(`memory retry ok for ${job.callId}: +${changed.added.length} to-dos, ${changed.completed.length} done`);
+    } catch (err) {
+      log("memory retry failed", job.callId, err.message);
+    }
+  }
+}
+setTimeout(retryPending, 10000);
+setInterval(retryPending, 5 * 60 * 1000).unref();
+
+const describe = c => (c.engine === "live" ? `Gemini Live · ${c.liveModel} · ${c.liveVoice}` : `${c.model} + ${c.tts === "gemini" ? "Gemini TTS" : "Fish"} · ${c.mask}`);
 
 // ---------- HTTP ----------
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
@@ -66,6 +103,23 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");
   if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" && !authorized(url)) return json(res, { error: "token required" }, 401);
   if (url.pathname === "/api/calls") return json(res, { calls: monitor.list(), system: monitor.systemLog(), recording: monitor.record });
+  if (url.pathname === "/api/config") {
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", c => (body += c));
+      req.on("end", () => {
+        try {
+          const next = { ...phoneConfig, ...JSON.parse(body || "{}") };
+          if (!MODES.engines.includes(next.engine)) throw new Error("bad engine");
+          phoneConfig = next;
+          monitor.system(`phone calls now use ${describe(phoneConfig)}`);
+          json(res, { phone: phoneConfig, modes: MODES });
+        } catch (err) { json(res, { error: err.message }, 400); }
+      });
+      return;
+    }
+    return json(res, { phone: phoneConfig, modes: MODES });
+  }
   if (url.pathname === "/api/memory") return json(res, { actions: memory.actions(), customers: Object.values(memory.customers()) });
   const actionMatch = url.pathname.match(/^\/api\/actions\/([^/]+)$/);
   if (actionMatch && req.method === "POST") {
@@ -167,17 +221,32 @@ function attach(ws, { callId, dev }) {
         monitor.system(`reconnect: ${id}`, "warn");
       } else {
         await assetsReady;
-        monitor.start({ id, from: msg.from, to: msg.to, lang: null, source: dev ? (msg.from === "+49-browser" || msg.from === "+1-browser" ? "browser" : "script") : "dial" });
-        entry = {
-          out,
-          session: createCallSession({
-            send, dev, skill, endpoint, model: MODEL, fish, store, memory, assets,
-            log: (...a) => log(`[${id.slice(-6)}]`, ...a),
-            onEvent: ev => monitor.event(id, ev),
-            onEnd: reason => monitor.end(id, reason),
-            recordDir: monitor.record ? callId => monitor.audioDir(callId) : null,
-          }),
+        const config = { ...phoneConfig, ...(dev && msg.config ? msg.config : {}) };
+        monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describe(config), source: dev ? (msg.from === "+49-browser" || msg.from === "+1-browser" ? "browser" : "script") : "dial" });
+        const common = {
+          send, dev, skill, endpoint, extractModel: MODEL, store, memory, config,
+          log: (...a) => log(`[${id.slice(-6)}]`, ...a),
+          onEvent: ev => monitor.event(id, ev),
+          onEnd: reason => monitor.end(id, reason),
+          recordDir: monitor.record ? callId => monitor.audioDir(callId) : null,
         };
+        const cascade = (extra = {}) => createCallSession({ ...common, model: MODEL, fish, geminiTts, assets, ...extra, config: { ...config, engine: "cascade" } });
+        entry = { out };
+        if (config.engine === "live") {
+          // If Gemini Live fails (setup refused, socket drop), carry the call on with the cascade engine.
+          entry.session = createLiveSession({
+            ...common,
+            assets,
+            onFatal: ({ reason, turns, lang, greeted }) => {
+              monitor.system(`Live failed on ${id}: ${reason} → continuing on ${MODEL} + Fish`, "warn");
+              entry.session.abandon();
+              entry.session = cascade({ initialTurns: turns, initialLang: lang });
+              entry.session.handle({ ...msg, reconnect: greeted });
+            },
+          });
+        } else {
+          entry.session = cascade();
+        }
         sessions.set(id, entry);
       }
       entry.id = id;

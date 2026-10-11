@@ -46,6 +46,6 @@ test("strict mode (agent talking) needs louder, longer speech", () => {
   vad.setStrict(true);
   feed(vad, tone(220, 0.015)); // quiet and short: ignored while the agent talks
   assert.equal(started, false);
-  feed(vad, tone(500, 0.3));
+  feed(vad, tone(700, 0.3));
   assert.equal(started, true);
 });

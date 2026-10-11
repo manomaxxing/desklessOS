@@ -10,6 +10,9 @@ export const PRICES = {
   asOf: "2026-10-11",
   gemini: {
     "gemini-3.5-flash": { input: 1.5, audioInput: 1.5, output: 9.0 },
+    // Live (native audio): audio is 25 tokens/s; every turn re-bills the context (ai.google.dev pricing, 2026-10-11)
+    "gemini-3.8-live": { input: 0.75, audioInput: 3.0, output: 4.5, audioOutput: 12.0 },
+    "gemini-live-2.5-flash-native-audio": { input: 0.5, audioInput: 3.0, output: 2.0, audioOutput: 12.0 },
     "gemini-2.5-flash": { input: 0.3, audioInput: 1.0, output: 2.5 },
     "gemini-2.5-flash-lite": { input: 0.1, audioInput: 0.3, output: 0.4 },
   },
@@ -21,12 +24,17 @@ const M = 1e6;
 
 /** A Gemini usageMetadata → tokens and dollars (output includes thinking). */
 export function geminiCost(model, usage = {}, step = "turn") {
-  const audio = (usage.promptTokensDetails ?? []).filter(d => d.modality === "AUDIO").reduce((n, d) => n + (d.tokenCount ?? 0), 0);
+  const audioOf = list => (list ?? []).filter(d => d.modality === "AUDIO").reduce((n, d) => n + (d.tokenCount ?? 0), 0);
+  const audio = audioOf(usage.promptTokensDetails);
   const input = usage.promptTokenCount ?? 0;
-  const output = (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0);
-  const price = PRICES.gemini[model] ?? PRICES.gemini[process.env.PRICE_AS_MODEL ?? ""];
-  const usd = price ? ((input - audio) * price.input + audio * price.audioInput + output * price.output) / M : null;
-  return { kind: "llm", step, model, inputTokens: input, audioTokens: audio, outputTokens: output, usd };
+  // Live sends responseTokenCount (AI Studio) or candidatesTokenCount (Vertex wire name)
+  const output = (usage.candidatesTokenCount ?? usage.responseTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0);
+  const audioOut = audioOf(usage.candidatesTokensDetails ?? usage.responseTokensDetails);
+  const price = PRICES.gemini[String(model).split(":").pop()] ?? PRICES.gemini[process.env.PRICE_AS_MODEL ?? ""];
+  const usd = price
+    ? ((input - audio) * price.input + audio * price.audioInput + (output - audioOut) * price.output + audioOut * (price.audioOutput ?? price.output)) / M
+    : null;
+  return { kind: "llm", step, model, inputTokens: input, audioTokens: audio, outputTokens: output, audioOutputTokens: audioOut, usd };
 }
 
 /** One TTS request: Fish bills the UTF-8 bytes of the text. */

@@ -2,7 +2,7 @@
 // header lines, then speaks:
 //   HEARD: <what the caller said, word for word>
 //   LANG: de | en
-//   NEXT: listen | confirm | hangup
+//   NEXT: listen | wait | confirm | hangup   (wait: he isn't done, say nothing)
 //   <blank line>
 //   <spoken reply>
 // Headers come out once; the reply comes out one sentence at a time so each
@@ -10,7 +10,7 @@
 // (Adapted from mano-games/tools/buddy-lab/src/reply.mjs.)
 
 const MIN_SENTENCE = 24; // shorter pieces ride along with the next sentence
-const NEXT_VALUES = new Set(["listen", "confirm", "hangup"]);
+const NEXT_VALUES = new Set(["listen", "wait", "confirm", "hangup"]);
 
 export function createReplyParser({ onHeader, onSentence }) {
   let buf = "";
@@ -59,6 +59,8 @@ export function createReplyParser({ onHeader, onSentence }) {
     let consumed = 0;
     let done = false;
     for (const line of complete) {
+      // Blank lines inside the header are tolerated until NEXT has been seen.
+      if (!line.trim() && !("NEXT" in fields)) { consumed += line.length + 1; continue; }
       const m = line.match(/^\s*(HEARD|LANG|NEXT):[ \t]*(.*)$/i);
       if (!m) { done = true; break; }
       fields[m[1].toUpperCase()] = m[2].trim();
@@ -66,11 +68,18 @@ export function createReplyParser({ onHeader, onSentence }) {
       if ("HEARD" in fields && "LANG" in fields && "NEXT" in fields) { done = true; break; }
     }
     if (!done && !final && buf.length < 600) return;
+    pending = buf.slice(consumed).replace(/^\s+/, "");
+    // Tags the model squeezed onto one line ("LANG: de NEXT: hangup Alles klar…") or into the reply.
+    for (const [, k, v] of String(fields.LANG ?? "").matchAll(/\b(NEXT)\s*:\s*([a-z]+)/gi)) fields[k.toUpperCase()] = v;
+    let m;
+    while ((m = pending.match(/^(LANG|NEXT)\s*:\s*([a-z]+)\b[ \t]*\n?\s*/i))) {
+      fields[m[1].toUpperCase()] = m[2];
+      pending = pending.slice(m[0].length);
+    }
     heard = fields.HEARD ?? "";
     lang = /^(de|en)/i.test(fields.LANG ?? "") ? fields.LANG.slice(0, 2).toLowerCase() : "";
     const n = (fields.NEXT ?? "").toLowerCase().match(/[a-z]+/)?.[0];
     next = NEXT_VALUES.has(n) ? n : "listen";
-    pending = buf.slice(consumed).replace(/^\s+/, "");
     headerDone = true;
     onHeader({ heard, lang, next });
   };

@@ -10,9 +10,9 @@ export function thinkingConfig(model, budget = 0) {
 //  Slow path: a JSON-schema call that keeps the structured note up to date.
 //  It never sits between the caller and the next sound.
 
-export async function* streamTurn({ endpoint, model, system, history, audio, text, signal, thinkingBudget = 0, onUsage = () => {} }) {
+export async function* streamTurn({ endpoint, model, system, history, audio, text, extra, signal, thinkingBudget = 0, onUsage = () => {} }) {
   const current = audio
-    ? [{ inline_data: { mime_type: "audio/wav", data: audio.toString("base64") } }, { text: "(Der Anrufer spricht im Audio oben.)" }]
+    ? [{ inline_data: { mime_type: "audio/wav", data: audio.toString("base64") } }, { text: extra ?? "(The caller is speaking in the audio above.)" }]
     : [{ text: text ?? "" }];
   const response = await fetch(endpoint.url(model, "streamGenerateContent"), {
     method: "POST",
@@ -57,11 +57,20 @@ export function warmModel({ endpoint, model }) {
     .catch(() => {});
 }
 
-export async function extractJson({ endpoint, model, system, prompt, schema, signal, onUsage = () => {} }) {
+// Background JSON calls: try each model with a timeout before giving up.
+export async function extractJsonResilient({ models, timeoutMs = 15000, ...args }) {
+  let last;
+  for (const model of [...new Set(models.filter(Boolean))]) {
+    try { return await extractJson({ ...args, model, timeoutMs }); } catch (err) { last = err; }
+  }
+  throw last;
+}
+
+export async function extractJson({ endpoint, model, system, prompt, schema, signal, timeoutMs = 30000, onUsage = () => {} }) {
   const response = await fetch(endpoint.url(model, "generateContent"), {
     method: "POST",
     headers: await endpoint.headers(),
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: prompt }] }],

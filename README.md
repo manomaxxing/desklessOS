@@ -27,6 +27,49 @@ that calls it uses that same protocol:
 | **Fake Dial** | `npm run fake-dial -- --say "…" --say "…"` | Scripted calls, no mic needed; caller voice via Fish |
 | **Dial** | real phone call → `wss://<public-host>/dial/<call_id>` | The real thing |
 
+## Modes (selector in the phone's top bar)
+
+| Engine | What happens | First audio (measured) |
+|---|---|---|
+| **Gemini + Fish** (cascade) | Gemini hears the audio and writes the reply; Fish speaks it sentence by sentence | ~2.2–3.4 s, masked by typing |
+| **Gemini + Gemini TTS** | Same, Gemini's TTS voice (slow, mainly the backup voice) | ~5 s |
+| **Gemini Live** | Native audio model hears and speaks itself; its own VAD and barge-in | ~1.2–1.4 s |
+
+- **Pick per call** in the browser. **"Use for phone calls"** sets what real Dial
+  calls use (`GET/POST /api/config`).
+- **Gemini models** for the cascade: 3.5 Flash, 3 Flash preview, 2.5 Flash,
+  2.5 Flash-Lite.
+- **Live connections** (all probed working, `npm run live-probe`):
+  `vertex-eu:gemini-3.8-live` (default: EU, Vertex credits),
+  `vertex@us-central1:…`, `studio:…` (AI Studio key, billed separately), and
+  the 2.5 native-audio model (retires 2026-12-13).
+- **While thinking:** keyboard typing (synthesised, `TYPING_LEVEL_DB`), a spoken
+  "Mhm", or silence.
+
+## Conversation design
+
+These follow published guidance from Pipecat, LiveKit, Vapi, Retell, OpenAI
+Realtime and Google's Live best practices.
+
+- **Acknowledgements:** one to three words, varied; no parroting. At most one
+  question per turn and two per call, only for missing essentials. One executive
+  summary at the end, then "Passt das?", then goodbye.
+- **Dictation:** the end-of-turn wait is short (0.8 s), and the model answers
+  `NEXT: wait` when he stopped mid-thought. The agent then stays silent, keeps
+  his audio, and answers the whole thought after 2.5 s of real silence.
+- **Interruptions:** half a second of loud speech is needed to cut the agent off,
+  so a "mhm" doesn't count. History keeps only what the caller actually heard
+  (marks); if the interjection was just "ja/genau", the agent finishes the part
+  he missed.
+- **Failures:**
+  - Gemini: hedged requests; if there's no first token after 2.2 s, the fallback
+    model races it and the first to speak wins.
+  - Voice: if Fish fails, Gemini TTS takes over.
+  - Live: if it fails, the call continues on the cascade engine mid-call.
+  - Background calls: note extraction and the memory step retry with a fallback
+    model; if memory still fails it is queued on disk and retried.
+  - Spoken: three pre-rendered "sorry, say again" lines per language.
+
 ## Memory and cost
 
 - **Long-term memory** (`data/memory/`): after every call a consolidation step

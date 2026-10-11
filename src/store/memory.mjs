@@ -4,7 +4,7 @@
 //   data/memory/customers.json   { [id]: customer }
 //   data/memory/actions.json     [ action ]
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -107,6 +107,18 @@ export function createMemory(dir = process.env.MEMORY_DIR || "data/memory") {
           : "- none yet",
       ].filter(line => line !== "").join("\n");
     },
+
+    // Calls whose consolidation failed (API down): kept on disk and retried later.
+    savePending(job) {
+      mkdirSync(path.join(dir, "pending"), { recursive: true });
+      writeFileSync(path.join(dir, "pending", `${String(job.callId).replace(/[^a-zA-Z0-9._-]/g, "_")}.json`), JSON.stringify({ ...job, failedAt: new Date().toISOString() }));
+    },
+    listPending() {
+      const d = path.join(dir, "pending");
+      if (!existsSync(d)) return [];
+      return readdirSync(d).filter(f => f.endsWith(".json")).map(f => { try { return { file: path.join(d, f), ...JSON.parse(readFileSync(path.join(d, f), "utf8")) }; } catch { return null; } }).filter(Boolean);
+    },
+    removePending(job) { rmSync(job.file, { force: true }); },
 
     /** What the consolidation step needs to match against. */
     snapshot() {
