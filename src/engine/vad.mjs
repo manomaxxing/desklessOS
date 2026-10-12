@@ -34,6 +34,7 @@ export function createVad({
     setEndSilence(ms) { endSilenceMs = ms; },
     setStartMs(ms) { startMs = ms; }, // shorter while waiting for "ja" / "passt"
     setStrict(on) { strict = on; },
+    setInterruptMs(ms) { interruptMs = ms; }, // shorter right after the agent starts: he may not have been done
     /** Drops whatever is in progress (after a hang-up or reset). */
     reset() {
       speaking = false; voicedMs = 0; silenceMs = 0; utterance = []; utteranceMs = 0; preRoll = []; preRollLen = 0;

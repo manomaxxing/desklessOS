@@ -15,21 +15,32 @@ import { writeFileSync } from "node:fs";
 import { createMeter, geminiCost, ttsCost } from "./cost.mjs";
 import { createTypist } from "./ambience.mjs";
 import { consolidateCall } from "./consolidate.mjs";
+import { dangling, holdOn } from "./endpointing.mjs";
 import path from "node:path";
 
 // Short end-of-turn waits are safe because the model answers NEXT: wait when he
-// paused mid-thought; then we stay silent and keep collecting his audio.
-const END_SILENCE = { listen: 800, wait: 800, confirm: 600, hangup: 600 };
-const START_MS = { listen: 200, wait: 200, confirm: 120, hangup: 200 }; // a crisp "Passt." is ~160 ms voiced
-const WAIT_SILENCE_MS = 2500; // silence after a "wait" that means he's done after all
+// paused mid-thought; then we stay silent and keep collecting his audio. Only a
+// yes/no question (confirm) skips that check; an open question (ask) keeps it.
+const END_SILENCE = { listen: 800, ask: 1000, wait: 800, confirm: 600, hangup: 600 };
+const START_MS = { listen: 200, ask: 200, wait: 200, confirm: 120, hangup: 200 }; // a crisp "Passt." is ~160 ms voiced
+// After a "wait", if he stays quiet: a soft "mhm" (he keeps the floor), then the
+// answer. "Moment" / "warte mal" holds the floor much longer, without the "mhm".
+const WAIT_MHM_MS = 2000;
+const WAIT_DONE_MS = 4000;
+const HOLD_MS = 15000;
+// He talks again right after the agent started: he wasn't done. Stop on a shorter
+// burst of speech, forget the reply, and answer both parts as one thought.
+const FALSE_START_MS = 1500;
+const FALSE_START_INTERRUPT_MS = 300;
 const MAX_PENDING_MS = 60000;
 const FILLER_AFTER_MS = 700;
 const HEDGE_MS = Number(process.env.HEDGE_MS || 2200); // no first token by then: race the fallback model
 const TURN_DEADLINE_MS = 12000; // give up and say sorry
-const IDLE_MS = { listen: 9000, confirm: 7000, wait: 0, hangup: 0 };
+const IDLE_MS = { listen: 9000, ask: 10000, confirm: 7000, wait: 0, hangup: 0 };
 const FILLER_WORDS = /^(mhm|okay|ok|alles klar|got it)[.!,…]*\s*/i;
 const BACKCHANNEL = /^\s*(mhm|okay|ok)[.!,…]*\s*((weiter|go on)[.!…]*)?\s*$/i;
 const BACKCHANNEL_IDLE_MS = 3000;
+const STAGE_DIRECTION = /^\s*[[(][^\])]*[\])]\s*$/; // "[Silence]", "(wartet)": never read out loud
 const INTERRUPT_MS = Number(process.env.INTERRUPT_MIN_MS || 500); // loud speech needed to cut the agent off
 const TYPING_AFTER_MS = 250; // typing starts almost at once, like someone writing it down
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -74,8 +85,11 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
   let lastNext = "listen";
   let lang = initialLang ?? "de"; // set from Dial's language / the caller's number, then follows the caller
   let lastWasBackchannel = false;
+  let lastHold = false; // he said "Moment" and got a reply: give him longer before nudging
+  let lastSpoken = null; // the latest answer to his audio: { turn, at, userAudio, turnsBefore, prevNext }
   let idleTimer = null;
   let waitTimer = null;
+  let falseStartTimer = null;
   let nudges = 0;
   let oopsCount = 0;
   const markText = new Map(); // mark name → { turn, text } for sentences, so we know what was heard
@@ -220,7 +234,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
   // Caller silent after the agent finished: nudge once, then wrap up.
   function armIdle() {
     clearTimeout(idleTimer);
-    const ms = lastWasBackchannel ? BACKCHANNEL_IDLE_MS : IDLE_MS[lastNext] ?? IDLE_MS.listen;
+    const ms = lastHold ? HOLD_MS : lastWasBackchannel ? BACKCHANNEL_IDLE_MS : IDLE_MS[lastNext] ?? IDLE_MS.listen;
     if (ended || hangupMark || current || !ms) return;
     idleTimer = setTimeout(() => {
       if (ended || current || marks.size) return;
@@ -237,16 +251,34 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     }, ms);
   }
 
-  // After a "wait" (he paused mid-thought): if he stays quiet, answer the whole
-  // dictation as one turn.
-  function armWait() {
+  // After a "wait" (he paused mid-thought): if he stays quiet, a soft "mhm" says
+  // we're still listening; if he's still quiet after that, answer the whole
+  // dictation as one turn. After "Moment" he gets HOLD_MS and no "mhm".
+  function armWait({ hold = false } = {}) {
     clearTimeout(waitTimer);
-    waitTimer = setTimeout(() => {
+    const answer = () => {
       if (ended || current || !pendingUser.length) return;
-      if (vad.speaking) return armWait();
-      debug("nudge", { kind: "dictation_done" });
+      if (vad.speaking) return armWait({ hold });
+      debug("nudge", { kind: hold ? "hold_done" : "dictation_done" });
       runTurn({ force: true }).catch(err => fail("turn", err));
-    }, WAIT_SILENCE_MS);
+    };
+    if (hold) { waitTimer = setTimeout(answer, HOLD_MS); return; }
+    waitTimer = setTimeout(() => {
+      if (ended || current || !pendingUser.length || vad.speaking) return;
+      backchannel();
+      waitTimer = setTimeout(answer, WAIT_DONE_MS - WAIT_MHM_MS);
+    }, WAIT_MHM_MS);
+  }
+
+  // A quiet "mhm" that doesn't take the floor: no mark, so his speech isn't a
+  // barge-in; strict VAD only while it plays, so its echo doesn't count as him.
+  function backchannel() {
+    const pcm = assets[lang]?.backchannel;
+    if (!pcm?.length) return;
+    for (const chunk of frames(pcm, 200)) send({ type: "media", payload: chunk.toString("base64") });
+    vad.setStrict(true);
+    setTimeout(() => { if (!marks.size) vad.setStrict(false); }, durationMs(pcm) + 300);
+    debug("backchannel");
   }
 
   function onSpeechStart() {
@@ -255,10 +287,28 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     debug("vad", { speaking: true });
     const agentTalking = marks.size > 0 || (current && current.audioSent);
     if (agentTalking) {
-      debug("barge_in");
+      const falseStart = Boolean(lastSpoken) && performance.now() - lastSpoken.at < FALSE_START_MS;
+      debug("barge_in", falseStart ? { falseStart } : {});
       stopSpeaking();
+      hangupMark = null; // he's still talking: don't hang up on him
+      if (falseStart) resumeAfterFalseStart();
     }
     if (current) { current.abort.abort(); current = null; }
+  }
+
+  // The agent started answering and he kept going within FALSE_START_MS: he
+  // wasn't done. Forget the reply and the turn it answered, and put his audio
+  // back, so what he says next is answered together with it, as one thought.
+  function resumeAfterFalseStart() {
+    const { turn, userAudio, turnsBefore, prevNext } = lastSpoken;
+    lastSpoken = null;
+    turn.falseStart = true;
+    turns.splice(turnsBefore);
+    pendingUser = [...userAudio, ...pendingUser];
+    lastNext = prevNext;
+    vad.setEndSilence(END_SILENCE[prevNext] ?? END_SILENCE.listen);
+    vad.setStartMs(START_MS[prevNext] ?? START_MS.listen);
+    debug("false_start", { turn: turn.id });
   }
 
   function onSpeechEnd(pcm) {
@@ -266,6 +316,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     if (ended || durationMs(pcm) < 250) return;
     pendingUser.push(pcm);
     nudges = 0;
+    lastHold = false;
     runTurn().catch(err => fail("turn", err));
   }
 
@@ -273,7 +324,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     clearTimeout(idleTimer);
     clearTimeout(waitTimer);
     if (!text && !force && pendingUser.reduce((n, p) => n + durationMs(p), 0) > MAX_PENDING_MS) force = true;
-    const turn = { id: ++turnSeq, abort: new AbortController(), audioSent: false, fillerPlayed: false, endpointAt: performance.now(), marks: [] };
+    const turn = { id: ++turnSeq, abort: new AbortController(), audioSent: false, fillerPlayed: false, endpointAt: performance.now(), marks: [], prevNext: lastNext };
     current = turn;
     const signal = turn.abort.signal;
     const audio = text ? null : wav(Buffer.concat(pendingUser.flatMap((p, i) => (i ? [silence(300), p] : [p]))));
@@ -319,6 +370,13 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
           if (!turn.firstAudioAt) {
             turn.firstAudioAt = performance.now();
             stopMask();
+            if (turn.userAudio) {
+              // For a moment after the agent starts, a shorter burst of his speech cuts it off (a false start).
+              lastSpoken = { turn, at: turn.firstAudioAt, userAudio: turn.userAudio, turnsBefore: turn.turnsBefore, prevNext: turn.prevNext };
+              vad.setInterruptMs(FALSE_START_INTERRUPT_MS);
+              clearTimeout(falseStartTimer);
+              falseStartTimer = setTimeout(() => vad.setInterruptMs(INTERRUPT_MS), FALSE_START_MS);
+            }
             if (!text) debug("latency", { turn: turn.id, firstAudioMs: Math.round(turn.firstAudioAt - turn.endpointAt), firstTokenMs: Math.round(turn.firstTokenAt - turn.endpointAt), fishFirstByteMs: cfg.tts === "fish" ? fish?.stream.lastFirstByteMs : null });
           }
           turn.audioSent = true;
@@ -337,9 +395,11 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     const parser = createReplyParser({
       onHeader: ({ heard, lang: l, next: n, act }) => {
         if (n === "wait" && (force || text || lastNext === "confirm")) n = "listen"; // he's been quiet, or answered a yes/no question: answer now
+        else if (n !== "wait" && !force && !text && lastNext !== "confirm" && dangling(heard)) { n = "wait"; debug("dangling", { turn: turn.id, text: heard }); } // "…die will": he isn't done
         if (act === "execute" && office) turn.execute = true;
         next = n;
         if (l) lang = l;
+        turn.hold = !text && holdOn(heard);
         if (n === "wait") {
           // Unfinished thought: say nothing, keep his audio, and answer it all once he's done.
           turn.waiting = true;
@@ -349,12 +409,14 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
         }
         vad.setEndSilence(END_SILENCE[n] ?? END_SILENCE.listen);
         vad.setStartMs(START_MS[n] ?? START_MS.listen);
+        if (!text) Object.assign(turn, { userAudio: pendingUser, turnsBefore: turns.length }); // to undo a false start
         turns.push({ role: "user", text: text ?? (heard || "(not transcribed)") });
         if (!text) pendingUser = []; // answered (even if the caller cuts in later)
         debug("heard", { turn: turn.id, text: heard, next: n, lang, audio: inFile });
       },
       onSentence: sentence => {
         if (signal.aborted || turn.waiting) return;
+        if (STAGE_DIRECTION.test(sentence)) { debug("say", { turn: turn.id, text: sentence, note: "stage direction, not spoken" }); return; }
         // A filler already said "Mhm": don't say it twice.
         if (turn.fillerPlayed && !reply && FILLER_WORDS.test(sentence)) {
           const rest = sentence.replace(FILLER_WORDS, "");
@@ -403,19 +465,20 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
       // model can pick up where it was cut off instead of assuming it said it all.
       const heard = turn.marks.filter(m => m && markText.get(m)?.heard).map(m => markText.get(m).text);
       const unsaid = clips.map(c => c.text).slice(heard.length).join(" ");
-      if (reply) turns.push({ role: "model", text: `${heard.join(" ")}${heard.length ? " " : ""}[interrupted by the caller${unsaid ? `; not heard: "${unsaid.slice(0, 160)}"` : ""}]` });
+      if (reply && !turn.falseStart) turns.push({ role: "model", text: `${heard.join(" ")}${heard.length ? " " : ""}[interrupted by the caller${unsaid ? `; not heard: "${unsaid.slice(0, 160)}"` : ""}]` });
       return;
     }
     if (turn.waiting) {
       if (current === turn) current = null;
       lastNext = "wait";
-      armWait();
+      armWait({ hold: turn.hold });
       return;
     }
     if (reply) turns.push({ role: "model", text: reply });
     if (current === turn) current = null;
     if (turn.execute) { runWorkflow().catch(err => fail("workflow", err)); return; }
     lastNext = next;
+    lastHold = turn.hold;
     lastWasBackchannel = next === "listen" && BACKCHANNEL.test(reply.replace(/\(schon als Füller gesagt\)/, ""));
     if (!text) refreshNote();
     if (next === "hangup") hangupMark = sendMark("bye");
@@ -463,6 +526,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     typist?.stop();
     clearTimeout(idleTimer);
     clearTimeout(waitTimer);
+    clearTimeout(falseStartTimer);
     current?.abort.abort();
     vad.reset();
     finalized = (async () => {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createVad } from "../src/engine/vad.mjs";
-import { silence, frames } from "../src/engine/audio.mjs";
+import { silence, frames, gain, rms } from "../src/engine/audio.mjs";
 
 // A 200 Hz tone stands in for speech.
 function tone(ms, amp = 0.2) {
@@ -48,4 +48,22 @@ test("strict mode (agent talking) needs louder, longer speech", () => {
   assert.equal(started, false);
   feed(vad, tone(700, 0.3));
   assert.equal(started, true);
+});
+
+test("right after the agent starts, a shorter burst cuts it off (false start)", () => {
+  const starts = [];
+  const vad = createVad({ onSpeechStart: () => starts.push("start"), interruptMs: 500 });
+  vad.setStrict(true);
+  feed(vad, tone(380, 0.3)); // 380 ms: not enough for a normal barge-in
+  assert.equal(starts.length, 0);
+  feed(vad, silence(600));
+  vad.setInterruptMs(300);
+  feed(vad, tone(380, 0.3)); // the same burst in the false-start window
+  assert.equal(starts.length, 1);
+});
+
+test("gain scales and clips PCM", () => {
+  const loud = tone(100, 0.4);
+  assert.ok(Math.abs(rms(gain(loud, 0.5)) - rms(loud) / 2) < 0.002, "half as loud");
+  assert.equal(gain(Buffer.from([0xff, 0x7f]), 2).readInt16LE(0), 32767, "clipped, not wrapped");
 });

@@ -21,6 +21,7 @@ import { createLiveSession } from "./src/engine/live-session.mjs";
 import { warmModel } from "./src/engine/gemini.mjs";
 import { createGeminiTts } from "./src/engine/gemini-tts.mjs";
 import { typingLoop } from "./src/engine/ambience.mjs";
+import { gain } from "./src/engine/audio.mjs";
 import { consolidateCall } from "./src/engine/consolidate.mjs";
 import { createNotesStore } from "./src/store/notes.mjs";
 import { createMonitor } from "./src/monitor.mjs";
@@ -96,8 +97,9 @@ const assetsReady = Promise.all(
     const lines = skill.VOICE_LINES[lang];
     const synth = text => fish.synth(text, { lang }).catch(err => { log(`asset synth failed (${lang}):`, text, err.message); return null; });
     const oopsLines = [].concat(lines.oops);
-    const [greeting, wrapUp, ...rest] = await Promise.all([lines.greeting, lines.wrapUp, ...oopsLines, ...lines.fillers].map(synth));
-    assets[lang] = { greeting, wrapUp, oops: rest.slice(0, oopsLines.length).filter(Boolean), fillers: rest.slice(oopsLines.length).filter(Boolean) };
+    const [greeting, wrapUp, mhm, ...rest] = await Promise.all([lines.greeting, lines.wrapUp, lines.backchannel ?? "", ...oopsLines, ...lines.fillers].map(t => (t ? synth(t) : null)));
+    // The backchannel plays while he's still thinking, so it's quieter than the agent's own turns.
+    assets[lang] = { greeting, wrapUp, backchannel: mhm && gain(mhm, 0.5), oops: rest.slice(0, oopsLines.length).filter(Boolean), fillers: rest.slice(oopsLines.length).filter(Boolean) };
   }),
 ).then(() => log(`voice assets ready (${skill.LANGS.map(l => `${l}: ${assets[l].fillers.length} fillers, ${assets[l].oops.length} oops`).join("; ")})`));
 assets.typing = typingLoop();

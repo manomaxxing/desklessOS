@@ -2,7 +2,8 @@
 // header lines, then speaks:
 //   HEARD: <what the caller said, word for word>
 //   LANG: de | en
-//   NEXT: listen | wait | confirm | hangup   (wait: he isn't done, say nothing)
+//   NEXT: listen | wait | ask | confirm | hangup   (wait: he isn't done, say nothing;
+//         ask: an open question, confirm: a yes/no question)
 //   <blank line>
 //   <spoken reply>
 // Headers come out once; the reply comes out one sentence at a time so each
@@ -10,7 +11,7 @@
 // (Adapted from mano-games/tools/buddy-lab/src/reply.mjs.)
 
 const MIN_SENTENCE = 24; // shorter pieces ride along with the next sentence
-const NEXT_VALUES = new Set(["listen", "wait", "confirm", "hangup"]);
+const NEXT_VALUES = new Set(["listen", "wait", "ask", "confirm", "hangup"]);
 
 export function createReplyParser({ onHeader, onSentence }) {
   let buf = "";

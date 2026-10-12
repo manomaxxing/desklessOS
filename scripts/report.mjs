@@ -35,10 +35,16 @@ const notes = timed.filter(r => r.savedNoteId).length;
 const asked = log.filter(c => c.asked.length).length;
 const declined = log.filter(c => c.declined.length).length;
 
+// Turn-taking: how often he paused mid-thought and how often the agent cut in too early.
+const events = log.flatMap(c => records[c.callId]?.events ?? []);
+const count = test => events.filter(test).length;
+const turnTaking = `- Turn-taking: ${count(e => e.event === "heard" && e.next === "wait")} pauses where the agent kept listening, ${count(e => e.event === "backchannel")} "mhm"s, ${count(e => e.event === "nudge" && e.kind === "hold_done")} "Moment"s; ${count(e => e.event === "barge_in" && e.falseStart)} false starts (he went on talking within 1.5 s of the agent starting), ${count(e => e.event === "barge_in" && !e.falseStart)} other interruptions`;
+
 const usage = [
   `- Calls: ${log.length} on ${byDay.length} days (${byDay.join("; ") || "none"})`,
   `- When he calls (Konstanz time): ${bySlot.join(", ")}`,
   `- Median call: ${(median(timed.map(r => (r.endedAt - r.startedAt) / 60000)) || 0).toFixed(1)} min; calls that saved a note: ${notes}`,
+  turnTaking,
   `- Research questions: asked in ${asked} calls, declined in ${declined}; ${Object.values(state).filter(q => q.answered).length} of ${fw.areas.flatMap(a => a.questions).length} framework questions answered`,
 ];
 

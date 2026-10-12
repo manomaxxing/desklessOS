@@ -90,7 +90,7 @@ export function createDiscovery({ framework = loadFramework(), dir = dataDir("di
         `WHAT WE'VE LEARNED ABOUT HIM AND HIS BUSINESS (pilot week, day ${pilotDay} of ${framework.pilotDays}):`,
         ...known,
         "",
-        intro ? "FIRST CALL: yes, this is his first call to the notebook (see D)." : "",
+        intro ? "FIRST CALL: yes, this is his first call to the notebook (see D)." : "FIRST CALL: no. He knows the notebook already; don't introduce yourself again.",
         capped || !picks.length
           ? "DISCOVERY QUESTION FOR THIS CALL: none. Don't ask any research question in this call."
           : `DISCOVERY QUESTION FOR THIS CALL (ask at most one, at the end, see D; take the first unless another one links directly to what he said):\n${ask.join("\n")}`,

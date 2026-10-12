@@ -78,3 +78,9 @@ test("DO squeezed onto the NEXT line", () => {
   assert.equal(out.header.act, "execute");
   assert.equal(out.sentences.join(" "), "On it.");
 });
+
+test("ask (an open question) is its own NEXT value", () => {
+  const out = run(["HEARD: Ich komm grad vom Meier.\nLANG: de\nNEXT: ask\n\nWo war das nochmal?"]);
+  assert.equal(out.header.next, "ask");
+  assert.equal(out.sentences.join(" "), "Wo war das nochmal?");
+});

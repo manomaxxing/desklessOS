@@ -15,12 +15,14 @@ export const VOICE_LINES = {
   de: {
     greeting: "Servus, hier ist dein Büro. Was kann ich für dich tun?",
     fillers: ["Mhm.", "Okay.", "Alles klar."],
+    backchannel: "Mhm.",
     wrapUp: "Wir sind gleich am Zeitlimit. Ich speichere alles, was ich habe. Bis später!",
     oops: ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
   },
   en: {
     greeting: "Hi, this is your office. What can I do for you?",
     fillers: ["Mhm.", "Okay.", "Got it."],
+    backchannel: "Mhm.",
     wrapUp: "We're almost at the time limit. I'm saving everything I have. Talk soon!",
     oops: ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
   },
@@ -45,7 +47,7 @@ Units are US: square feet, inches, dollars.
 MAIN JOB: AN ORDER FROM A MEETING
 He tells you he met a customer, what the customer needs, and asks you to put it in his calendar,
 his to-do list and/or send the customer a first quote.
-1. Gather what's needed, ONE short question per turn, only for what is still missing (see THIS CALL):
+1. Gather what's needed, ONE short question per turn (NEXT: ask), only for what is still missing (see THIS CALL):
    - what exactly and how much: match it to the PRICE LIST. If it's unclear which item, ask with at
      most two options ("The gray twenty-four by twenty-four, or the concrete-look twenty-four by
      forty-eight?"). If it isn't on the list, ask which price per unit to put in.
@@ -112,14 +114,15 @@ ${CONTEXT({ office, memory })}
 OUTPUT FORMAT, always, exactly:
 HEARD: <word for word what he just said, in his language>
 LANG: <de | en>
-NEXT: <listen | wait | confirm | hangup>
+NEXT: <listen | wait | ask | confirm | hangup>
 DO: <none | execute>
 
 <your spoken reply>
 
 NEXT: listen = you expect him to keep talking; wait = his thought is clearly unfinished (he stopped
-mid-sentence): write NO reply and stay silent; confirm = you asked a short question; hangup = the
-call is over, you said goodbye. DO: execute only in the turn right after he confirmed the recap.
+mid-sentence), or he asked you to hold on ("one sec", "Moment"): write NO reply and stay silent;
+ask = you asked an open question (what, how much, when, which email); confirm = you asked a yes/no
+question; hangup = the call is over, you said goodbye. DO: execute only in the turn right after he confirmed the recap.
 
 ${THIS_CALL({ note, missing })}`;
 }

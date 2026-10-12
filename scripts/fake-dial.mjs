@@ -6,6 +6,7 @@
 //   npm run fake-dial -- --say "Ich komm grad von der Frau Müller in Haching…" --say "Passt."
 //   npm run fake-dial -- --url wss://<host>/dial --signed --say "…"     (deployed, signed like Dial)
 //   npm run fake-dial -- --wav caller.wav                                (your own 16 kHz recording)
+//   npm run fake-dial -- --say "Ich komm grad von … [pause 3] … und die will ein neues Bad."   (a thinking pause mid-line)
 
 import { createHmac } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -29,7 +30,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fish = createFish({ ...process.env, FISH_VOICE: callerVoice, FISH_SPEED: "1" });
 const utterances = [];
 if (opt("--wav")) utterances.push(wavData(readFileSync(opt("--wav"))).pcm);
-for (const text of lines) utterances.push(await fish.synth(text));
+// "[pause 3]" inside a line: that many seconds of silence mid-sentence, like a caller thinking.
+async function speak(text) {
+  const parts = text.split(/\[pause\s+([\d.]+)\]/i);
+  const pcm = [];
+  for (const [i, part] of parts.entries()) {
+    if (i % 2) pcm.push(silence(Number(part) * 1000));
+    else if (part.trim()) pcm.push(await fish.synth(part.trim()));
+  }
+  return Buffer.concat(pcm);
+}
+for (const text of lines) utterances.push(await speak(text));
 if (!utterances.length) utterances.push(await fish.synth("Hallo? Hörst du mich? Ich komm grad von einem Termin bei Herrn Huber in Pullach, Küche, Fliesenspiegel neu."));
 
 const url = `${base.replace(/\/$/, "")}/${callId}${signed ? "" : "?dev=1"}`;
@@ -68,7 +79,8 @@ ws.on("message", data => {
     ended = true;
   } else if (f.type === "debug") {
     if (f.event === "heard") console.log(stamp(), `🗣  ${f.text}   [${f.lang}, next: ${f.next}]`);
-    if (f.event === "say") { lastSayAt = performance.now(); if (f.delta) process.stdout.write(f.text); else console.log(stamp(), `🤖 ${f.text}`); }
+    if (f.event === "say" && f.note?.startsWith("stage")) console.log(stamp(), `🤐 not spoken: ${f.text}`);
+    else if (f.event === "say") { lastSayAt = performance.now(); if (f.delta) process.stdout.write(f.text); else console.log(stamp(), `🤖 ${f.text}`); }
     if (f.event === "fallback") console.log(stamp(), `↪ fallback ${f.what}: ${f.from} → ${f.to} (${f.reason})`);
     if (f.event === "retry") console.log(stamp(), `↻ retry → ${f.next}: ${f.reason}`);
     if (f.event === "live") console.log(stamp(), `◉ ${f.text}`);
@@ -77,7 +89,10 @@ ws.on("message", data => {
     if (f.event === "note") console.log(stamp(), `📝 note: ${f.note.zusammenfassung || "(…)"}  missing: ${f.missing.join(", ") || "none"}`);
     if (f.event === "mask") console.log(stamp(), "⌨ typing");
     if (f.event === "vad") console.log(stamp(), f.speaking ? "🎙  speech start" : `🎙  speech end (${f.ms} ms)`);
-    if (f.event === "barge_in") console.log(stamp(), "✋ barge-in");
+    if (f.event === "barge_in") console.log(stamp(), f.falseStart ? "✋ barge-in: false start, he wasn't done" : "✋ barge-in");
+    if (f.event === "dangling") console.log(stamp(), "↩  stopped mid-sentence: keep listening");
+    if (f.event === "backchannel") console.log(stamp(), "… mhm (backchannel)");
+    if (f.event === "nudge") console.log(stamp(), `⏲  ${f.kind}`);
     if (f.event === "saved") console.log(stamp(), `💾 saved ${f.id}`);
   } else if (f.type === "ping_pong") {
     /* our own pings echoed */

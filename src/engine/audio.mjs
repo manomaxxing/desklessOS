@@ -48,6 +48,13 @@ export function wavData(buf) {
   throw new Error("no data chunk in wav");
 }
 
+/** The same PCM16, louder or quieter (0.5 ≈ -6 dB), clipped to range. */
+export function gain(pcm, factor) {
+  const out = Buffer.alloc(pcm.length);
+  for (let i = 0; i + 1 < pcm.length; i += 2) out.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(pcm.readInt16LE(i) * factor))), i);
+  return out;
+}
+
 /** Silence of the given length. */
 export function silence(ms) {
   return Buffer.alloc(Math.round(ms * BYTES_PER_MS));

@@ -67,13 +67,29 @@ Realtime and Google's Live best practices.
 - **Acknowledgements:** one to three words, varied; no parroting. At most one
   question per turn and two per call, only for missing essentials. One executive
   summary at the end, then "Passt das?", then goodbye.
-- **Dictation:** the end-of-turn wait is short (0.8 s), and the model answers
-  `NEXT: wait` when he stopped mid-thought. The agent then stays silent, keeps
-  his audio, and answers the whole thought after 2.5 s of real silence.
-- **Interruptions:** half a second of loud speech is needed to cut the agent off,
-  so a "mhm" doesn't count. History keeps only what the caller actually heard
-  (marks); if the interjection was just "ja/genau", the agent finishes the part
-  he missed.
+- **Turn-taking** (cascade engine only; `src/engine/session.mjs`, `endpointing.mjs`):
+  - A pause of 0.8 s ends his turn (0.6 s after a yes/no question, 1 s after an
+    open one). The model answers `NEXT: wait` when he stopped mid-thought, and a
+    word check overrides it when his words stop on "und", "die", "will" and the
+    like. The agent then stays silent and keeps his audio.
+  - If he stays quiet, a quiet "Mhm." after 2 s says it's still listening; after
+    4 s it answers the whole thought as one turn. "Moment", "warte mal" or
+    "Sekunde" hold the floor for 15 s, without the "mhm".
+  - The model marks its question as yes/no (`NEXT: confirm`, short wait, no
+    mid-thought check) or open (`NEXT: ask`, he may pause while answering).
+  - False starts: if he goes on talking within 1.5 s of the agent starting, a
+    short burst (0.3 s) cuts it off, the reply is forgotten, and his two parts
+    are answered as one.
+  - Gemini Live uses Gemini's own silence detection (0.8 s) without these checks,
+    so the pilot runs on the cascade.
+- **Interruptions:** otherwise half a second of loud speech is needed to cut the
+  agent off, so a "mhm" doesn't count. History keeps only what the caller
+  actually heard (marks); if the interjection was just "ja/genau", the agent
+  finishes the part he missed. Bracketed stage directions ("[Silence]") are
+  never spoken.
+- **Testing pauses:** `npm run fake-dial -- --say "Die will [pause 5] ein neues Bad."`
+  puts a thinking pause mid-line. `npm run report` counts pauses held, "mhm"s,
+  holds and false starts per pilot week.
 - **Failures:**
   - Gemini: hedged requests; if there's no first token after 2.2 s, the fallback
     model races it and the first to speak wins.
