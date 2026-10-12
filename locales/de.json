@@ -39,6 +39,8 @@
       "backchannel": "Mhm.",
       "fillers": ["Mhm.", "Okay.", "Alles klar."],
       "oops": ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
+      "working": "Mach ich.",
+      "looking": "Moment, ich schau nach.",
       "examples": {
         "address": "du",
         "acks": ["Okay.", "Alles klar.", "Verstehe.", "Gut.", "Notiert.", "Ah, okay.", "Mhm, und?"],
@@ -74,6 +76,8 @@
       "backchannel": "Mhm.",
       "fillers": ["Mhm.", "Okay.", "Alles klar."],
       "oops": ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
+      "working": "Mach ich.",
+      "looking": "Moment, ich schau nach.",
       "examples": {
         "acks": ["Alles klar.", "Passt."],
         "emailReadBack": "peter at steinberger punkt com?",

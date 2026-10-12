@@ -186,6 +186,8 @@ function items(call) {
       case "mask": out.push({ t, kind: "chip", text: "typing sound (masking the wait)" }); break;
       case "workflow_start": out.push({ t, kind: "chip", text: "office: booking calendar, to-dos, quote…" }); break;
       case "workflow": out.push({ t, kind: "chip", cls: "good", text: `office done · ${e.result?.summary ?? ""}` }); break;
+      case "tool": out.push({ t, kind: "chip", cls: e.ignored ? "warn" : e.status === "ok" || e.status === "repeated" ? "good" : "warn", text: e.ignored ? `tool call ignored (${e.reason}) · ${e.ignored.join(", ")}` : `tool ${e.name} · ${e.status} · ${e.ms} ms${e.summary ? " · " + e.summary : ""}` }); break;
+      case "tool_latency": out.push({ t, kind: "chip", text: `answer after tool · ${(e.hopMs / 1000).toFixed(2)} s after the call · ${(e.totalMs / 1000).toFixed(2)} s after he stopped` }); break;
       case "live": out.push({ t, kind: "chip", cls: e.level === "error" ? "bad" : "", text: `live · ${e.text}` }); break;
       case "barge_in": out.push({ t, kind: "chip", cls: "warn", text: "barge-in · playback cleared" }); break;
       case "nudge": out.push({ t, kind: "chip", cls: "warn", text: `silence nudge · ${e.kind}` }); break;

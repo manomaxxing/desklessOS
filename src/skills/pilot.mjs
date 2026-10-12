@@ -8,6 +8,7 @@
 // language the call is in (locales/<id>.json, persona "notebook").
 
 import { loadFramework } from "../store/discovery.mjs";
+import { toolRules } from "../tools/prompt.mjs";
 import { locales, promptDate, promptWeekday } from "../locale/index.mjs";
 
 export const framework = loadFramework();
@@ -126,7 +127,7 @@ Required details still missing: ${missing?.length ? missing.join(", ") : "none"}
 const ROLE = `You are the voice notebook of ${trade} in ${who.place}. He calls you from his car, hands-free.`;
 
 // Cascade mode: Gemini writes, a TTS voice speaks.
-export function systemPrompt({ note, missing, memory = "", lang = DEFAULT_LANG }) {
+export function systemPrompt({ note, missing, memory = "", lang = DEFAULT_LANG, tools = null }) {
   const ex = locales().persona(lang, PERSONA).examples;
   return `${ROLE}
 Everything you write is read aloud by a text-to-speech voice. Today is ${today()}.
@@ -147,7 +148,7 @@ thought is clearly unfinished (he stopped mid-sentence, mid-list, on ${qs(ex.unf
 you to hold on (${qs(ex.holdOn)}): write NO reply at all and stay silent; ask = you asked an open
 question that takes more than a word to answer (he may pause to think while answering); confirm =
 you asked a yes/no question (${q(ex.confirm)}); hangup = the call is over, you said goodbye.
-
+${tools?.length ? `\n${toolRules(tools, locales().persona(lang, PERSONA))}\n` : ""}
 ${THIS_CALL({ note, missing })}`;
 }
 

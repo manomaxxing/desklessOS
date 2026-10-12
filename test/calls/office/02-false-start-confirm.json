@@ -1,0 +1,11 @@
+{
+  "lang": "en",
+  "says": [
+    "Hi, I just met Anna Kowalski. She needs two hundred square feet of the gray twenty-four by twenty-four tiles. Put it in my calendar for next Wednesday and send her a first quote. Her email is anna at kowalski dot com.",
+    "Yes, go ahead. [pause 3.2] Oh wait, make it Thursday instead.",
+    "Yes.",
+    "No, that's all. Bye."
+  ],
+  "must": [{ "count": { "workflow": 1 } }],
+  "should": [{ "falseStart": true }, { "said": "Thursday" }, { "noEvent": "error" }]
+}

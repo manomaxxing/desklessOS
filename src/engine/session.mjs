@@ -5,11 +5,13 @@
 //
 // Inside: VAD → fast path (Gemini hears and answers in one stream) → Fish per
 // sentence → audio out. The slow path (structured note) runs beside it.
+// Tools (Gemini function calling, src/tools/): at most two model calls per turn,
+// the answer with the tool call, then the follow-up with its result.
 // `config` (from the mode selector): { model, tts: "fish"|"gemini", mask: "typing"|"filler"|"none" }.
 
 import { createVad } from "./vad.mjs";
 import { createReplyParser } from "./reply.mjs";
-import { streamTurn, extractJsonResilient, warmModel } from "./gemini.mjs";
+import { streamTurn, extractJsonResilient, warmModel, userContent, historyContents } from "./gemini.mjs";
 import { wav, silence, frames, durationMs } from "./audio.mjs";
 import { writeFileSync } from "node:fs";
 import { createMeter, geminiCost, ttsCost } from "./cost.mjs";
@@ -17,6 +19,8 @@ import { createTypist } from "./ambience.mjs";
 import { consolidateCall } from "./consolidate.mjs";
 import { dangling, holdOn } from "./endpointing.mjs";
 import { locales, pickLanguage } from "../locale/index.mjs";
+import { createToolRunner } from "../tools/registry.mjs";
+import { callTools } from "../tools/index.mjs";
 import path from "node:path";
 
 // Short end-of-turn waits are safe because the model answers NEXT: wait when he
@@ -52,6 +56,11 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
   const fastModel = cfg.model;
   const slowModel = extractModel || model; // notes and memory stay on one model so modes compare fairly
   const fallbackModel = process.env.FALLBACK_MODEL || (fastModel === "gemini-2.5-flash" ? "gemini-3.5-flash" : "gemini-2.5-flash");
+  // Native tool calls; TOOLS=header keeps the old "DO: execute" header line (A/B until templates replace it).
+  const toolMode = process.env.TOOLS === "header" ? "header" : "native";
+  const runner = createToolRunner({ tools: toolMode === "native" ? callTools({ engine: "cascade", office, memory, store }) : [] });
+  let toolDecls = null;
+  const declarations = () => (toolDecls ??= runner.declarations());
   const meter = createMeter();
   const record = (step, usage, turnId, m = slowModel) => {
     const entry = geminiCost(m, usage, step);
@@ -166,22 +175,25 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
 
   // Gemini hangs or errors now and then. Hedged requests (Sierra's trick): if the
   // main model hasn't produced a token after HEDGE_MS, or fails before its first
-  // token, the fallback model starts in parallel; the first to speak wins and the
-  // other is cancelled. Words are never repeated: losers are dropped before any
-  // of their text is used.
-  async function* geminiStream(args, signal, turn) {
+  // token, the backup model starts in parallel; the first to speak wins and the
+  // other is cancelled. Words are never repeated (losers are dropped before any
+  // of their text is used), and only the winner's tool calls are ever run.
+  // `request`: the streamTurn args, or a function model → args (the tool follow-up
+  // differs per model). The final "end" event carries the winning model.
+  async function* geminiStream(request, signal, turn, { primary = fastModel, backup = fallbackModel } = {}) {
+    const argsFor = typeof request === "function" ? request : () => request;
     const attempts = [];
     let wake = null;
     const notify = () => { const w = wake; wake = null; w?.(); };
     const launch = (m, why) => {
       const ctl = new AbortController();
-      const att = { m, ctl, pieces: [], done: false, error: null };
+      const att = { m, ctl, events: [], done: false, error: null };
       attempts.push(att);
       if (why) debug("retry", { turn: turn.id, reason: why, next: m });
       (async () => {
         try {
-          for await (const piece of streamTurn({ ...args, model: m, onUsage: u => record("turn", u, turn.id, m), signal: AbortSignal.any([signal, ctl.signal]) })) {
-            att.pieces.push(piece);
+          for await (const ev of streamTurn({ ...argsFor(m), endpoint, model: m, onUsage: u => record("turn", u, turn.id, m), signal: AbortSignal.any([signal, ctl.signal]) })) {
+            att.events.push(ev);
             notify();
           }
         } catch (err) {
@@ -193,23 +205,24 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
       })();
       return att;
     };
+    const spoke = a => a.events.some(e => e.type !== "end");
     const started = performance.now();
-    launch(fastModel);
-    const hedge = setTimeout(() => { if (!winner()) launch(fallbackModel, `no first token after ${HEDGE_MS} ms`); notify(); }, HEDGE_MS);
-    const winner = () => attempts.find(a => a.pieces.length);
+    launch(primary);
+    const hedge = setTimeout(() => { if (!winner()) launch(backup, `no first token after ${HEDGE_MS} ms`); notify(); }, HEDGE_MS);
+    const winner = () => attempts.find(spoke);
     try {
       let w = null;
       while (!w) {
         w = winner();
         if (w) break;
         if (signal.aborted) throw signal.reason ?? new Error("aborted");
-        const failed = attempts.filter(a => a.done && !a.pieces.length);
+        const failed = attempts.filter(a => a.done && !spoke(a));
         if (failed.length === attempts.length) {
           // everyone failed before a token: one more model, then give up
           const tried = new Set(attempts.map(a => a.m));
-          const next = !tried.has(fallbackModel) ? fallbackModel : attempts.length < 3 ? fastModel : null;
+          const next = !tried.has(backup) ? backup : attempts.length < 3 ? primary : null;
           if (!next || performance.now() - started > TURN_DEADLINE_MS) throw failed.at(-1).error ?? new Error("all models failed");
-          launch(next, failed.at(-1).error?.message?.slice(0, 160) ?? "failed");
+          launch(next, failed.at(-1).error?.message?.slice(0, 160) ?? "empty answer");
           continue;
         }
         if (performance.now() - started > TURN_DEADLINE_MS) throw new Error(`no answer after ${TURN_DEADLINE_MS} ms`);
@@ -217,10 +230,10 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
       }
       clearTimeout(hedge);
       for (const a of attempts) if (a !== w) a.ctl.abort();
-      if (w.m !== fastModel || attempts.length > 1) debug("recovered", { turn: turn.id, model: w.m, attempt: attempts.indexOf(w) + 1 });
+      if (w.m !== primary || attempts.length > 1) debug("recovered", { turn: turn.id, model: w.m, attempt: attempts.indexOf(w) + 1 });
       let i = 0;
       for (;;) {
-        while (i < w.pieces.length) yield w.pieces[i++];
+        while (i < w.events.length) { const ev = w.events[i++]; yield ev.type === "end" ? { ...ev, model: w.m } : ev; }
         if (w.done) { if (w.error && !signal.aborted) throw w.error; return; }
         await new Promise(r => { wake = r; setTimeout(r, 250); });
       }
@@ -287,7 +300,8 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     debug("vad", { speaking: true });
     const agentTalking = marks.size > 0 || (current && current.audioSent);
     if (agentTalking) {
-      const falseStart = Boolean(lastSpoken) && performance.now() - lastSpoken.at < FALSE_START_MS;
+      // Not once a tool changed something in that turn: then it stands, and this is a normal barge-in.
+      const falseStart = Boolean(lastSpoken) && performance.now() - lastSpoken.at < FALSE_START_MS && !lastSpoken.turn.wrote;
       debug("barge_in", falseStart ? { falseStart } : {});
       stopSpeaking();
       hangupMark = null; // he's still talking: don't hang up on him
@@ -324,7 +338,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     clearTimeout(idleTimer);
     clearTimeout(waitTimer);
     if (!text && !force && pendingUser.reduce((n, p) => n + durationMs(p), 0) > MAX_PENDING_MS) force = true;
-    const turn = { id: ++turnSeq, abort: new AbortController(), audioSent: false, fillerPlayed: false, endpointAt: performance.now(), marks: [], prevNext: lastNext };
+    const turn = { id: ++turnSeq, abort: new AbortController(), audioSent: false, fillerPlayed: false, endpointAt: performance.now(), marks: [], prevNext: lastNext, toolNotes: [] };
     current = turn;
     const signal = turn.abort.signal;
     const audio = text ? null : wav(Buffer.concat(pendingUser.flatMap((p, i) => (i ? [silence(300), p] : [p]))));
@@ -336,6 +350,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     const clips = [];
     let clipsClosed = false;
     let wakePlayer = null;
+    let drained = 0; // clips fully sent
 
     // Latency mask while Gemini thinks: keyboard typing (default), a spoken filler, or nothing.
     let filler = null;
@@ -364,7 +379,8 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
           wakePlayer = null;
           continue;
         }
-        const clip = clips[n++];
+        const index = n++;
+        const clip = clips[index];
         for await (const chunk of drain(clip)) {
           if (signal.aborted) return;
           if (!turn.firstAudioAt) {
@@ -379,6 +395,12 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
             }
             if (!text) debug("latency", { turn: turn.id, firstAudioMs: Math.round(turn.firstAudioAt - turn.endpointAt), firstTokenMs: Math.round(turn.firstTokenAt - turn.endpointAt), fishFirstByteMs: cfg.tts === "fish" ? fish?.stream.lastFirstByteMs : null });
           }
+          if (turn.followFrom != null && index >= turn.followFrom && !turn.followAudioAt) {
+            // The answer after the tool: typing stops, and how long the tool hop took goes to the monitor.
+            turn.followAudioAt = performance.now();
+            typist?.stop();
+            debug("tool_latency", { turn: turn.id, hopMs: Math.round(turn.followAudioAt - turn.toolAt), totalMs: Math.round(turn.followAudioAt - turn.endpointAt) });
+          }
           turn.audioSent = true;
           outAudio.push(chunk);
           sendAudio(chunk);
@@ -389,15 +411,33 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
           markText.set(name, { turn: turn.id, text: clip.text });
           turn.marks.push(name);
         }
+        drained++;
       }
     })();
+
+    const onSentence = sentence => {
+      if (signal.aborted || turn.waiting) return;
+      if (STAGE_DIRECTION.test(sentence)) { debug("say", { turn: turn.id, text: sentence, note: "stage direction, not spoken" }); return; }
+      // A filler already said "Mhm": don't say it twice.
+      if (turn.fillerPlayed && !reply && lex().fillerPrefix.test(sentence)) {
+        const rest = sentence.replace(lex().fillerPrefix, "");
+        reply = sentence;
+        if (!rest) { debug("say", { turn: turn.id, text: sentence, note: "already said as filler" }); return; }
+        sentence = rest[0].toUpperCase() + rest.slice(1);
+        reply = "";
+      }
+      reply += (reply ? " " : "") + sentence;
+      clips.push(startClip(sentence, signal, lang));
+      wakePlayer?.();
+      debug("say", { turn: turn.id, text: sentence });
+    };
 
     const parser = createReplyParser({
       langs: locales().enabled(),
       onHeader: ({ heard, lang: l, next: n, act }) => {
         if (n === "wait" && (force || text || lastNext === "confirm")) n = "listen"; // he's been quiet, or answered a yes/no question: answer now
         else if (n !== "wait" && !force && !text && lastNext !== "confirm" && dangling(heard, lex(l || lang))) { n = "wait"; debug("dangling", { turn: turn.id, text: heard }); } // "…die will": he isn't done
-        if (act === "execute" && office) turn.execute = true;
+        if (act === "execute" && office && toolMode === "header") turn.execute = true;
         next = n;
         if (l) lang = l;
         turn.hold = !text && holdOn(heard, lex(l || lang));
@@ -412,39 +452,119 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
         vad.setStartMs(START_MS[n] ?? START_MS.listen);
         if (!text) Object.assign(turn, { userAudio: pendingUser, turnsBefore: turns.length }); // to undo a false start
         turns.push({ role: "user", text: text ?? (heard || "(not transcribed)") });
+        if (!text) turn.userEntry = turns.at(-1); // a tool follow-up may still say what he said
         if (!text) pendingUser = []; // answered (even if the caller cuts in later)
         debug("heard", { turn: turn.id, text: heard, next: n, lang, audio: inFile });
       },
-      onSentence: sentence => {
-        if (signal.aborted || turn.waiting) return;
-        if (STAGE_DIRECTION.test(sentence)) { debug("say", { turn: turn.id, text: sentence, note: "stage direction, not spoken" }); return; }
-        // A filler already said "Mhm": don't say it twice.
-        if (turn.fillerPlayed && !reply && lex().fillerPrefix.test(sentence)) {
-          const rest = sentence.replace(lex().fillerPrefix, "");
-          reply = sentence;
-          if (!rest) { debug("say", { turn: turn.id, text: sentence, note: "already said as filler" }); return; }
-          sentence = rest[0].toUpperCase() + rest.slice(1);
-          reply = "";
-        }
-        reply += (reply ? " " : "") + sentence;
-        clips.push(startClip(sentence, signal, lang));
-        wakePlayer?.();
-        debug("say", { turn: turn.id, text: sentence });
-      },
+      onSentence,
     });
 
+    // ---------- tools: run what the model called, then one follow-up call with the results ----------
+    // A write waits until he can't take the turn back any more, FALSE_START_MS after
+    // the agent started talking ("Yes… no wait, make it Thursday" must not send the quote).
+    async function writeWindow() {
+      const t0 = performance.now();
+      while (clips.length && !turn.firstAudioAt && !signal.aborted && performance.now() - t0 < 4000) await sleep(50);
+      const until = (turn.firstAudioAt ?? t0) + FALSE_START_MS;
+      while (!signal.aborted && performance.now() < until) await sleep(Math.min(100, Math.max(10, until - performance.now())));
+      return !signal.aborted;
+    }
+    const toolContext = () => ({
+      callId: call.id,
+      get lang() { return lang; },
+      signal,
+      // He answered a yes/no question, and this answer isn't itself asking one (a recap that
+      // calls the tool in the same breath would ride on an earlier yes, e.g. to the email read-back).
+      confirmed: turn.prevNext === "confirm" && next !== "confirm" && next !== "ask",
+      latestNote: freshNote, // the draft, his latest words included
+      emit: (event, data) => debug(event, { turn: turn.id, ...data }),
+      log,
+      mayWrite: writeWindow,
+      onWrite: () => { turn.wrote = true; },
+    });
+    const STATUS_WORDS = { ok: "did", repeated: "already done", error: "failed", rejected: "not run", unknown: "unknown tool" };
+
+    async function answerWithTools(calls, request, first) {
+      turn.toolAt = performance.now();
+      // He hears something before the tool runs: the model's own words, or a cached line.
+      if (!reply && !turn.fillerPlayed) {
+        const kind = calls.some(c => runner.get(c.name)?.effect === "write") ? "working" : "looking";
+        const line = locales().persona(lang, skill.PERSONA)?.[kind];
+        if (assets[lang]?.[kind]?.length && line) {
+          clips.push({ text: line, chunks: [assets[lang][kind]], done: true });
+          wakePlayer?.();
+          reply = line;
+          debug("say", { turn: turn.id, text: line, note: "tool preface" });
+        }
+      }
+      turn.prefaceLength = reply.length;
+      // Typing while it works, once the preface has played out.
+      (async () => {
+        while (!signal.aborted && !turn.followAudioAt && (drained < clips.length || turn.marks.some(m => marks.has(m)))) await sleep(50);
+        if (!signal.aborted && !turn.followAudioAt && typist && !typist.running) { typist.start(); debug("mask", { kind: "typing", for: "tool" }); }
+      })();
+
+      const ctx = toolContext();
+      const outcomes = [];
+      for (const c of calls) {
+        const o = await runner.run(c, ctx);
+        outcomes.push(o);
+        debug("tool", { turn: turn.id, name: o.name, args: o.args, status: o.status, ms: o.ms, summary: o.summary });
+        if (STATUS_WORDS[o.status]) turn.toolNotes.push(`[${STATUS_WORDS[o.status]} ${o.name}${o.summary ? `: ${o.summary}` : ""}]`);
+        if (signal.aborted) return;
+      }
+
+      // The follow-up: the same model sees its own call (thought signature included) and the results.
+      // Another model can't read that signature, so a backup gets the exchange as plain text.
+      const base = [...historyContents(request.history), userContent(request)];
+      const native = { ...request, toolMode: "NONE", contents: [...base, { role: "model", parts: first.parts }, { role: "user", parts: outcomes.map(o => ({ functionResponse: { name: o.name, ...(o.id ? { id: o.id } : {}), response: o.result } })) }] };
+      const plain = {
+        ...request, tools: undefined,
+        contents: [...base, { role: "model", parts: [{ text: `${reply} ${calls.map(c => `[called ${c.name}]`).join(" ")}`.trim() }] }, { role: "user", parts: [{ text: `(System: ${outcomes.map(o => `${o.name} returned ${JSON.stringify(o.result)}`).join("; ")}. Now answer him.)` }] }],
+      };
+      turn.followFrom = clips.length;
+      let followNext = null;
+      const follow = createReplyParser({
+        langs: locales().enabled(),
+        onHeader: ({ heard, lang: l, next: n, present }) => {
+          if (!present) return;
+          followNext = n === "wait" ? "listen" : n;
+          if (l) lang = l;
+          if (heard && turn.userEntry?.text === "(not transcribed)") { turn.userEntry.text = heard; debug("heard_late", { turn: turn.id, text: heard }); }
+        },
+        onSentence,
+      });
+      const backup = first.model === fastModel ? fallbackModel : fastModel;
+      for await (const ev of geminiStream(m => (m === first.model ? native : plain), signal, turn, { primary: first.model, backup })) {
+        if (ev.type === "text") follow.push(ev.text);
+      }
+      follow.end();
+      if (followNext) next = followNext;
+      vad.setEndSilence(END_SILENCE[next] ?? END_SILENCE.listen);
+      vad.setStartMs(START_MS[next] ?? START_MS.listen);
+    }
+
     try {
-      const system = skill.systemPrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang });
+      const tools = declarations();
+      const system = skill.systemPrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang, tools: toolMode === "native" ? tools.map(t => t.name) : null });
       const extra = force ? "(The caller is speaking in the audio above. He has now been silent for a few seconds: his thought is complete, so respond. Do not answer wait.)" : undefined;
-      for await (const piece of geminiStream({ endpoint, system, history: turns.slice(-16), audio, text, extra }, signal, turn)) {
+      const request = { system, history: turns.slice(-16), audio, text, extra, tools };
+      const calls = [];
+      let first = null;
+      for await (const ev of geminiStream(request, signal, turn)) {
         if (!turn.firstTokenAt) turn.firstTokenAt = performance.now();
-        parser.push(piece);
+        if (ev.type === "text") parser.push(ev.text);
+        else if (ev.type === "call") { parser.flush(); calls.push(ev.call); }
+        else if (ev.type === "end") first = ev;
       }
       parser.end();
+      if (calls.length && turn.waiting) debug("tool", { turn: turn.id, ignored: calls.map(c => c.name), reason: "NEXT: wait" });
+      else if (calls.length && !signal.aborted) await answerWithTools(calls, request, first);
     } catch (err) {
       stopMask();
-      if (signal.aborted) return;
+      if (signal.aborted) { if (turn.toolNotes.length) finishAborted(); return; } // cut off mid-stream: only what a tool did is kept
       fail("gemini", err);
+      if (turn.toolNotes.length) turns.push({ role: "model", text: [reply, ...turn.toolNotes].filter(Boolean).join(" ") });
       const i = oopsCount++;
       speakCached(pick(assets[lang]?.oops, i), "oops");
       debug("say", { turn: turn.id, text: pick(locales().persona(lang, skill.PERSONA)?.oops, i) ?? "(oops)", note: "error fallback" });
@@ -461,21 +581,16 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
       const outFile = saveAudio(`turn-${turn.id}-out.wav`, wav(Buffer.concat(outAudio)));
       if (outFile) debug("agent_audio", { turn: turn.id, audio: outFile, interrupted: signal.aborted });
     }
-    if (signal.aborted) {
-      // Keep only what the caller actually heard (marks that came back), so the
-      // model can pick up where it was cut off instead of assuming it said it all.
-      const heard = turn.marks.filter(m => m && markText.get(m)?.heard).map(m => markText.get(m).text);
-      const unsaid = clips.map(c => c.text).slice(heard.length).join(" ");
-      if (reply && !turn.falseStart) turns.push({ role: "model", text: `${heard.join(" ")}${heard.length ? " " : ""}[interrupted by the caller${unsaid ? `; not heard: "${unsaid.slice(0, 160)}"` : ""}]` });
-      return;
-    }
+    if (signal.aborted) return finishAborted();
     if (turn.waiting) {
       if (current === turn) current = null;
       lastNext = "wait";
       armWait({ hold: turn.hold });
       return;
     }
-    if (reply) turns.push({ role: "model", text: reply });
+    // What a tool did stays in the history, between the preface and the answer.
+    const said = turn.toolNotes.length ? [reply.slice(0, turn.prefaceLength), ...turn.toolNotes, reply.slice(turn.prefaceLength)].map(s => s.trim()).filter(Boolean).join(" ") : reply;
+    if (said) turns.push({ role: "model", text: said });
     if (current === turn) current = null;
     if (turn.execute) { runWorkflow().catch(err => fail("workflow", err)); return; }
     lastNext = next;
@@ -484,6 +599,15 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     if (!text) refreshNote();
     if (next === "hangup") hangupMark = sendMark("bye");
     else if (!marks.size) armIdle();
+
+    // Keep only what the caller actually heard (marks that came back), so the
+    // model can pick up where it was cut off instead of assuming it said it all.
+    function finishAborted() {
+      if (turn.falseStart) return;
+      const heard = turn.marks.filter(m => m && markText.get(m)?.heard).map(m => markText.get(m).text);
+      const unsaid = clips.map(c => c.text).slice(heard.length).join(" ");
+      if (reply || turn.toolNotes.length) turns.push({ role: "model", text: [...heard, ...turn.toolNotes, `[interrupted by the caller${unsaid ? `; not heard: "${unsaid.slice(0, 160)}"` : ""}]`].join(" ") });
+    }
   }
 
   // ---------- the office: book, add to-dos, quote and send ----------
@@ -507,19 +631,31 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
   }
 
   // ---------- slow path ----------
-  // Chained, so an older extraction can never overwrite a newer one.
-  function refreshNote() {
+  // Each extraction reads the transcript as it is when it starts; a result is
+  // applied only if no newer one already was, so an older one never overwrites it.
+  let noteSeq = 0;
+  let noteApplied = 0;
+  function extractNote({ hedgeMs }) {
+    const seq = ++noteSeq;
     const snapshot = turns.slice();
-    extracting = (extracting ?? Promise.resolve())
-      .then(() => extractJsonResilient({ endpoint, models: [slowModel, fallbackModel], system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note, lang }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u) }))
+    return extractJsonResilient({ endpoint, models: [slowModel, fallbackModel], hedgeMs, system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note, lang }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u) })
       .then(updated => {
+        if (seq < noteApplied) return note;
+        noteApplied = seq;
         note = updated;
         missing = skill.missingFields(note);
         debug("note", { note, missing });
-      })
-      .catch(err => fail("extract", err));
+        return note;
+      });
+  }
+  // Background refresh after each turn: chained, so they never pile up in parallel.
+  function refreshNote() {
+    extracting = (extracting ?? Promise.resolve()).then(() => extractNote({ hedgeMs: 6000 })).catch(err => fail("extract", err));
     return extracting;
   }
+  // A tool needs the draft now, his latest words included: a fresh extraction that
+  // doesn't queue behind a slow background one. Fails rather than act on a stale draft.
+  const freshNote = () => extractNote({ hedgeMs: 3500 });
 
   function finalize(reason) {
     if (finalized) return finalized;

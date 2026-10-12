@@ -4,18 +4,21 @@
 //   npm run regress -- pilot/02-briefing only these (scenarios before them in the same skill run too,
 //                                        because later calls build on earlier memory)
 //   npm run regress -- --keep            keep the scratch data dirs
+//   npm run regress -- --show            print every conversation, not only failed ones
 //
-// Each skill gets its own server (SKILL=<dir name>) on a scratch DATA_DIR, so
-// scenarios in a folder share memory in file order. A scenario:
+// Each folder gets its own server (SKILL=<dir name>) on a scratch DATA_DIR, so
+// scenarios in a folder share memory in file order. "pilot+memory" runs SKILL=pilot
+// and starts from a copy of its _seed/ directory (an existing DATA_DIR). A scenario:
 //   { "lang": "de", "says": ["…", "…"], "config": {…},
 //     "must":   [ <check>, … ],   failing one fails the run
 //     "should": [ <check>, … ] }  failing one only warns (models vary run to run)
 // Checks: {"saved": true} {"hangup": true} {"event": "workflow"} {"noEvent": "error"}
 //   {"heard": "regex"} {"heardNext": "wait"} {"said": "regex"} {"note": "regex"}
 //   {"falseStart": true} {"maxFirstAudioMs": 4000}
+//   {"tool": "order_execute"}  the tool ran (status ok)    {"count": {"workflow": 1}}  exactly n such events
 
 import { spawn } from "node:child_process";
-import { readdirSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, mkdtempSync, rmSync, existsSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +28,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const callsDir = path.join(root, "test", "calls");
 const args = process.argv.slice(2);
 const keep = args.includes("--keep");
+const show = args.includes("--show");
 const only = args.filter(a => !a.startsWith("--"));
 
 const median = xs => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
@@ -48,6 +52,8 @@ function check(spec, events, saved) {
     case "note": return Boolean(lastNote) && re(value).test(JSON.stringify(lastNote));
     case "falseStart": return of("barge_in").some(e => e.falseStart) === value;
     case "maxFirstAudioMs": { const p50 = median(of("latency").map(e => e.firstAudioMs)); return p50 != null && p50 <= value; }
+    case "tool": return of("tool").some(e => e.name === value && e.status === "ok");
+    case "count": return Object.entries(value).every(([name, n]) => of(name).length === n);
     default: throw new Error(`unknown check ${kind}`);
   }
 }
@@ -75,22 +81,25 @@ function startServer(skill, dataDir, port) {
   return { child, log, waitFor, stop: () => child.kill() };
 }
 
-const skills = readdirSync(callsDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name).sort();
+const folders = readdirSync(callsDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name).sort();
 const results = [];
 let port = 8890;
-for (const skill of skills) {
-  const files = readdirSync(path.join(callsDir, skill)).filter(f => f.endsWith(".json")).sort();
-  const wanted = only.length ? files.filter((f, i) => files.slice(i).some(g => only.some(o => `${skill}/${g}`.startsWith(o)))) : files;
+for (const folder of folders) {
+  const skill = folder.split("+")[0];
+  const files = readdirSync(path.join(callsDir, folder)).filter(f => f.endsWith(".json")).sort();
+  const wanted = only.length ? files.filter((f, i) => files.slice(i).some(g => only.some(o => `${folder}/${g}`.startsWith(o)))) : files;
   if (!wanted.length) continue;
-  const dataDir = mkdtempSync(path.join(tmpdir(), `regress-${skill}-`));
+  const dataDir = mkdtempSync(path.join(tmpdir(), `regress-${folder}-`));
+  const seed = path.join(callsDir, folder, "_seed");
+  if (existsSync(seed)) cpSync(seed, dataDir, { recursive: true });
   const server = startServer(skill, dataDir, ++port);
   try {
     await server.waitFor(/voice assets ready/, 60000).catch(err => {
       throw new Error(`${skill} server didn't start: ${err.message}\n${server.log.slice(-15).join("\n")}`);
     });
     for (const file of wanted) {
-      const name = `${skill}/${file.replace(/\.json$/, "")}`;
-      const sc = JSON.parse(readFileSync(path.join(callsDir, skill, file), "utf8"));
+      const name = `${folder}/${file.replace(/\.json$/, "")}`;
+      const sc = JSON.parse(readFileSync(path.join(callsDir, folder, file), "utf8"));
       process.stdout.write(`${name} … `);
       const started = Date.now();
       let events = [];
@@ -113,9 +122,9 @@ for (const skill of skills) {
       if (error) console.log(`   error: ${error.message}`);
       for (const m of must.filter(m => !m.ok)) console.log(`   must  ✗ ${JSON.stringify(m.spec)}`);
       for (const s of should.filter(s => !s.ok)) console.log(`   should ~ ${JSON.stringify(s.spec)}`);
-      if (failed) {
+      if (failed || show) {
         // The conversation, so a failure can be read without rerunning it.
-        for (const e of events.filter(e => ["heard", "say", "workflow", "end_call", "barge_in", "nudge"].includes(e.event))) {
+        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "workflow", "retry", "end_call", "barge_in", "nudge"].includes(e.event))) {
           console.log(`   ${e.at.toFixed(1).padStart(5)}s ${describeEvent(e) ?? e.event}`);
         }
       }

@@ -10,8 +10,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir, readJson, writeJson, slug } from "./files.mjs";
 import { normalizeNote } from "./note-keys.mjs";
+import { locales } from "../locale/index.mjs";
 
 const MAX_CUSTOMERS_IN_PROMPT = 25;
+const MAX_UNLINKED_IN_PROMPT = 10;
 const NOTES_PER_CUSTOMER = 3;
 
 export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
@@ -37,6 +39,18 @@ export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
     const n = normalizeNote(note);
     return n.customer_name ? findCustomer(all, { name: n.customer_name, place: n.place }) : null;
   }
+  // Notes per customer id (newest first, as given) and the ones linked to nobody.
+  function byCustomer(notes, all) {
+    const notesBy = new Map();
+    const unlinked = [];
+    for (const n of notes) {
+      const c = customerOf(n, all);
+      if (c) notesBy.set(c.id, [...(notesBy.get(c.id) ?? []), n]);
+      else unlinked.push(n);
+    }
+    return { notesBy, unlinked };
+  }
+  const byRecency = all => Object.values(all).sort((a, b) => String(b.lastContact).localeCompare(String(a.lastContact)));
 
   return {
     customers,
@@ -145,14 +159,8 @@ export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
         return `due ${due}${days < 0 ? ` (OVERDUE by ${-days} d)` : days === 0 ? " (today)" : days === 1 ? " (tomorrow)" : ` (in ${days} d)`}`;
       };
 
-      const notesBy = new Map(); // customer id → notes, newest first
-      const unlinked = [];
-      for (const n of notes) {
-        const c = customerOf(n, all);
-        if (c) notesBy.set(c.id, [...(notesBy.get(c.id) ?? []), n]);
-        else unlinked.push(n);
-      }
-      const people = Object.values(all).sort((a, b) => String(b.lastContact).localeCompare(String(a.lastContact)));
+      const { notesBy, unlinked } = byCustomer(notes, all);
+      const people = byRecency(all);
       const shown = people.slice(0, MAX_CUSTOMERS_IN_PROMPT);
       const customerBlock = c => {
         const own = (notesBy.get(c.id) ?? []).slice(0, NOTES_PER_CUSTOMER);
@@ -170,8 +178,46 @@ export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
         "CUSTOMERS (most recent contact first; under each, their appointment notes, newest first; a newer note overrides an older one):",
         shown.length ? shown.map(customerBlock).join("\n") : "- none yet",
         people.length > shown.length ? `OLDER CUSTOMERS (name only): ${people.slice(shown.length).map(c => `${c.name}${c.place ? ` (${c.place})` : ""}`).join("; ")}` : "",
-        unlinked.length ? `\nOTHER NOTES (not linked to a customer yet):\n${unlinked.slice(0, 10).map(n => `- ${noteLine(n)}`).join("\n")}` : "",
+        unlinked.length ? `\nOTHER NOTES (not linked to a customer yet):\n${unlinked.slice(0, MAX_UNLINKED_IN_PROMPT).map(n => `- ${noteLine(n)}`).join("\n")}` : "",
       ].filter(line => line !== "").join("\n");
+    },
+
+    /** How many customers and notes the prompt can't show in full: memory_search is offered when > 0. */
+    hidden({ notes = [] } = {}) {
+      const all = customers();
+      const { unlinked } = byCustomer(notes, all);
+      return Math.max(0, Object.keys(all).length - MAX_CUSTOMERS_IN_PROMPT) + Math.max(0, unlinked.length - MAX_UNLINKED_IN_PROMPT);
+    },
+
+    /**
+     * Customers (and loose notes) matching a spoken query, best first: names and
+     * places by similarity (so "Kowalsky" finds Kowalski), other words anywhere
+     * in what we know. Each result carries what a briefing needs.
+     */
+    search(query, { notes = [], limit = 3 } = {}) {
+      const all = customers();
+      const { notesBy, unlinked } = byCustomer(notes, all);
+      const q = searchWords(query);
+      if (!q.length) return [];
+      const open = actions().filter(a => a.status === "open");
+      const found = Object.values(all).map(c => {
+        const own = notesBy.get(c.id) ?? [];
+        const text = [c.summary, c.address, ...(c.history ?? []).map(h => h.summary), ...own.map(noteLine)].join(" ");
+        return { c, own, score: matchScore(q, searchWords(`${c.name} ${c.place ?? ""}`), text) };
+      }).filter(r => r.score > 0).sort((a, b) => b.score - a.score || String(b.c.lastContact).localeCompare(String(a.c.lastContact)));
+      const loose = unlinked.map(n => ({ n, score: matchScore(q, searchWords(`${normalizeNote(n).customer_name ?? ""} ${normalizeNote(n).place ?? ""}`), noteLine(n)) })).filter(r => r.score > 0);
+      const results = [
+        ...found.map(({ c, own, score }) => ({
+          score,
+          name: c.name, place: c.place || "", address: c.address || "", phone: c.phone || "", last_contact: c.lastContact || "",
+          summary: c.summary || "",
+          history: (c.history ?? []).slice(-3).map(h => `${h.date}: ${h.summary}`),
+          notes: own.slice(0, NOTES_PER_CUSTOMER).map(noteLine),
+          open_todos: open.filter(a => a.customerId === c.id).map(a => `${a.text}${a.due ? ` (due ${a.due})` : ""}`),
+        })),
+        ...loose.map(({ n, score }) => ({ score, note: noteLine(n) })),
+      ];
+      return results.sort((a, b) => b.score - a.score).slice(0, limit).map(({ score, ...r }) => r);
     },
 
     // Calls whose consolidation failed (API down): kept on disk and retried later.
@@ -213,4 +259,39 @@ export function noteLine(note) {
     n.open_questions?.length ? `open: ${n.open_questions.join("; ")}` : "",
   ];
   return parts.filter(Boolean).join(" | ");
+}
+
+// ---------- search ----------
+// Lowercase words without accents ("Müller" → "muller"), 3+ letters, no stopwords of any enabled language.
+function searchWords(text) {
+  const stop = stopwords();
+  return String(text ?? "").toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 3 && !stop.has(w));
+}
+let stopCache = null;
+const stopwords = () => (stopCache ??= new Set(locales().enabled().flatMap(id => [...locales().lexicon(id).stopwords])));
+
+// pg_trgm-style similarity of two words (0…1).
+function trigrams(word) {
+  const s = `  ${word} `;
+  const out = new Set();
+  for (let i = 0; i < s.length - 2; i++) out.add(s.slice(i, i + 3));
+  return out;
+}
+export function similarity(a, b) {
+  const A = trigrams(a), B = trigrams(b);
+  let shared = 0;
+  for (const g of A) if (B.has(g)) shared++;
+  return shared / (A.size + B.size - shared);
+}
+
+// A name or place word that sounds alike counts 3; any other word found in the text counts 1.
+function matchScore(queryWords, nameWords, text) {
+  const hay = searchWords(text).join(" ");
+  let score = 0;
+  for (const w of queryWords) {
+    const best = Math.max(0, ...nameWords.map(n => similarity(w, n)));
+    if (best >= 0.45) score += 3 * best;
+    else if (w.length >= 4 && hay.includes(w)) score += 1;
+  }
+  return score;
 }

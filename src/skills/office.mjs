@@ -1,11 +1,12 @@
 // Skill: the tradesperson's office on the phone (English first; German works too).
 // Main flow: "I just met Peter Steinberger, he needs …, put it in my calendar,
 // my to-do list and send him a first quote." The agent asks only for what's
-// missing, recaps once, and on "yes" answers DO: execute; the server then books
-// the calendar, adds the to-dos, builds the quote and sends it.
+// missing, recaps once, and on "yes" calls order_execute (src/tools/), which
+// books the calendar, adds the to-dos, builds the quote and sends it.
 
 import { readFileSync } from "node:fs";
 import { locales, promptDate, promptWeekday } from "../locale/index.mjs";
+import { toolRules } from "../tools/prompt.mjs";
 
 const config = name => JSON.parse(readFileSync(new URL(`../../config/${name}.json`, import.meta.url), "utf8"));
 const catalog = config("catalog");
@@ -19,7 +20,23 @@ export const DEFAULT_LANG = company.lang; // the demo business is in San Francis
 
 const today = () => promptDate();
 
-const RULES = ({ lang }) => {
+// How the order gets done after his yes. act: "tool" (native function call),
+// "header" (DO: execute, TOOLS=header), "live" (Gemini Live calls the tool itself).
+const EXECUTE = ({ act, ex }) => ({
+  tool: `3. If he says yes: write the header and ${q(ex.onIt)}, then call order_execute in the same response. It
+   books the calendar entry, creates the to-dos, builds the quote and emails it. Its result says what was
+   created: tell him in one or two sentences (the date, the total, who it went to), then ask
+   ${q(ex.anythingElse)} (NEXT: listen). If it failed, say so in one short sentence and offer to try again.`,
+  header: `3. If he says yes: say only ${q(ex.onIt)} and write DO: execute. The office then books the
+   calendar entry, creates the to-dos, builds the quote and emails it. You'll then get
+   "(System: done …)" with what was created: tell him in one or two sentences (the date, the total,
+   who it went to), then ask ${q(ex.anythingElse)} (NEXT: listen).`,
+  live: `3. If he says yes: say only ${q(ex.onIt)} and call the tool order_execute. It books the calendar entry,
+   creates the to-dos, builds the quote and emails it. The tool result says what was created: tell him
+   in one or two sentences (the date, the total, who it went to), then ask ${q(ex.anythingElse)}.`,
+})[act];
+
+const RULES = ({ lang, act = "tool" }) => {
   const L = locales();
   const ex = L.persona(lang, PERSONA).examples;
   const name = L.name(lang);
@@ -41,10 +58,7 @@ his to-do list and/or send the customer a first quote.
    Don't ask about anything else. Acknowledge in a word or two; never repeat back what he said.
 2. When nothing is missing, give ONE short recap: customer, what and how much, the date, and the
    rough subtotal from the price list. Then ask ${q(ex.bookAndSend)} (NEXT: confirm).
-3. If he says yes: say only ${q(ex.onIt)} and write DO: execute. The office then books the
-   calendar entry, creates the to-dos, builds the quote and emails it. You'll then get
-   "(System: done …)" with what was created: tell him in one or two sentences (the date, the total,
-   who it went to), then ask ${q(ex.anythingElse)} (NEXT: listen).
+${EXECUTE({ act, ex })}
    If he changes something before saying yes, take it and recap only what changed.
 
 OTHER JOBS
@@ -84,12 +98,14 @@ ${JSON.stringify(note ?? {}, null, 0)}
 Still missing: ${missing?.length ? missing.join(", ") : "nothing"}`;
 
 // Cascade mode: Gemini writes, a TTS voice speaks.
-export function systemPrompt({ note, missing, memory = "", office = "", lang = DEFAULT_LANG }) {
+// `tools`: the native tools on this call, or null for the DO: header line (TOOLS=header).
+export function systemPrompt({ note, missing, memory = "", office = "", lang = DEFAULT_LANG, tools = null }) {
+  const act = tools ? "tool" : "header";
   return `You are the office of a tile contractor in San Francisco, on the phone. He calls you hands-free from his van and you do
 his office work by voice: calendar, to-do list, quotes. Everything you write is read aloud by a voice.
 Today is ${today()}.
 
-${RULES({ lang })}
+${RULES({ lang, act })}
 
 ${CONTEXT({ office, memory })}
 
@@ -97,15 +113,14 @@ OUTPUT FORMAT, always, exactly:
 HEARD: <word for word what he just said, in his language>
 LANG: <${locales().enabled().join(" | ")}>
 NEXT: <listen | wait | ask | confirm | hangup>
-DO: <none | execute>
-
+${act === "header" ? "DO: <none | execute>\n" : ""}
 <your spoken reply>
 
 NEXT: listen = you expect him to keep talking; wait = his thought is clearly unfinished (he stopped
 mid-sentence), or he asked you to hold on ("one sec", "Moment"): write NO reply and stay silent;
 ask = you asked an open question (what, how much, when, which email); confirm = you asked a yes/no
-question; hangup = the call is over, you said goodbye. DO: execute only in the turn right after he confirmed the recap.
-
+question; hangup = the call is over, you said goodbye.${act === "header" ? " DO: execute only in the turn right after he confirmed the recap." : ""}
+${tools?.length ? `\n${toolRules(tools, locales().persona(lang, PERSONA))}\n` : ""}
 ${THIS_CALL({ note, missing })}`;
 }
 
@@ -115,7 +130,7 @@ export function livePrompt({ note, missing, memory = "", office = "", lang = DEF
 his office work by voice: calendar, to-do list, quotes. Keep it brief and natural. Today is ${today()}.
 When he pauses mid-thought, stay silent and let him continue.
 
-${RULES({ lang }).replace('and write DO: execute', 'and call the tool execute_order').replace('"(System: done …)"', "the tool result")}
+${RULES({ lang, act: "live" })}
 
 When the call is over and you've said goodbye, call end_call.
 

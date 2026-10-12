@@ -8,10 +8,20 @@
 //   <spoken reply>
 // Headers come out once; the reply comes out one sentence at a time so each
 // sentence can go to the voice while the next is still being written.
+// A follow-up answer after a tool call may repeat the header or skip it:
+// onHeader gets `present: false` when there was none.
 // (Adapted from mano-games/tools/buddy-lab/src/reply.mjs.)
 
 const MIN_SENTENCE = 24; // shorter pieces ride along with the next sentence
 const NEXT_VALUES = new Set(["listen", "wait", "ask", "confirm", "hangup"]);
+const TAGS = ["HEARD", "LANG", "NEXT", "DO"];
+const HEADER_START = /^\s*(HEARD|LANG|NEXT|DO)\s*:/i;
+
+// Could the text so far still grow into a header line ("HEA", "NEXT")? Then wait for more.
+function maybeHeader(text) {
+  const t = text.trimStart().toUpperCase();
+  return TAGS.some(tag => (t.length <= tag.length ? tag.startsWith(t) : new RegExp(`^${tag}\\s*(:|$)`).test(t)));
+}
 
 // `langs`: the language ids LANG may name (the enabled locales); other values read as "".
 export function createReplyParser({ onHeader, onSentence, langs = null }) {
@@ -47,13 +57,12 @@ export function createReplyParser({ onHeader, onSentence, langs = null }) {
 
   // Header lines (HEARD, LANG, NEXT, any order) end at the first other line.
   const readHeader = final => {
-    if (!/^\s*HEARD/i.test(buf)) {
-      // Model skipped the header: treat everything as reply rather than go silent.
-      if (final || buf.length > 40) {
-        pending = buf.replace(/^\s*(HEARD|LANG|NEXT|DO):.*\n?/gim, "");
-        headerDone = true;
-        onHeader({ heard, lang, next, act });
-      }
+    if (!HEADER_START.test(buf)) {
+      if (!final && maybeHeader(buf)) return;
+      // No header (skipped, or a follow-up that doesn't repeat it): it's all reply, never silence.
+      pending = buf.replace(/^\s*(HEARD|LANG|NEXT|DO):.*\n?/gim, "");
+      headerDone = true;
+      onHeader({ heard, lang, next, act, present: false });
       return;
     }
     const lines = buf.split("\n");
@@ -87,7 +96,7 @@ export function createReplyParser({ onHeader, onSentence, langs = null }) {
     next = NEXT_VALUES.has(n) ? n : "listen";
     act = /^execute/i.test(fields.DO ?? "") ? "execute" : "none";
     headerDone = true;
-    onHeader({ heard, lang, next, act });
+    onHeader({ heard, lang, next, act, present: true });
   };
 
   return {
@@ -100,6 +109,11 @@ export function createReplyParser({ onHeader, onSentence, langs = null }) {
       }
       pending += text;
       emitSentences(false);
+    },
+    /** A tool call arrived: finish the header and speak what's written so far. More text may follow. */
+    flush() {
+      if (!headerDone) readHeader(true);
+      emitSentences(true);
     },
     end() {
       if (!headerDone) readHeader(true);

@@ -7,6 +7,6 @@
     "Yes, go ahead.",
     "No, that's all. Bye."
   ],
-  "must": [{ "event": "workflow" }],
-  "should": [{ "said": "quote|sent|Friday" }, { "noEvent": "error" }, { "maxFirstAudioMs": 4000 }]
+  "must": [{ "event": "workflow" }, { "count": { "workflow": 1 } }],
+  "should": [{ "tool": "order_execute" }, { "said": "quote|sent|Friday" }, { "noEvent": "error" }, { "maxFirstAudioMs": 4000 }]
 }

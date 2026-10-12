@@ -33,6 +33,8 @@
       "backchannel": "Mhm.",
       "fillers": ["Mhm.", "Okay.", "Got it."],
       "oops": ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
+      "working": "On it.",
+      "looking": "Let me check.",
       "examples": {
         "address": "you",
         "acks": ["Got it.", "Okay.", "Sure.", "Makes sense.", "Noted."],
@@ -68,6 +70,8 @@
       "backchannel": "Mhm.",
       "fillers": ["Mhm.", "Okay.", "Got it."],
       "oops": ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
+      "working": "On it.",
+      "looking": "Let me check.",
       "examples": {
         "acks": ["Got it.", "Sure.", "Okay.", "Perfect.", "Noted."],
         "emailReadBack": "peter at steinberger dot com?",

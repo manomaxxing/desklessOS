@@ -66,6 +66,8 @@
         "xx:Hang on, I lost you for a moment. What was that?",
         "xx:Sorry, that didn't come through. One more time?"
       ],
+      "working": "xx:On it.",
+      "looking": "xx:Let me check.",
       "examples": {
         "address": "xx:you",
         "acks": [
@@ -161,6 +163,8 @@
         "xx:Hang on, I lost you for a moment. What was that?",
         "xx:Sorry, that didn't come through. One more time?"
       ],
+      "working": "xx:On it.",
+      "looking": "xx:Let me check.",
       "examples": {
         "acks": [
           "xx:Got it.",

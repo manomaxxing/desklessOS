@@ -1,0 +1,602 @@
+{
+  "huber-allensbach": {
+    "id": "huber-allensbach",
+    "name": "Familie Huber",
+    "place": "Allensbach",
+    "address": "",
+    "phone": "",
+    "summary": "Küche: Fliesenspiegel neu, 4 m, weiß glänzend. Termin steht.",
+    "lastContact": "2026-10-10",
+    "createdAt": "2026-10-10T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-10-10",
+        "callId": "seed-0",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Küche: Fliesenspiegel neu, 4 m, weiß glänzend. Termin steht.",
+        "lang": "de"
+      }
+    ]
+  },
+  "schafer-konstanz": {
+    "id": "schafer-konstanz",
+    "name": "Familie Schäfer",
+    "place": "Konstanz",
+    "address": "",
+    "phone": "",
+    "summary": "Duschwand im EG neu verfliesen, 6 m², Mosaik grau. Angebot angenommen.",
+    "lastContact": "2026-10-04",
+    "createdAt": "2026-10-04T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-10-04",
+        "callId": "seed-1",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Duschwand im EG neu verfliesen, 6 m², Mosaik grau. Angebot angenommen.",
+        "lang": "de"
+      }
+    ]
+  },
+  "wagner-singen": {
+    "id": "wagner-singen",
+    "name": "Familie Wagner",
+    "place": "Singen",
+    "address": "",
+    "phone": "",
+    "summary": "Terrasse 25 m² Feinsteinzeug Holzoptik, Gefälle prüfen.",
+    "lastContact": "2026-09-28",
+    "createdAt": "2026-09-28T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-09-28",
+        "callId": "seed-2",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Terrasse 25 m² Feinsteinzeug Holzoptik, Gefälle prüfen.",
+        "lang": "de"
+      }
+    ]
+  },
+  "becker-reichenau": {
+    "id": "becker-reichenau",
+    "name": "Familie Becker",
+    "place": "Reichenau",
+    "address": "",
+    "phone": "",
+    "summary": "Flur 14 m² Schiefer, alte Fliesen raus. Wartet auf Termin.",
+    "lastContact": "2026-09-22",
+    "createdAt": "2026-09-22T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-09-22",
+        "callId": "seed-3",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Flur 14 m² Schiefer, alte Fliesen raus. Wartet auf Termin.",
+        "lang": "de"
+      }
+    ]
+  },
+  "hoffmann-uberlingen": {
+    "id": "hoffmann-uberlingen",
+    "name": "Familie Hoffmann",
+    "place": "Überlingen",
+    "address": "",
+    "phone": "",
+    "summary": "Gäste-WC komplett, 8 m² Wand, 3 m² Boden, Farbe noch offen.",
+    "lastContact": "2026-09-16",
+    "createdAt": "2026-09-16T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-09-16",
+        "callId": "seed-4",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Gäste-WC komplett, 8 m² Wand, 3 m² Boden, Farbe noch offen.",
+        "lang": "de"
+      }
+    ]
+  },
+  "schulz-meersburg": {
+    "id": "schulz-meersburg",
+    "name": "Familie Schulz",
+    "place": "Meersburg",
+    "address": "",
+    "phone": "",
+    "summary": "Balkon abdichten und fliesen, 9 m². Angebot verschickt.",
+    "lastContact": "2026-09-10",
+    "createdAt": "2026-09-10T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-09-10",
+        "callId": "seed-5",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Balkon abdichten und fliesen, 9 m². Angebot verschickt.",
+        "lang": "de"
+      }
+    ]
+  },
+  "koch-stockach": {
+    "id": "koch-stockach",
+    "name": "Familie Koch",
+    "place": "Stockach",
+    "address": "",
+    "phone": "",
+    "summary": "Badsanierung, bodengleiche Dusche, 11 m² Boden. Silikonfugen.",
+    "lastContact": "2026-09-04",
+    "createdAt": "2026-09-04T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-09-04",
+        "callId": "seed-6",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Badsanierung, bodengleiche Dusche, 11 m² Boden. Silikonfugen.",
+        "lang": "de"
+      }
+    ]
+  },
+  "richter-engen": {
+    "id": "richter-engen",
+    "name": "Familie Richter",
+    "place": "Engen",
+    "address": "",
+    "phone": "",
+    "summary": "Küche Boden 18 m², Terrakotta-Optik.",
+    "lastContact": "2026-08-29",
+    "createdAt": "2026-08-29T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-08-29",
+        "callId": "seed-7",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Küche Boden 18 m², Terrakotta-Optik.",
+        "lang": "de"
+      }
+    ]
+  },
+  "klein-konstanz": {
+    "id": "klein-konstanz",
+    "name": "Familie Klein",
+    "place": "Konstanz",
+    "address": "",
+    "phone": "",
+    "summary": "Treppe 14 Stufen mit Granit belegen.",
+    "lastContact": "2026-08-23",
+    "createdAt": "2026-08-23T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-08-23",
+        "callId": "seed-8",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Treppe 14 Stufen mit Granit belegen.",
+        "lang": "de"
+      }
+    ]
+  },
+  "wolf-kreuzlingen": {
+    "id": "wolf-kreuzlingen",
+    "name": "Familie Wolf",
+    "place": "Kreuzlingen",
+    "address": "",
+    "phone": "",
+    "summary": "Pool-Umrandung 30 m Naturstein.",
+    "lastContact": "2026-08-17",
+    "createdAt": "2026-08-17T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-08-17",
+        "callId": "seed-9",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Pool-Umrandung 30 m Naturstein.",
+        "lang": "de"
+      }
+    ]
+  },
+  "neumann-radolfzell": {
+    "id": "neumann-radolfzell",
+    "name": "Familie Neumann",
+    "place": "Radolfzell",
+    "address": "",
+    "phone": "",
+    "summary": "Wohnzimmer 32 m² Großformat 120x60.",
+    "lastContact": "2026-08-11",
+    "createdAt": "2026-08-11T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-08-11",
+        "callId": "seed-10",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Wohnzimmer 32 m² Großformat 120x60.",
+        "lang": "de"
+      }
+    ]
+  },
+  "schwarz-allensbach": {
+    "id": "schwarz-allensbach",
+    "name": "Familie Schwarz",
+    "place": "Allensbach",
+    "address": "",
+    "phone": "",
+    "summary": "Keller 20 m² einfach, günstig.",
+    "lastContact": "2026-08-05",
+    "createdAt": "2026-08-05T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-08-05",
+        "callId": "seed-11",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Keller 20 m² einfach, günstig.",
+        "lang": "de"
+      }
+    ]
+  },
+  "zimmermann-singen": {
+    "id": "zimmermann-singen",
+    "name": "Familie Zimmermann",
+    "place": "Singen",
+    "address": "",
+    "phone": "",
+    "summary": "Bad im DG, Dachschräge, 7 m² Wand.",
+    "lastContact": "2026-07-30",
+    "createdAt": "2026-07-30T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-07-30",
+        "callId": "seed-12",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Bad im DG, Dachschräge, 7 m² Wand.",
+        "lang": "de"
+      }
+    ]
+  },
+  "braun-konstanz": {
+    "id": "braun-konstanz",
+    "name": "Familie Braun",
+    "place": "Konstanz",
+    "address": "",
+    "phone": "",
+    "summary": "Fugen erneuern im Bad, 10 m².",
+    "lastContact": "2026-07-24",
+    "createdAt": "2026-07-24T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-07-24",
+        "callId": "seed-13",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Fugen erneuern im Bad, 10 m².",
+        "lang": "de"
+      }
+    ]
+  },
+  "kruger-reichenau": {
+    "id": "kruger-reichenau",
+    "name": "Familie Krüger",
+    "place": "Reichenau",
+    "address": "",
+    "phone": "",
+    "summary": "Hauswirtschaftsraum 6 m² Boden.",
+    "lastContact": "2026-07-18",
+    "createdAt": "2026-07-18T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-07-18",
+        "callId": "seed-14",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Hauswirtschaftsraum 6 m² Boden.",
+        "lang": "de"
+      }
+    ]
+  },
+  "hartmann-uberlingen": {
+    "id": "hartmann-uberlingen",
+    "name": "Familie Hartmann",
+    "place": "Überlingen",
+    "address": "",
+    "phone": "",
+    "summary": "Küchenrückwand Glas statt Fliese, Beratung.",
+    "lastContact": "2026-07-12",
+    "createdAt": "2026-07-12T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-07-12",
+        "callId": "seed-15",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Küchenrückwand Glas statt Fliese, Beratung.",
+        "lang": "de"
+      }
+    ]
+  },
+  "lange-meersburg": {
+    "id": "lange-meersburg",
+    "name": "Familie Lange",
+    "place": "Meersburg",
+    "address": "",
+    "phone": "",
+    "summary": "Wintergarten 16 m² Cotto.",
+    "lastContact": "2026-07-06",
+    "createdAt": "2026-07-06T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-07-06",
+        "callId": "seed-16",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Wintergarten 16 m² Cotto.",
+        "lang": "de"
+      }
+    ]
+  },
+  "schmitt-stockach": {
+    "id": "schmitt-stockach",
+    "name": "Familie Schmitt",
+    "place": "Stockach",
+    "address": "",
+    "phone": "",
+    "summary": "Eingangsbereich außen, frostsicher, 5 m².",
+    "lastContact": "2026-06-30",
+    "createdAt": "2026-06-30T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-06-30",
+        "callId": "seed-17",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Eingangsbereich außen, frostsicher, 5 m².",
+        "lang": "de"
+      }
+    ]
+  },
+  "werner-engen": {
+    "id": "werner-engen",
+    "name": "Familie Werner",
+    "place": "Engen",
+    "address": "",
+    "phone": "",
+    "summary": "Bad Boden 9 m² Holzoptik, Fußbodenheizung.",
+    "lastContact": "2026-06-24",
+    "createdAt": "2026-06-24T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-06-24",
+        "callId": "seed-18",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Bad Boden 9 m² Holzoptik, Fußbodenheizung.",
+        "lang": "de"
+      }
+    ]
+  },
+  "krause-konstanz": {
+    "id": "krause-konstanz",
+    "name": "Familie Krause",
+    "place": "Konstanz",
+    "address": "",
+    "phone": "",
+    "summary": "WC Wand 4 m², Reparatur nach Wasserschaden.",
+    "lastContact": "2026-06-18",
+    "createdAt": "2026-06-18T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-06-18",
+        "callId": "seed-19",
+        "noteId": null,
+        "type": "capture",
+        "summary": "WC Wand 4 m², Reparatur nach Wasserschaden.",
+        "lang": "de"
+      }
+    ]
+  },
+  "meier-radolfzell": {
+    "id": "meier-radolfzell",
+    "name": "Familie Meier",
+    "place": "Radolfzell",
+    "address": "",
+    "phone": "",
+    "summary": "Treppenhaus 3 Etagen, Angebot in Arbeit.",
+    "lastContact": "2026-06-12",
+    "createdAt": "2026-06-12T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-06-12",
+        "callId": "seed-20",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Treppenhaus 3 Etagen, Angebot in Arbeit.",
+        "lang": "de"
+      }
+    ]
+  },
+  "lehmann-singen": {
+    "id": "lehmann-singen",
+    "name": "Familie Lehmann",
+    "place": "Singen",
+    "address": "",
+    "phone": "",
+    "summary": "Garage 30 m² Industrieboden statt Fliesen, abgesagt.",
+    "lastContact": "2026-06-06",
+    "createdAt": "2026-06-06T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-06-06",
+        "callId": "seed-21",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Garage 30 m² Industrieboden statt Fliesen, abgesagt.",
+        "lang": "de"
+      }
+    ]
+  },
+  "schmid-allensbach": {
+    "id": "schmid-allensbach",
+    "name": "Familie Schmid",
+    "place": "Allensbach",
+    "address": "",
+    "phone": "",
+    "summary": "Bad komplett 2027, nur Vorgespräch.",
+    "lastContact": "2026-05-31",
+    "createdAt": "2026-05-31T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-05-31",
+        "callId": "seed-22",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Bad komplett 2027, nur Vorgespräch.",
+        "lang": "de"
+      }
+    ]
+  },
+  "schulze-konstanz": {
+    "id": "schulze-konstanz",
+    "name": "Familie Schulze",
+    "place": "Konstanz",
+    "address": "",
+    "phone": "",
+    "summary": "Küche 12 m² Feinsteinzeug 60x60 beige.",
+    "lastContact": "2026-05-25",
+    "createdAt": "2026-05-25T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-05-25",
+        "callId": "seed-23",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Küche 12 m² Feinsteinzeug 60x60 beige.",
+        "lang": "de"
+      }
+    ]
+  },
+  "maier-kreuzlingen": {
+    "id": "maier-kreuzlingen",
+    "name": "Familie Maier",
+    "place": "Kreuzlingen",
+    "address": "",
+    "phone": "",
+    "summary": "Dusche Natursteinmosaik, 5 m².",
+    "lastContact": "2026-05-19",
+    "createdAt": "2026-05-19T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-05-19",
+        "callId": "seed-24",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Dusche Natursteinmosaik, 5 m².",
+        "lang": "de"
+      }
+    ]
+  },
+  "kohler-singen": {
+    "id": "kohler-singen",
+    "name": "Familie Köhler",
+    "place": "Singen",
+    "address": "",
+    "phone": "",
+    "summary": "Bad im EG, barrierefrei, 9 m².",
+    "lastContact": "2026-05-13",
+    "createdAt": "2026-05-13T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-05-13",
+        "callId": "seed-25",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Bad im EG, barrierefrei, 9 m².",
+        "lang": "de"
+      }
+    ]
+  },
+  "herrmann-uberlingen": {
+    "id": "herrmann-uberlingen",
+    "name": "Familie Herrmann",
+    "place": "Überlingen",
+    "address": "",
+    "phone": "",
+    "summary": "Terrasse 40 m², Stelzlager.",
+    "lastContact": "2026-05-07",
+    "createdAt": "2026-05-07T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-05-07",
+        "callId": "seed-26",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Terrasse 40 m², Stelzlager.",
+        "lang": "de"
+      }
+    ]
+  },
+  "konig-meersburg": {
+    "id": "konig-meersburg",
+    "name": "Familie König",
+    "place": "Meersburg",
+    "address": "",
+    "phone": "",
+    "summary": "Gästebad 6 m², Zementfliesen.",
+    "lastContact": "2026-05-01",
+    "createdAt": "2026-05-01T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-05-01",
+        "callId": "seed-27",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Gästebad 6 m², Zementfliesen.",
+        "lang": "de"
+      }
+    ]
+  },
+  "walter-engen": {
+    "id": "walter-engen",
+    "name": "Familie Walter",
+    "place": "Engen",
+    "address": "",
+    "phone": "",
+    "summary": "Kachelofen-Umrandung, Beratung.",
+    "lastContact": "2026-04-25",
+    "createdAt": "2026-04-25T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-04-25",
+        "callId": "seed-28",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Kachelofen-Umrandung, Beratung.",
+        "lang": "de"
+      }
+    ]
+  },
+  "kowalski-radolfzell": {
+    "id": "kowalski-radolfzell",
+    "name": "Familie Kowalski",
+    "place": "Radolfzell",
+    "address": "",
+    "phone": "",
+    "summary": "Bad im OG: 12 m² Feinsteinzeug 60x60 anthrazit matt, Wand bis 1,20 m hoch. Angebot Mitte April verschickt, er wollte sich im Mai melden.",
+    "lastContact": "2026-04-19",
+    "createdAt": "2026-04-19T09:00:00.000Z",
+    "history": [
+      {
+        "date": "2026-04-19",
+        "callId": "seed-29",
+        "noteId": null,
+        "type": "capture",
+        "summary": "Bad im OG: 12 m² Feinsteinzeug 60x60 anthrazit matt, Wand bis 1,20 m hoch. Angebot Mitte April verschickt, er wollte sich im Mai melden.",
+        "lang": "de"
+      }
+    ]
+  }
+}

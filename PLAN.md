@@ -534,7 +534,8 @@ evidence for H2). A briefing no longer saves a duplicate note.
 Templates and primitives, pluggable languages, memory on Supabase Postgres,
 admin requests ("call Niko and find out X"), outbound calls. The full plan, with
 decisions and phases, is in `docs/v2-architecture.md`. Phase 1 (locale packs,
-English data keys, regression calls) is done.
+English data keys, regression calls) and phase 2 (native tool calls: `order_execute`,
+`memory_search`, one tool registry for both engines) are done.
 
 ## 16. Status (2026-10-11)
 

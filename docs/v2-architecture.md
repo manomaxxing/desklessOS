@@ -1,7 +1,8 @@
 # DesklessOS v2: templates, primitives, pluggable languages, real memory
 
 > **Status (2026-10-12):** P1 (locale packs, English data keys, regression calls) done on branch `v2`.
-> P2–P7 not started. Each phase ships on its own; the pilot keeps working throughout.
+> P2 (native tool calls, tool registry, `memory_search`) done on `v2`. P3–P7 not started. Each phase
+> ships on its own; the pilot keeps working throughout.
 
 ## Context
 
@@ -127,6 +128,15 @@ DesklessOS grew from a hackathon demo into a pilot (Niko, Konstanz). Its shape n
 **Tests:** `stream-turn.test.mjs` (mocked SSE with a functionCall and a thoughtSignature) and `tools.test.mjs`.
 
 **Done when:** the office order runs through the native tool; first-audio p50 for turns without tools is unchanged (±100 ms); the false-start scenario executes the order once.
+
+**As built (2026-10-12):**
+- Gemini 3.5 Flash calls a tool *silently* (no header, no words) unless told otherwise; the TOOLS prompt block says "header and a few words first, then the call", and if no words came anyway a cached `working`/`looking` line from the locale pack plays.
+- The follow-up goes to the same model with the raw parts (Gemini 3 answers 400 without the thought signature); if it stalls, the backup model races it with the exchange as plain text.
+- `order_execute` reads the draft from a fresh extraction (hedged across models after 3.5 s) instead of queueing behind the background one; a stalled extraction had cost 17 s. Extractions apply in order of their start (sequence number), not of their finish.
+- A confirm-gated tool is refused when the same answer is itself asking (recap + call in one breath).
+- Idempotency is in memory per call for now (key `callId:name:hash`); the `tool_runs` table comes with P4.
+- `memory_search` is offered only when memory holds more than the prompt shows; it matches names by trigram similarity.
+- Result: the regression passed 7/7, office order through `order_execute` once, the false start on "yes, go ahead" ran it once. Pilot requests without tools are byte-identical to P1's; measured first-audio p50 varied 2.1–6.5 s between runs of the same code, so the ±100 ms target can't be read from regressions.
 
 ### P3: Templates, primitives and agenda (M–L; still JSON, one tenant)
 **Create:**

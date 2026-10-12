@@ -48,13 +48,33 @@ names a language (a test enforces it).
 - **`office`**: the hackathon demo. Calendar, to-dos and quotes by voice, for a tile
   contractor in San Francisco; the phone page's tabs are built for it.
 
+## Tools
+
+The model calls tools natively (Gemini function calling, `src/tools/`):
+
+- `order_execute` (office): books the calendar entry, adds the to-dos, builds the
+  quote and emails it, from the call's draft. Only right after he said yes to a recap.
+- `memory_search`: offered only when memory holds more than the prompt shows; finds
+  a customer by a sound-alike name, place or topic.
+- `end_call` (Live only; the cascade hangs up with `NEXT: hangup`).
+
+A turn makes at most two model calls: the answer that calls the tool, then a
+follow-up with the result. He hears something first: the model's own "On it."
+(the prompt asks for header and preface before the call), or a cached `working` /
+`looking` line from the locale pack, then typing until the result is spoken.
+Writes wait until the false-start window has passed, run at most once per call and
+order (idempotency key), and are never aborted once started. `TOOLS=header` brings
+back the old `DO: execute` header line, for A/B comparison.
+
 ## Regression calls
 
-`npm run regress` starts a server per skill on a scratch data dir and plays the
+`npm run regress` starts a server per folder on a scratch data dir and plays the
 scripted calls in `test/calls/<skill>/*.json` (German capture with a thinking
-pause, briefing, agenda, false start; English office order), checking what each
-must and should produce, and printing first-audio latency. Run it before every
-merge; `npm test` stays offline.
+pause, briefing, agenda, false start; English office order, and a false start
+on "yes, go ahead"), checking what each must and should produce, and printing
+first-audio latency. A folder named `<skill>+<variant>` starts from a copy of its
+`_seed/` data (`pilot+memory`: 30 customers, a briefing that needs `memory_search`).
+Run it before every merge; `npm test` stays offline.
 
 ## One protocol, three ways to call
 
@@ -229,6 +249,7 @@ src/engine/vad.mjs         energy VAD, adaptive noise floor, end-of-turn by stat
 src/engine/gemini*.mjs     fast path (stream) + slow path (JSON schema); Vertex or AI Studio
 src/engine/fish.mjs        streamed TTS as 16 kHz PCM
 src/engine/reply.mjs       HEARD/NEXT header + sentence streaming
+src/tools/                 tool registry (idempotent writes, confirm gate) and the call's tools
 src/skills/pilot.mjs       pilot week: notes, briefings, one research question per call
 src/skills/office.mjs      order demo: calendar, to-dos, quotes
 config/discovery.json      the research framework: key question, hypotheses, areas, questions

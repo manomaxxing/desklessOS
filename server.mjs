@@ -98,9 +98,10 @@ const assetsReady = Promise.all(
     const lines = locales().persona(lang, skill.PERSONA);
     const synth = text => fish.synth(text, { lang }).catch(err => { log(`asset synth failed (${lang}):`, text, err.message); return null; });
     const oopsLines = [].concat(lines.oops);
-    const [greeting, wrapUp, mhm, ...rest] = await Promise.all([lines.greeting, lines.wrapUp, lines.backchannel ?? "", ...oopsLines, ...lines.fillers].map(t => (t ? synth(t) : null)));
+    const [greeting, wrapUp, mhm, working, looking, ...rest] = await Promise.all([lines.greeting, lines.wrapUp, lines.backchannel ?? "", lines.working ?? "", lines.looking ?? "", ...oopsLines, ...lines.fillers].map(t => (t ? synth(t) : null)));
     // The backchannel plays while he's still thinking, so it's quieter than the agent's own turns.
-    assets[lang] = { greeting, wrapUp, backchannel: mhm && gain(mhm, 0.5), oops: rest.slice(0, oopsLines.length).filter(Boolean), fillers: rest.slice(oopsLines.length).filter(Boolean) };
+    // working / looking: said before a tool runs when the model called it without a word.
+    assets[lang] = { greeting, wrapUp, backchannel: mhm && gain(mhm, 0.5), working, looking, oops: rest.slice(0, oopsLines.length).filter(Boolean), fillers: rest.slice(oopsLines.length).filter(Boolean) };
   }),
 ).then(() => log(`voice assets ready (${locales().enabled().map(l => `${l}: ${assets[l].fillers.length} fillers, ${assets[l].oops.length} oops`).join("; ")})`));
 assets.typing = typingLoop();

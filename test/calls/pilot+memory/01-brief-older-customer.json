@@ -1,0 +1,9 @@
+{
+  "lang": "de",
+  "says": [
+    "Ich fahr gleich zu den Kowalskis nach Radolfzell. Was war da nochmal?",
+    "Okay, danke. Das war's, tschüss."
+  ],
+  "must": [{ "tool": "memory_search" }],
+  "should": [{ "said": "anthrazit|sechzig|60|zwölf|12" }, { "noEvent": "error" }]
+}

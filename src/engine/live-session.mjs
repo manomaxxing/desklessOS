@@ -6,7 +6,8 @@
 // audio, resample its 24 kHz speech to 16 kHz, clear playback on `interrupted`,
 // and use both transcripts for the note, memory and the monitor. It hangs up
 // through an `end_call` tool. If Live fails, `onFatal` lets the server carry
-// the call on with the cascade engine.
+// the call on with the cascade engine. Tools come from the same registry as the
+// cascade's (src/tools/): order_execute, memory_search, end_call.
 
 import WebSocket from "ws";
 import { writeFileSync } from "node:fs";
@@ -19,6 +20,8 @@ import { createMeter, geminiCost } from "./cost.mjs";
 import { createVad } from "./vad.mjs";
 import { resample, frames, wav, durationMs } from "./audio.mjs";
 import { locales, pickLanguage } from "../locale/index.mjs";
+import { createToolRunner } from "../tools/registry.mjs";
+import { callTools } from "../tools/index.mjs";
 
 const MARK_EVERY_MS = 800; // playback checkpoints, to know how much the caller actually heard
 
@@ -29,6 +32,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
   let typingTimer = null;
   const stopTyping = () => { clearTimeout(typingTimer); typist?.stop(); };
   const target = liveTarget(cfg.liveModel);
+  const runner = createToolRunner({ tools: callTools({ engine: "live", office, memory, store }) });
   const meter = createMeter();
   const debug = (event, data = {}) => { onEvent({ event, ...data }); if (dev) send({ type: "debug", event, ...data, t: Date.now() }); };
   const fail = (where, err) => { log(`${where} error`, err.message); debug("error", { where, message: err.message }); };
@@ -109,10 +113,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
           },
           inputAudioTranscription: {},
           outputAudioTranscription: {},
-          tools: [{ functionDeclarations: [
-            { name: "end_call", description: "Hang up the phone. Call this only right after you have said goodbye and the conversation is finished.", parameters: { type: "OBJECT", properties: {} } },
-            ...(office ? [{ name: "execute_order", description: "Book the calendar entry, create the to-dos, build the quote and email it to the customer, from everything said in this call. Call this only right after he confirmed your recap.", parameters: { type: "OBJECT", properties: {} } }] : []),
-          ] }],
+          tools: [{ functionDeclarations: runner.declarations() }],
         },
       }));
     });
@@ -156,20 +157,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
     }
     if (sc?.interrupted) onInterrupted();
     if (sc?.turnComplete) onTurnComplete();
-    if (msg.toolCall?.functionCalls) {
-      for (const fc of msg.toolCall.functionCalls) {
-        if (fc.name === "execute_order" && office) {
-          runWorkflow(fc).catch(err => fail("workflow", err));
-          continue;
-        }
-        if (fc.name === "end_call") {
-          hangupWanted = true;
-          debug("live", { text: "model called end_call" });
-          gem.send(JSON.stringify({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response: { result: { ok: true } } }] } }));
-          if (!agent && !marks.size) { hangupMark = sendMark("bye"); }
-        }
-      }
-    }
+    if (msg.toolCall?.functionCalls) for (const fc of msg.toolCall.functionCalls) runTool(fc).catch(err => fail("tool", err));
     if (msg.usageMetadata) record("live", msg.usageMetadata, agent?.id ?? turnSeq, target.model);
     if (msg.goAway) debug("live", { text: `server goAway, ${msg.goAway.timeLeft ?? "?"} left` });
   }
@@ -240,33 +228,48 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
     if (hangupWanted && !hangupMark) hangupMark = sendMark("bye");
   }
 
-  // ---------- the office (tool call) ----------
-  async function runWorkflow(fc) {
-    typist?.start();
-    debug("workflow_start");
-    let response;
-    try {
-      commitUser();
-      await extracting;
-      await refreshNote();
-      const result = office.execute({ draft: note, lang, callId: call.id });
-      debug("workflow", { result });
-      log(`workflow: ${result.summary}`);
-      response = { result: { status: "done", summary: result.summary } };
-    } catch (err) {
-      fail("workflow", err);
-      response = { result: { status: "failed", error: err.message, retryable: true } };
-    }
-    if (gem?.readyState === 1) gem.send(JSON.stringify({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response }] } }));
+  // ---------- tools ----------
+  // Live speaks its own preface and decides when to call; we run the tool and answer.
+  // No confirm gate or false-start window here: Live has no NEXT header to check against.
+  async function runTool(fc) {
+    const tool = runner.get(fc.name);
+    if (tool?.effect === "write") typist?.start(); // until Live speaks the result
+    const outcome = await runner.run({ id: fc.id, name: fc.name, args: fc.args }, {
+      callId: call.id,
+      get lang() { return lang; },
+      confirmed: true,
+      latestNote: () => { commitUser(); return extractNote({ hedgeMs: 3500 }); },
+      emit: (event, data) => debug(event, { turn: turnSeq, ...data }),
+      log,
+      hangup: () => {
+        hangupWanted = true;
+        debug("live", { text: "model called end_call" });
+        if (!agent && !marks.size) hangupMark = sendMark("bye");
+      },
+    });
+    debug("tool", { turn: turnSeq, name: outcome.name, args: outcome.args, status: outcome.status, ms: outcome.ms, summary: outcome.summary });
+    if (gem?.readyState === 1) gem.send(JSON.stringify({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response: outcome.result }] } }));
   }
 
   // ---------- slow path (same as the cascade engine) ----------
-  function refreshNote() {
+  // A result is applied only if no newer extraction's already was (see session.mjs).
+  let noteSeq = 0;
+  let noteApplied = 0;
+  function extractNote({ hedgeMs }) {
+    const seq = ++noteSeq;
     const snapshot = turns.slice();
-    extracting = (extracting ?? Promise.resolve())
-      .then(() => extractJsonResilient({ endpoint, models: [extractModel, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note, lang }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u, null, extractModel) }))
-      .then(updated => { note = updated; missing = skill.missingFields(note); debug("note", { note, missing }); })
-      .catch(err => fail("extract", err));
+    return extractJsonResilient({ endpoint, models: [extractModel, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], hedgeMs, system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note, lang }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u, null, extractModel) })
+      .then(updated => {
+        if (seq < noteApplied) return note;
+        noteApplied = seq;
+        note = updated;
+        missing = skill.missingFields(note);
+        debug("note", { note, missing });
+        return note;
+      });
+  }
+  function refreshNote() {
+    extracting = (extracting ?? Promise.resolve()).then(() => extractNote({ hedgeMs: 6000 })).catch(err => fail("extract", err));
     return extracting;
   }
 

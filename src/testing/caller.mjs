@@ -156,6 +156,9 @@ export function describeEvent(f) {
     case "dangling": return "↩  stopped mid-sentence: keep listening";
     case "backchannel": return "… mhm (backchannel)";
     case "nudge": return `⏲  ${f.kind}`;
+    case "tool": return f.ignored ? `🛠  tool call ignored (${f.reason}): ${f.ignored.join(", ")}` : `🛠  ${f.name} ${f.status} (${f.ms} ms)${f.summary ? `: ${f.summary}` : ""}`;
+    case "tool_latency": return `⏱  answer after tool: ${f.hopMs} ms after the call, ${f.totalMs} ms after he stopped`;
+    case "workflow": return `🏢 office: ${f.result?.summary ?? ""}`;
     case "saved": return `💾 saved ${f.id}`;
     case "error": return `⚠ ${f.where}: ${f.message}`;
     default: return null;
