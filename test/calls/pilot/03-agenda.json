@@ -1,0 +1,6 @@
+{
+  "lang": "de",
+  "says": ["Was steht bei mir an?", "Okay, danke. Tschüss."],
+  "must": [{ "said": "Angebot|Weber" }],
+  "should": [{ "hangup": true }, { "noEvent": "error" }]
+}

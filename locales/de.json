@@ -1,0 +1,110 @@
+{
+  "id": "de",
+  "name": "German",
+  "nativeName": "Deutsch",
+  "bcp47": "de-DE",
+  "status": "enabled",
+  "countryCodes": ["49", "43", "41"],
+  "voices": {
+    "fish": "c5b66a80d90749fc914c714e793d1a2f",
+    "geminiTts": "Kore"
+  },
+  "testing": { "callerVoice": "a20517d0d23048319e4ced960899187e", "from": "+4915100000000" },
+  "format": { "numberLocale": "de-DE" },
+  "lexicon": {
+    "dangling": [
+      "und", "oder", "aber", "also", "dann", "weil", "dass", "wenn", "ob", "sondern", "denn", "sowie",
+      "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer", "eines",
+      "mein", "meine", "dein", "deine", "sein", "seine", "unser", "unsere",
+      "mit", "für", "von", "vom", "zu", "zum", "zur", "im", "ins", "am", "an", "auf", "aus", "bei", "beim",
+      "nach", "über", "unter", "vor", "hinter", "neben", "zwischen", "bis", "gegen", "ohne", "um",
+      "ich", "du", "wir",
+      "will", "wollte", "wollen", "muss", "musste", "müssen", "soll", "sollte", "sollen", "kann", "konnte", "können",
+      "hat", "hatte", "habe", "hab", "haben", "ist", "bin", "sind", "war", "waren", "wird", "werden", "würde",
+      "äh", "ähm", "öh", "hm", "ehm"
+    ],
+    "hold": ["moment", "momentchen", "wart", "warte", "wart mal", "warte mal", "sekunde", "eine sekunde", "ne sekunde", "'ne sekunde", "augenblick"],
+    "holdTail": ["lass mich überlegen", "lass mich kurz überlegen", "lass mich nachdenken", "lass mich kurz nachdenken", "lass mich schauen", "lass mich kurz schauen"],
+    "fillerWords": ["mhm", "okay", "ok", "alles klar"],
+    "agentBackchannel": ["mhm", "okay", "ok"],
+    "goOn": ["weiter"],
+    "unclear": ["unklar"],
+    "stopwords": ["und", "ich", "ist", "das", "die", "der", "nicht", "ja", "nein", "auch", "mit", "noch"],
+    "letters": "äöüß"
+  },
+  "personas": {
+    "notebook": {
+      "greeting": "Hallo, hier ist dein Notizbuch. Kommst du von einem Termin, oder fährst du zu einem?",
+      "wrapUp": "Wir sind gleich am Zeitlimit. Ich speichere alles, was ich habe. Bis später!",
+      "backchannel": "Mhm.",
+      "fillers": ["Mhm.", "Okay.", "Alles klar."],
+      "oops": ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
+      "examples": {
+        "address": "du",
+        "acks": ["Okay.", "Alles klar.", "Verstehe.", "Gut.", "Notiert.", "Ah, okay.", "Mhm, und?"],
+        "askDeadline": "Bis wann soll das Angebot raus?",
+        "askPlace": "Wo war das nochmal?",
+        "avoidWords": ["Deadline", "nächster Schritt"],
+        "anythingElse": "Noch was?",
+        "doneSignals": ["das war's", "nein, sonst nichts"],
+        "confirm": "Passt das?",
+        "briefTriggers": ["ich fahr zu …", "was war bei …"],
+        "briefMore": "Soll ich noch was vorlesen?",
+        "agendaAsk": "Was steht an?",
+        "taskDone": "Angebot Müller ist raus",
+        "goodbyes": ["tschüss", "ciao", "das war's"],
+        "researchIntro": "Kurze Frage noch, nur fürs Verständnis: …",
+        "researchLink": "Du hast grad das Angebot erwähnt: …",
+        "probes": ["Wann war das zuletzt?", "Wie lange ungefähr?"],
+        "thanksBye": "Danke dir, hilft mir. Bis dann!",
+        "noTime": "Klar, kein Problem.",
+        "noJudging": ["gute Idee", "oh, das ist schlecht"],
+        "unfinished": ["und…", "äh"],
+        "holdOn": ["Moment", "warte mal", "Sekunde"],
+        "callerBackchannels": ["ja", "mhm", "genau", "okay"],
+        "stillThere": "Bist du noch dran?",
+        "numbers": ["acht Quadratmeter", "sechzig mal hundertzwanzig"],
+        "tradeWords": ["Aufmaß", "Angebot", "Auftrag", "Nachtrag", "Regiebericht", "Stundenzettel", "Abnahme", "Abschlagsrechnung", "Schlussrechnung", "Baustelle", "Material", "Lieferant", "Großhändler"],
+        "neverSay": "Lass mich überlegen"
+      }
+    },
+    "office": {
+      "greeting": "Servus, hier ist dein Büro. Was kann ich für dich tun?",
+      "wrapUp": "Wir sind gleich am Zeitlimit. Ich speichere alles, was ich habe. Bis später!",
+      "backchannel": "Mhm.",
+      "fillers": ["Mhm.", "Okay.", "Alles klar."],
+      "oops": ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
+      "examples": {
+        "acks": ["Alles klar.", "Passt."],
+        "emailReadBack": "peter at steinberger punkt com?",
+        "bookAndSend": "Soll ich's so eintragen und das Angebot an <Name> schicken?",
+        "onIt": "Mach ich.",
+        "anythingElse": "Noch was?",
+        "goodbyes": ["tschüss"],
+        "callerBackchannels": ["ja", "genau"],
+        "stillThere": "Bist du noch dran?"
+      }
+    }
+  },
+  "documents": {
+    "quote": {
+      "title": "Angebot", "number": "Angebotsnummer", "date": "Datum", "valid": "Gültig bis", "contact": "Ihr Ansprechpartner",
+      "greetingFemale": "Sehr geehrte {name},", "greetingDefault": "Sehr geehrter {name},", "greetingNone": "Sehr geehrte Kundin, sehr geehrter Kunde,",
+      "femalePrefixes": ["frau"],
+      "intro": "vielen Dank für das freundliche Gespräch. Gerne bieten wir Ihnen folgende Leistungen an:",
+      "pos": "Pos.", "desc": "Beschreibung", "qty": "Menge", "unit": "Einheit", "price": "Einzelpreis", "total": "Gesamt",
+      "net": "Zwischensumme", "gross": "Gesamtbetrag", "onRequest": "auf Anfrage",
+      "needed": "Gewünschter Termin", "notes": "Hinweise",
+      "closing": "Wir freuen uns auf Ihren Auftrag. Bei Fragen erreichen Sie uns jederzeit.", "regards": "Mit freundlichen Grüßen",
+      "demo": "Demo-Angebot · erstellt per Sprachassistent", "page": "Seite 1 von 1"
+    },
+    "order": {
+      "unitFallback": "Stk",
+      "calendarTitle": "Auftrag {name}",
+      "followUpTodo": "Angebot bei {name} nachfassen",
+      "emailSubject": "Angebot {number} · {company}",
+      "emailSalutation": "Hallo {name},",
+      "emailBody": "vielen Dank für das Gespräch heute. Wie besprochen erhalten Sie anbei unser Angebot {number} über {total} inklusive Steuer auf das Material. Es ist gültig bis {validUntil}.\n\nWenn alles passt, antworten Sie einfach auf diese E-Mail, dann planen wir den Auftrag ein.\n\nMit freundlichen Grüßen\n{owner}\n{company} · {phone}"
+    }
+  }
+}

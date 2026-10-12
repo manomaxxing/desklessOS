@@ -7,13 +7,33 @@ Before the next visit he calls again and gets a 30-second briefing. No screen.
 Stack: **Gemini** (hears and answers in one streamed call) + **Fish Audio**
 (voice) + **Dial** (phone number, self-hosted audio over WebSocket).
 
-**German and English.** The greeting language comes from Dial's `language`
-(or the caller's country code: +49/+43/+41 → German, +1/+44/… → English,
-else `DEFAULT_LANG`). After that it answers in whatever language the caller
-last spoke, switching mid-call if he does. Voices: `FISH_VOICE_DE` / `FISH_VOICE`
-(Catrinja) and `FISH_VOICE_EN` (Sarah). Set both to the same ID for one persona
-in both languages. Notes keep German keys; values are in the language spoken.
+**German and English**, one file each in `locales/` (see Languages below). The
+greeting language comes from Dial's `language`, else the caller's country code,
+else the skill's default. After that it answers in whatever language the caller
+last spoke, switching mid-call if he does.
 See `PLAN.md` for the why and the roadmap.
+
+## Languages
+
+Everything language-specific lives in a locale pack, `locales/<id>.json`: the
+BCP-47 tag, phone country codes, Fish and Gemini TTS voices, the turn-taking word
+lists (words no sentence ends on, "Moment"-style hold phrases, fillers), each
+persona's spoken lines (greeting, fillers, "sorry, say again") and the example
+phrases its prompt quotes, and document text (quote, order email). Prompts are
+English; the model speaks the caller's language. Code outside `src/locale/` never
+names a language (a test enforces it).
+
+- **Add a language:** copy `locales/en.json` to `locales/<id>.json`, translate it,
+  pick a Fish voice, then `npm run locale:check` (every key the default pack has
+  must exist). `LANGS=de,en,<id>` limits which packs are live; `DEFAULT_LANG` sets
+  the fallback.
+- **Voices:** the pack's `voices.fish`; `FISH_VOICE_<ID>` overrides it, and
+  `FISH_VOICE` still overrides the default language's.
+- **Data:** notes use English keys (`customer_name`, `work`, `next_steps`,
+  `summary`, …) with values in the spoken language and a `lang` field. Data from
+  before v2 used German keys: `node scripts/migrate-keys.mjs --dry-run`, then
+  without `--dry-run` (backs up first; `DATA_DIR=/data` on Fly). Readers still
+  understand the old keys meanwhile.
 
 ## Skills
 
@@ -27,6 +47,14 @@ See `PLAN.md` for the why and the roadmap.
   Method and rules: `PLAN.md` section 14.
 - **`office`**: the hackathon demo. Calendar, to-dos and quotes by voice, for a tile
   contractor in San Francisco; the phone page's tabs are built for it.
+
+## Regression calls
+
+`npm run regress` starts a server per skill on a scratch data dir and plays the
+scripted calls in `test/calls/<skill>/*.json` (German capture with a thinking
+pause, briefing, agenda, false start; English office order), checking what each
+must and should produce, and printing first-audio latency. Run it before every
+merge; `npm test` stays offline.
 
 ## One protocol, three ways to call
 
@@ -204,6 +232,10 @@ src/engine/reply.mjs       HEARD/NEXT header + sentence streaming
 src/skills/pilot.mjs       pilot week: notes, briefings, one research question per call
 src/skills/office.mjs      order demo: calendar, to-dos, quotes
 config/discovery.json      the research framework: key question, hypotheses, areas, questions
+locales/<id>.json          everything language-specific (see Languages)
+src/locale/                loads packs, picks the call's language, checks completeness
+src/store/note-keys.mjs    old German note keys → v2 English keys
+src/testing/caller.mjs     scripted caller (fake-dial, regress)
 src/store/notes.mjs        data/notes/*.json
 src/store/discovery.mjs    data/discovery: findings, question state, which question to ask next
 web/index.html             browser test phone (pretends to be Dial)

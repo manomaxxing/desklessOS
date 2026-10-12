@@ -17,7 +17,9 @@
     "rebuild-memory": "node --env-file-if-exists=.env scripts/rebuild-memory.mjs",
     "live-probe": "node --env-file-if-exists=.env scripts/live-probe.mjs",
     "gen-cockpit": "node --env-file-if-exists=.env scripts/gen-cockpit.mjs",
-    "report": "node --env-file-if-exists=.env scripts/report.mjs"
+    "report": "node --env-file-if-exists=.env scripts/report.mjs",
+    "regress": "node --env-file-if-exists=.env scripts/regress.mjs",
+    "locale:check": "node scripts/locale-check.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"

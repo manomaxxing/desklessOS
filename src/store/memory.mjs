@@ -9,6 +9,7 @@ import { mkdirSync, existsSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir, readJson, writeJson, slug } from "./files.mjs";
+import { normalizeNote } from "./note-keys.mjs";
 
 const MAX_CUSTOMERS_IN_PROMPT = 25;
 const NOTES_PER_CUSTOMER = 3;
@@ -33,7 +34,8 @@ export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
   // Which customer a note belongs to: its link if it has one, else by name (notes saved before linking).
   function customerOf(note, all) {
     if (note.customerId && all[note.customerId]) return all[note.customerId];
-    return note.kunde_name ? findCustomer(all, { name: note.kunde_name, place: note.ort }) : null;
+    const n = normalizeNote(note);
+    return n.customer_name ? findCustomer(all, { name: n.customer_name, place: n.place }) : null;
   }
 
   return {
@@ -194,23 +196,21 @@ export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
   };
 }
 
-// One note, compact but with the specs a briefing needs.
-export function noteLine(n) {
-  const work = (n.arbeiten ?? []).map(a => [
-    a.raum, a.bereich, a.flaeche_m2 ? `${a.flaeche_m2} m²` : "", a.fliese_format, a.fliese_material, a.fliese_optik,
-    a.beschaffung ? `tiles: ${a.beschaffung}` : "", a.menge, a.material, a.beschreibung,
-  ].filter(Boolean).join(" ")).filter(Boolean);
+// One note, compact but with the specs a briefing needs (old German-keyed notes too).
+export function noteLine(note) {
+  const n = normalizeNote(note);
+  const work = (n.work ?? []).map(w => [w.area, w.quantity, w.material, w.supply ? `supply: ${w.supply}` : "", w.description].filter(Boolean).join(" ")).filter(Boolean);
   const parts = [
-    n.termin_datum || n.created_at?.slice(0, 10),
-    [n.kunde_name, n.adresse, n.ort].filter(Boolean).join(", ") || "?",
-    n.zusammenfassung,
+    n.appointment_date || n.created_at?.slice(0, 10),
+    [n.customer_name, n.address, n.place].filter(Boolean).join(", ") || "?",
+    n.summary,
     work.length ? `work: ${work.join("; ")}` : "",
-    n.untergrund ? `substrate: ${n.untergrund}` : "",
-    n.sonderwuensche?.length ? `wishes: ${n.sonderwuensche.join("; ")}` : "",
-    n.zeitrahmen ? `timeframe: ${n.zeitrahmen}` : "",
+    n.substrate ? `substrate: ${n.substrate}` : "",
+    n.special_requests?.length ? `wishes: ${n.special_requests.join("; ")}` : "",
+    n.timeframe ? `timeframe: ${n.timeframe}` : "",
     n.budget ? `budget: ${n.budget}` : "",
-    n.naechste_schritte?.length ? `next: ${n.naechste_schritte.map(s => `${s.was}${s.bis ? ` (${s.bis})` : ""}`).join("; ")}` : "",
-    n.offene_fragen?.length ? `open: ${n.offene_fragen.join("; ")}` : "",
+    n.next_steps?.length ? `next: ${n.next_steps.map(s => `${s.what}${s.due ? ` (${s.due})` : ""}`).join("; ")}` : "",
+    n.open_questions?.length ? `open: ${n.open_questions.join("; ")}` : "",
   ];
   return parts.filter(Boolean).join(" | ");
 }

@@ -45,9 +45,21 @@ test("context lists each customer with the specs from their notes", () => {
 
   const ctx = memory.context({ notes: store.list(), today: new Date("2026-10-11") });
   assert.match(ctx, /Frau Müller, Unterhaching/);
-  assert.match(ctx, /note 2026-10-11 .*8 m² 60x120 Beton tiles: Handwerker/);
+  assert.match(ctx, /note 2026-10-11 .*Bad, Boden 8 m² 60x120 Beton supply: Handwerker/, "an old German-keyed note still renders");
   assert.match(ctx, /Angebot schicken \| due 2026-10-16 \(in 5 d\)/);
   assert.doesNotMatch(ctx, /OTHER NOTES/);
+});
+
+test("a v2 note (English keys) renders and links the same way", () => {
+  const memory = createMemory(tmp());
+  memory.apply(mueller, { callId: "c1" });
+  const notes = [{
+    id: "n", mode: "capture", customer_name: "Müller", place: "Unterhaching", appointment_date: "2026-10-11", lang: "de",
+    work: [{ area: "Bad", description: "Boden neu", quantity: "8 m²", material: "Feinsteinzeug 60x120" }],
+    next_steps: [{ what: "Angebot", due: "Freitag" }], summary: "Bad komplett neu.",
+  }];
+  const ctx = memory.context({ notes, today: new Date("2026-10-11") });
+  assert.match(ctx, /Frau Müller[^\n]*\n {4}note 2026-10-11 \| Müller, Unterhaching \| Bad komplett neu\. \| work: Bad 8 m² Feinsteinzeug 60x120 Boden neu \| next: Angebot \(Freitag\)/);
 });
 
 test("notes without a customer link still match by name, others are listed separately", () => {

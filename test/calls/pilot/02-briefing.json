@@ -1,0 +1,6 @@
+{
+  "lang": "de",
+  "says": ["Ich fahr gleich zur Frau Weber nach Radolfzell. Was war da nochmal?", "Nee, danke. Tschüss."],
+  "must": [{ "said": "Bad|zwölf|Quadratmeter" }],
+  "should": [{ "said": "Freitag|Angebot" }, { "hangup": true }, { "noEvent": "error" }]
+}

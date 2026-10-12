@@ -28,7 +28,7 @@ export function createNotesStore(dir = dataDir("notes", "NOTES_DIR")) {
     get: id => load().find(n => n.id === id) ?? null,
     save(note) {
       const created_at = note.created_at ?? new Date().toISOString();
-      const id = note.id ?? `${created_at.replace(/[:.]/g, "-")}-${slug(note.customer_name || note.kunde_name || note.ort || "notiz").slice(0, 40)}`;
+      const id = note.id ?? `${created_at.replace(/[:.]/g, "-")}-${slug(note.customer_name || note.kunde_name || note.place || note.ort || "note").slice(0, 40)}`;
       const full = { ...note, id, created_at };
       writeJson(path.join(dir, `${id}.json`), full);
       cache = [full, ...load().filter(n => n.id !== id)].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));

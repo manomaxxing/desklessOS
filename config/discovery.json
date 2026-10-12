@@ -1,5 +1,5 @@
 {
-  "participant": { "name": "Niko", "place": "Konstanz", "trade": "", "lang": "de" },
+  "participant": { "name": "Niko", "place": "Konstanz", "trade": "", "lang": "de", "accent": "maybe with a Baden or Swiss accent", "timezone": "Europe/Berlin" },
   "keyQuestion": "Wo verliert Niko zwischen Anfrage und bezahlter Rechnung Zeit, Geld oder Nerven, und welcher Teil davon lässt sich per Anruf aus dem Auto erledigen?",
   "pilotDays": 5,
   "dailyQuestionCap": 3,

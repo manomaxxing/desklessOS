@@ -1,0 +1,12 @@
+{
+  "lang": "de",
+  "says": [
+    "Ich komm grad vom Herrn Huber in Allensbach. Küche, Fliesenspiegel neu, so vier Meter. [pause 3.2] Ach ja, und das Gäste-WC auch.",
+    "Angebot bis Montag.",
+    "Nein, das war's.",
+    "Ja.",
+    "Keine Zeit, tschüss."
+  ],
+  "must": [{ "saved": true }, { "note": "Huber|Allensbach" }],
+  "should": [{ "note": "WC" }, { "noEvent": "error" }]
+}

@@ -411,6 +411,8 @@
 </div>
 
 <script>
+// A language id's own name ("de" → "Deutsch"), from the browser.
+const langName = id => { try { return new Intl.DisplayNames([id], { type: "language" }).of(id) ?? id; } catch { return id ?? "?"; } };
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const token = new URLSearchParams(location.search).get("token");
@@ -594,7 +596,7 @@ function addEl(cls, text) { const el = document.createElement("div"); el.classNa
 
 function onDebug(d) {
   switch (d.event) {
-    case "connected": lastLang = d.lang; addEl("sys", `${d.lang === "en" ? "English" : "Deutsch"} · ${d.config ? modeLabel(d.config) : ""} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`); break;
+    case "connected": lastLang = d.lang; addEl("sys", `${langName(d.lang)} · ${d.config ? modeLabel(d.config) : ""} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`); break;
     case "fallback": addEl("sys warn", `${d.from} failed → ${d.to}`); break;
     case "recovered": addEl("sys warn", `Recovered on ${d.model}`); break;
     case "vad":
@@ -604,7 +606,7 @@ function onDebug(d) {
       break;
     case "turn_start": if (d.text) { awaiting = true; awaitingSince = performance.now(); } break;
     case "heard":
-      if (d.lang && lastLang && d.lang !== lastLang) addEl("sys", `Switched to ${d.lang === "en" ? "English" : "Deutsch"}`);
+      if (d.lang && lastLang && d.lang !== lastLang) addEl("sys", `Switched to ${langName(d.lang)}`);
       lastLang = d.lang || lastLang;
       if (d.text) { addEl("msg user", d.text); $("caption").innerHTML = `<b>${esc(d.text)}</b>`; }
       agentBubble = null; break;
@@ -635,7 +637,7 @@ const money = n => (n == null ? "—" : new Intl.NumberFormat(lastLang === "de" 
 fetch("/api/catalog" + tq).then(r => r.json()).then(d => { catalogData = d; }).catch(() => {});
 
 function renderOrder(n, missing) {
-  if (!n || n.modus !== "auftrag") return;
+  if (!n || (n.mode ?? n.modus) !== "order") return;
   lastDraft = n;
   const items = (n.items || []).map(i => {
     const c = catalogData?.catalog.items.find(x => x.id === i.catalog_id);
@@ -651,7 +653,7 @@ function renderOrder(n, missing) {
     ${items.map(i => `<div class="item"><div>${esc(i.name || "?")}<small>${i.qty ?? "?"} ${esc(i.unit)}${i.price != null ? ` × ${money(i.price)}` : " · price?"}</small></div><div class="usd">${i.total != null ? money(i.total) : ""}</div></div>`).join("") || '<div class="item"><div style="color:var(--faint)">Listening…</div></div>'}
     ${items.length ? `<div class="item"><div><b>Subtotal</b><small>${n.needed_by ? "needed by " + esc(n.needed_by) : "date?"}</small></div><div class="usd"><b>${money(net)}</b></div></div>` : ""}
     <div class="acts">${act(n.add_calendar, "Calendar", done && n.add_calendar !== false)}${act(n.add_todo, "To-do", done && n.add_todo !== false)}${act(n.send_quote, "Quote", done && n.send_quote !== false)}
-      ${(missing || []).map(m => `<span class="chip orange">${esc(m)}</span>`).join("")}${n.bestaetigt && !done ? '<span class="chip green">confirmed</span>' : ""}</div>
+      ${(missing || []).map(m => `<span class="chip orange">${esc(m)}</span>`).join("")}${(n.confirmed ?? n.bestaetigt) && !done ? '<span class="chip green">confirmed</span>' : ""}</div>
   </div>`;
 }
 

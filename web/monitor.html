@@ -125,6 +125,8 @@
   <div class="rightcol" id="rightcol"></div>
 </div>
 <script>
+// A language id's own name ("de" → "Deutsch"), from the browser.
+const langName = id => { try { return new Intl.DisplayNames([id], { type: "language" }).of(id) ?? id; } catch { return id ?? "?"; } };
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const token = new URLSearchParams(location.search).get("token");
@@ -191,7 +193,7 @@ function items(call) {
       case "saved": out.push({ t, kind: "chip", cls: "good", text: `note saved · ${e.id}` }); break;
       case "memory": out.push({ t, kind: "chip", cls: "good", text: `memory · ${e.callType}${e.added?.length ? ` · +${e.added.length} to-do` : ""}${e.completed?.length ? ` · ${e.completed.length} done` : ""}` }); break;
       case "error": out.push({ t, kind: "chip", cls: "bad", text: `${e.where} error · ${e.message}` }); break;
-      case "connected": out.push({ t, kind: "chip", text: `connected · ${e.lang === "en" ? "English" : "German"} · ${e.formats?.inbound ?? "?"}` }); break;
+      case "connected": out.push({ t, kind: "chip", text: `connected · ${langName(e.lang)} · ${e.formats?.inbound ?? "?"}` }); break;
       case "hangup": out.push({ t, kind: "chip", text: "agent hung up" }); break;
       case "ended": out.push({ t, kind: "chip", text: `ended · ${e.reason}` }); break;
       case "duration_warning": out.push({ t, kind: "chip", cls: "warn", text: "Dial duration warning" }); break;
@@ -251,11 +253,11 @@ function renderRight(c) {
   const mem = c.events.filter(e => e.event === "memory").at(-1);
   const t = c.cost, s = t?.byStep || {};
   const noteRows = n ? [
-    ["Mode", n.modus], ["Customer", [n.customer_name, n.customer_company].filter(Boolean).join(", ")], ["Email", n.customer_email],
+    ["Mode", n.mode ?? n.modus], ["Customer", [n.customer_name, n.customer_company].filter(Boolean).join(", ")], ["Email", n.customer_email],
     ["Items", (n.items || []).map(i => `${i.quantity ?? "?"} ${i.unit || ""} ${i.description || i.catalog_id}${i.unit_price != null ? ` @ ${i.unit_price}` : ""}`).join(" · ")],
     ["Needed by", n.needed_by], ["Calendar", n.appointment?.date ? `${n.appointment.date} ${n.appointment.start_time || ""} ${n.appointment.title || ""}` : ""],
     ["To-dos", (n.todos || []).map(t => t.text + (t.due ? ` (${t.due})` : "")).join(" · ")],
-    ["Confirmed", n.bestaetigt ? "yes" : "no"], ["Missing", missing.join(", ")],
+    ["Confirmed", (n.confirmed ?? n.bestaetigt) ? "yes" : "no"], ["Missing", missing.join(", ")],
   ].filter(([, v]) => v) : [];
   const crow = (name, sub, v) => `<div class="crow"><div>${name}<small>${sub}</small></div><div class="usd">${v}</div></div>`;
   $("rightcol").innerHTML = `
@@ -305,7 +307,7 @@ function connect() {
       const c = calls.find(c => c.id === msg.id);
       if (c) {
         if (msg.ev.event === "heard") c.turns += 1;
-        if (msg.ev.event === "note") c.summary = msg.ev.note?.zusammenfassung ?? c.summary;
+        if (msg.ev.event === "note") c.summary = msg.ev.note?.summary ?? msg.ev.note?.zusammenfassung ?? c.summary;
         if (msg.ev.event === "memory") c.summary = msg.ev.summary ?? c.summary;
         if (msg.ev.event === "cost") c.usd = msg.ev.totals?.usd ?? c.usd;
         if ((msg.ev.event === "connected" || msg.ev.event === "heard") && msg.ev.lang) c.lang = msg.ev.lang;

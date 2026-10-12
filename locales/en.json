@@ -1,0 +1,104 @@
+{
+  "id": "en",
+  "name": "English",
+  "nativeName": "English",
+  "bcp47": "en-US",
+  "status": "enabled",
+  "countryCodes": ["1", "44", "61", "64", "353"],
+  "voices": {
+    "fish": "933563129e564b19a115bedd57b7406a",
+    "geminiTts": "Aoede"
+  },
+  "testing": { "callerVoice": "536d3a5e000945adb7038665781a4aca", "from": "+14155550100" },
+  "format": { "numberLocale": "en-US" },
+  "lexicon": {
+    "dangling": [
+      "the", "a", "and", "or", "but", "because", "that", "to", "of", "for", "with", "on", "at", "from", "by",
+      "i", "we", "my", "his", "her", "their", "our",
+      "is", "are", "was", "were", "would", "could", "should", "has", "have", "had", "um", "uh"
+    ],
+    "hold": ["hold on", "hang on", "one sec", "one second", "just a sec", "just a second"],
+    "holdTail": ["let me think"],
+    "fillerWords": ["mhm", "okay", "ok", "got it"],
+    "agentBackchannel": ["mhm", "okay", "ok"],
+    "goOn": ["go on"],
+    "unclear": ["unclear"],
+    "stopwords": ["the", "and", "i", "is", "you", "that", "it", "yes", "no", "with"],
+    "letters": ""
+  },
+  "personas": {
+    "notebook": {
+      "greeting": "Hi, this is your notebook. Coming from an appointment, or heading to one?",
+      "wrapUp": "We're almost at the time limit. I'm saving everything I have. Talk soon!",
+      "backchannel": "Mhm.",
+      "fillers": ["Mhm.", "Okay.", "Got it."],
+      "oops": ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
+      "examples": {
+        "address": "you",
+        "acks": ["Got it.", "Okay.", "Sure.", "Makes sense.", "Noted."],
+        "askDeadline": "When's the quote due?",
+        "askPlace": "Where was that again?",
+        "avoidWords": ["deadline", "next step"],
+        "anythingElse": "Anything else?",
+        "doneSignals": ["that's it", "nothing else"],
+        "confirm": "Sound right?",
+        "briefTriggers": ["I'm heading to …", "what was the deal with …"],
+        "briefMore": "Want me to read anything else?",
+        "agendaAsk": "What's on my list?",
+        "taskDone": "I sent the quote to Müller",
+        "goodbyes": ["bye", "that's all"],
+        "researchIntro": "Quick question, just so I understand: …",
+        "researchLink": "You just mentioned the quote: …",
+        "probes": ["When was the last time?", "Roughly how long?"],
+        "thanksBye": "Thanks, that helps. Talk soon!",
+        "noTime": "Sure, no problem.",
+        "noJudging": ["good idea", "oh, that's bad"],
+        "unfinished": ["and…", "uh"],
+        "holdOn": ["hold on", "one sec"],
+        "callerBackchannels": ["yeah", "mhm", "right", "okay"],
+        "stillThere": "Still there?",
+        "numbers": ["eight square metres", "sixty by a hundred and twenty"],
+        "tradeWords": ["site measure", "quote", "job", "change order", "daily report", "timesheet", "handover", "progress invoice", "final invoice", "job site", "material", "supplier", "wholesaler"],
+        "neverSay": "Let me think"
+      }
+    },
+    "office": {
+      "greeting": "Hi, this is your office. What can I do for you?",
+      "wrapUp": "We're almost at the time limit. I'm saving everything I have. Talk soon!",
+      "backchannel": "Mhm.",
+      "fillers": ["Mhm.", "Okay.", "Got it."],
+      "oops": ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
+      "examples": {
+        "acks": ["Got it.", "Sure.", "Okay.", "Perfect.", "Noted."],
+        "emailReadBack": "peter at steinberger dot com?",
+        "bookAndSend": "Shall I book it and send <name> the quote?",
+        "onIt": "On it.",
+        "anythingElse": "Anything else?",
+        "goodbyes": ["bye", "that's all"],
+        "callerBackchannels": ["yeah", "mhm", "right", "okay"],
+        "stillThere": "Still there?"
+      }
+    }
+  },
+  "documents": {
+    "quote": {
+      "title": "Quote", "number": "Quote #", "date": "Date", "valid": "Valid until", "contact": "Your contact",
+      "greetingFemale": "Hi {first},", "greetingDefault": "Hi {first},", "greetingNone": "Hi there,",
+      "femalePrefixes": [],
+      "intro": "great talking with you today. Here's our quote for the work we discussed:",
+      "pos": "No.", "desc": "Description", "qty": "Qty", "unit": "Unit", "price": "Unit price", "total": "Total",
+      "net": "Subtotal", "gross": "Total", "onRequest": "on request",
+      "needed": "Requested date", "notes": "Notes",
+      "closing": "We look forward to your order. Don't hesitate to get in touch with any questions.", "regards": "Kind regards",
+      "demo": "Demo quote · created by voice assistant", "page": "Page 1 of 1"
+    },
+    "order": {
+      "unitFallback": "ea",
+      "calendarTitle": "Order: {name}",
+      "followUpTodo": "Follow up on the quote with {name}",
+      "emailSubject": "Quote {number} · {company}",
+      "emailSalutation": "Hi {first},",
+      "emailBody": "great meeting you today. As promised, here's our quote {number}: {total} total, including sales tax on materials. It's valid until {validUntil}.\n\nIf it all looks good, just reply to this email and we'll get you on the schedule.\n\nBest,\n{owner}\n{company} · {phone}"
+    }
+  }
+}

@@ -1,0 +1,227 @@
+{
+  "id": "xx",
+  "name": "Testish",
+  "nativeName": "Testish",
+  "bcp47": "xx-XX",
+  "status": "enabled",
+  "countryCodes": [
+    "999"
+  ],
+  "voices": {
+    "fish": "test-voice-xx",
+    "geminiTts": "Kore"
+  },
+  "testing": {
+    "callerVoice": "test-caller-xx",
+    "from": "+99912345"
+  },
+  "format": {
+    "numberLocale": "en-US"
+  },
+  "lexicon": {
+    "dangling": [
+      "zor",
+      "blen"
+    ],
+    "hold": [
+      "wap"
+    ],
+    "holdTail": [
+      "wap wap"
+    ],
+    "fillerWords": [
+      "hmm",
+      "oki"
+    ],
+    "agentBackchannel": [
+      "hmm",
+      "oki"
+    ],
+    "goOn": [
+      "mor"
+    ],
+    "unclear": [
+      "nuk"
+    ],
+    "stopwords": [
+      "zor",
+      "blen",
+      "ik",
+      "da"
+    ],
+    "letters": "ŧ"
+  },
+  "personas": {
+    "notebook": {
+      "greeting": "xx:Hi, this is your notebook. Coming from an appointment, or heading to one?",
+      "wrapUp": "xx:We're almost at the time limit. I'm saving everything I have. Talk soon!",
+      "backchannel": "xx:Mhm.",
+      "fillers": [
+        "xx:Mhm.",
+        "xx:Okay.",
+        "xx:Got it."
+      ],
+      "oops": [
+        "xx:Sorry, the line glitched for a second. Could you say that again?",
+        "xx:Hang on, I lost you for a moment. What was that?",
+        "xx:Sorry, that didn't come through. One more time?"
+      ],
+      "examples": {
+        "address": "xx:you",
+        "acks": [
+          "xx:Got it.",
+          "xx:Okay.",
+          "xx:Sure.",
+          "xx:Makes sense.",
+          "xx:Noted."
+        ],
+        "askDeadline": "xx:When's the quote due?",
+        "askPlace": "xx:Where was that again?",
+        "avoidWords": [
+          "xx:deadline",
+          "xx:next step"
+        ],
+        "anythingElse": "xx:Anything else?",
+        "doneSignals": [
+          "xx:that's it",
+          "xx:nothing else"
+        ],
+        "confirm": "xx:Sound right?",
+        "briefTriggers": [
+          "xx:I'm heading to …",
+          "xx:what was the deal with …"
+        ],
+        "briefMore": "xx:Want me to read anything else?",
+        "agendaAsk": "xx:What's on my list?",
+        "taskDone": "xx:I sent the quote to Müller",
+        "goodbyes": [
+          "xx:bye",
+          "xx:that's all"
+        ],
+        "researchIntro": "xx:Quick question, just so I understand: …",
+        "researchLink": "xx:You just mentioned the quote: …",
+        "probes": [
+          "xx:When was the last time?",
+          "xx:Roughly how long?"
+        ],
+        "thanksBye": "xx:Thanks, that helps. Talk soon!",
+        "noTime": "xx:Sure, no problem.",
+        "noJudging": [
+          "xx:good idea",
+          "xx:oh, that's bad"
+        ],
+        "unfinished": [
+          "xx:and…",
+          "xx:uh"
+        ],
+        "holdOn": [
+          "xx:hold on",
+          "xx:one sec"
+        ],
+        "callerBackchannels": [
+          "xx:yeah",
+          "xx:mhm",
+          "xx:right",
+          "xx:okay"
+        ],
+        "stillThere": "xx:Still there?",
+        "numbers": [
+          "xx:eight square metres",
+          "xx:sixty by a hundred and twenty"
+        ],
+        "tradeWords": [
+          "xx:site measure",
+          "xx:quote",
+          "xx:job",
+          "xx:change order",
+          "xx:daily report",
+          "xx:timesheet",
+          "xx:handover",
+          "xx:progress invoice",
+          "xx:final invoice",
+          "xx:job site",
+          "xx:material",
+          "xx:supplier",
+          "xx:wholesaler"
+        ],
+        "neverSay": "xx:Let me think"
+      }
+    },
+    "office": {
+      "greeting": "xx:Hi, this is your office. What can I do for you?",
+      "wrapUp": "xx:We're almost at the time limit. I'm saving everything I have. Talk soon!",
+      "backchannel": "xx:Mhm.",
+      "fillers": [
+        "xx:Mhm.",
+        "xx:Okay.",
+        "xx:Got it."
+      ],
+      "oops": [
+        "xx:Sorry, the line glitched for a second. Could you say that again?",
+        "xx:Hang on, I lost you for a moment. What was that?",
+        "xx:Sorry, that didn't come through. One more time?"
+      ],
+      "examples": {
+        "acks": [
+          "xx:Got it.",
+          "xx:Sure.",
+          "xx:Okay.",
+          "xx:Perfect.",
+          "xx:Noted."
+        ],
+        "emailReadBack": "xx:peter at steinberger dot com?",
+        "bookAndSend": "xx:Shall I book it and send <name> the quote?",
+        "onIt": "xx:On it.",
+        "anythingElse": "xx:Anything else?",
+        "goodbyes": [
+          "xx:bye",
+          "xx:that's all"
+        ],
+        "callerBackchannels": [
+          "xx:yeah",
+          "xx:mhm",
+          "xx:right",
+          "xx:okay"
+        ],
+        "stillThere": "xx:Still there?"
+      }
+    }
+  },
+  "documents": {
+    "quote": {
+      "title": "xx:Quote",
+      "number": "xx:Quote #",
+      "date": "xx:Date",
+      "valid": "xx:Valid until",
+      "contact": "xx:Your contact",
+      "greetingFemale": "xx:Hi {first},",
+      "greetingDefault": "xx:Hi {first},",
+      "greetingNone": "xx:Hi there,",
+      "femalePrefixes": [],
+      "intro": "xx:great talking with you today. Here's our quote for the work we discussed:",
+      "pos": "xx:No.",
+      "desc": "xx:Description",
+      "qty": "xx:Qty",
+      "unit": "xx:Unit",
+      "price": "xx:Unit price",
+      "total": "xx:Total",
+      "net": "xx:Subtotal",
+      "gross": "xx:Total",
+      "onRequest": "xx:on request",
+      "needed": "xx:Requested date",
+      "notes": "xx:Notes",
+      "closing": "xx:We look forward to your order. Don't hesitate to get in touch with any questions.",
+      "regards": "xx:Kind regards",
+      "demo": "xx:Demo quote · created by voice assistant",
+      "page": "xx:Page 1 of 1"
+    },
+    "order": {
+      "unitFallback": "xx:ea",
+      "calendarTitle": "xx:Order: {name}",
+      "followUpTodo": "xx:Follow up on the quote with {name}",
+      "emailSubject": "xx:Quote {number} · {company}",
+      "emailSalutation": "xx:Hi {first},",
+      "emailBody": "xx:great meeting you today. As promised, here's our quote {number}: {total} total, including sales tax on materials. It's valid until {validUntil}.\n\nIf it all looks good, just reply to this email and we'll get you on the schedule.\n\nBest,\n{owner}\n{company} · {phone}"
+    }
+  }
+}

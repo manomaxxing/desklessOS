@@ -82,7 +82,7 @@ export function createDiscovery({ framework = loadFramework(), dir = dataDir("di
       const { intro, pilotDay, questions: picks, capped } = next({ today });
       const known = framework.areas.map(a => {
         const own = findings().filter(f => f.area === a.id).slice(-FINDINGS_PER_AREA_IN_PROMPT).map(f => f.text);
-        return `- ${a.title}: ${own.length ? own.join(" ") : "(noch nichts)"}`;
+        return `- ${a.title}: ${own.length ? own.join(" ") : "(nothing yet)"}`;
       });
       const ask = picks.map(({ area, question }, i) =>
         `${i + 1}. [${question.id}] (${area.title}) "${question.ask}"${question.probe ? ` If his answer is vague, one follow-up: "${question.probe}"` : ""}`);

@@ -16,6 +16,7 @@ import { createMeter, geminiCost, ttsCost } from "./cost.mjs";
 import { createTypist } from "./ambience.mjs";
 import { consolidateCall } from "./consolidate.mjs";
 import { dangling, holdOn } from "./endpointing.mjs";
+import { locales, pickLanguage } from "../locale/index.mjs";
 import path from "node:path";
 
 // Short end-of-turn waits are safe because the model answers NEXT: wait when he
@@ -37,8 +38,6 @@ const FILLER_AFTER_MS = 700;
 const HEDGE_MS = Number(process.env.HEDGE_MS || 2200); // no first token by then: race the fallback model
 const TURN_DEADLINE_MS = 12000; // give up and say sorry
 const IDLE_MS = { listen: 9000, ask: 10000, confirm: 7000, wait: 0, hangup: 0 };
-const FILLER_WORDS = /^(mhm|okay|ok|alles klar|got it)[.!,…]*\s*/i;
-const BACKCHANNEL = /^\s*(mhm|okay|ok)[.!,…]*\s*((weiter|go on)[.!…]*)?\s*$/i;
 const BACKCHANNEL_IDLE_MS = 3000;
 const STAGE_DIRECTION = /^\s*[[(][^\])]*[\])]\s*$/; // "[Silence]", "(wartet)": never read out loud
 const INTERRUPT_MS = Number(process.env.INTERRUPT_MIN_MS || 500); // loud speech needed to cut the agent off
@@ -83,7 +82,8 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
   let finalized = null;
   let ended = false;
   let lastNext = "listen";
-  let lang = initialLang ?? "de"; // set from Dial's language / the caller's number, then follows the caller
+  let lang = initialLang ?? locales().defaultId; // set from Dial's language / the caller's number, then follows the caller
+  const lex = (id = lang) => locales().lexicon(id); // this language's word lists (locales/<id>.json)
   let lastWasBackchannel = false;
   let lastHold = false; // he said "Moment" and got a reply: give him longer before nudging
   let lastSpoken = null; // the latest answer to his audio: { turn, at, userAudio, turnsBefore, prevNext }
@@ -393,13 +393,14 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     })();
 
     const parser = createReplyParser({
+      langs: locales().enabled(),
       onHeader: ({ heard, lang: l, next: n, act }) => {
         if (n === "wait" && (force || text || lastNext === "confirm")) n = "listen"; // he's been quiet, or answered a yes/no question: answer now
-        else if (n !== "wait" && !force && !text && lastNext !== "confirm" && dangling(heard)) { n = "wait"; debug("dangling", { turn: turn.id, text: heard }); } // "…die will": he isn't done
+        else if (n !== "wait" && !force && !text && lastNext !== "confirm" && dangling(heard, lex(l || lang))) { n = "wait"; debug("dangling", { turn: turn.id, text: heard }); } // "…die will": he isn't done
         if (act === "execute" && office) turn.execute = true;
         next = n;
         if (l) lang = l;
-        turn.hold = !text && holdOn(heard);
+        turn.hold = !text && holdOn(heard, lex(l || lang));
         if (n === "wait") {
           // Unfinished thought: say nothing, keep his audio, and answer it all once he's done.
           turn.waiting = true;
@@ -418,8 +419,8 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
         if (signal.aborted || turn.waiting) return;
         if (STAGE_DIRECTION.test(sentence)) { debug("say", { turn: turn.id, text: sentence, note: "stage direction, not spoken" }); return; }
         // A filler already said "Mhm": don't say it twice.
-        if (turn.fillerPlayed && !reply && FILLER_WORDS.test(sentence)) {
-          const rest = sentence.replace(FILLER_WORDS, "");
+        if (turn.fillerPlayed && !reply && lex().fillerPrefix.test(sentence)) {
+          const rest = sentence.replace(lex().fillerPrefix, "");
           reply = sentence;
           if (!rest) { debug("say", { turn: turn.id, text: sentence, note: "already said as filler" }); return; }
           sentence = rest[0].toUpperCase() + rest.slice(1);
@@ -446,7 +447,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
       fail("gemini", err);
       const i = oopsCount++;
       speakCached(pick(assets[lang]?.oops, i), "oops");
-      debug("say", { turn: turn.id, text: pick(skill.VOICE_LINES[lang]?.oops, i) ?? "(oops)", note: "error fallback" });
+      debug("say", { turn: turn.id, text: pick(locales().persona(lang, skill.PERSONA)?.oops, i) ?? "(oops)", note: "error fallback" });
       if (current === turn) current = null;
       return;
     } finally {
@@ -479,7 +480,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     if (turn.execute) { runWorkflow().catch(err => fail("workflow", err)); return; }
     lastNext = next;
     lastHold = turn.hold;
-    lastWasBackchannel = next === "listen" && BACKCHANNEL.test(reply.replace(/\(schon als Füller gesagt\)/, ""));
+    lastWasBackchannel = next === "listen" && lex().agentBackchannel.test(reply);
     if (!text) refreshNote();
     if (next === "hangup") hangupMark = sendMark("bye");
     else if (!marks.size) armIdle();
@@ -531,11 +532,11 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     vad.reset();
     finalized = (async () => {
       await extracting;
-      const spoke = turns.some(t => t.role === "user" && !/^\((unclear|unklar|silence|not transcribed)/i.test(t.text));
+      const spoke = turns.some(t => t.role === "user" && !locales().unclear.test(t.text));
       if (spoke) await refreshNote();
       let saved = null;
       if (skill.worthSaving(note)) {
-        saved = store.save({ ...note, sprache: lang, call_id: call.id, from: call.from, ended_reason: reason, transcript: turns });
+        saved = store.save({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, transcript: turns });
         log("saved note", saved.id);
         debug("saved", { id: saved.id });
       }
@@ -575,7 +576,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
         case "call_connected":
           Object.assign(call, { id: msg.call_id, from: msg.from, to: msg.to });
           if (!msg.reconnect) call.startedAt = Date.now();
-          if (!msg.reconnect && !initialLang) lang = skill.initialLanguage(msg);
+          if (!msg.reconnect && !initialLang) lang = pickLanguage({ locales: locales(), dialTag: msg.language, from: msg.from, fallback: skill.DEFAULT_LANG });
           log(`call ${msg.call_id} from ${msg.from ?? "?"} (${lang})${msg.reconnect ? " (reconnect)" : ""}`);
           if (!msg.reconnect) speakCached(assets[lang]?.greeting, "greet");
           warmModel({ endpoint, model: fastModel }); // Vertex's first request is slow; take that hit during the greeting

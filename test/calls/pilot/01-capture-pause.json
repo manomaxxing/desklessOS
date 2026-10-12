@@ -1,0 +1,12 @@
+{
+  "lang": "de",
+  "says": [
+    "Hallo, ich komm grad von der Frau Weber in Radolfzell. Die will [pause 4] ihr Bad komplett neu machen, so zwölf Quadratmeter.",
+    "Das Angebot soll bis Freitag raus.",
+    "Nein, das war's.",
+    "Ja, passt.",
+    "Nee, heute keine Zeit. Tschüss."
+  ],
+  "must": [{ "saved": true }, { "note": "Weber|Radolfzell" }, { "heard": "Bad" }],
+  "should": [{ "heardNext": "wait" }, { "hangup": true }, { "noEvent": "error" }, { "maxFirstAudioMs": 4000 }]
+}

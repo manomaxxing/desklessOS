@@ -1,45 +1,33 @@
-// The quote (Angebot) as a printable A4 HTML page, German or English.
+// The quote as a printable A4 HTML page, in the language of the call.
 
-const T = {
-  de: {
-    title: "Angebot", number: "Angebotsnummer", date: "Datum", valid: "Gültig bis", contact: "Ihr Ansprechpartner",
-    greeting: name => `Sehr geehrte${/^(frau|ms|mrs)\b/i.test(name) ? "" : "r"} ${name || "Kundin, sehr geehrter Kunde"},`,
-    intro: "vielen Dank für das freundliche Gespräch. Gerne bieten wir Ihnen folgende Leistungen an:",
-    pos: "Pos.", desc: "Beschreibung", qty: "Menge", unit: "Einheit", price: "Einzelpreis", total: "Gesamt",
-    net: "Zwischensumme", gross: "Gesamtbetrag", onRequest: "auf Anfrage",
-    needed: "Gewünschter Termin", notes: "Hinweise",
-    closing: "Wir freuen uns auf Ihren Auftrag. Bei Fragen erreichen Sie uns jederzeit.", regards: "Mit freundlichen Grüßen",
-    demo: "Demo-Angebot · erstellt per Sprachassistent", page: "Seite 1 von 1",
-  },
-  en: {
-    title: "Quote", number: "Quote #", date: "Date", valid: "Valid until", contact: "Your contact",
-    greeting: name => `Hi ${String(name || "there").split(" ")[0]},`,
-    intro: "great talking with you today. Here's our quote for the work we discussed:",
-    pos: "No.", desc: "Description", qty: "Qty", unit: "Unit", price: "Unit price", total: "Total",
-    net: "Subtotal", gross: "Total", onRequest: "on request",
-    needed: "Requested date", notes: "Notes",
-    closing: "We look forward to your order. Don't hesitate to get in touch with any questions.", regards: "Kind regards",
-    demo: "Demo quote · created by voice assistant", page: "Page 1 of 1",
-  },
+import { locales } from "../locale/index.mjs";
+
+// Text per language from the locale pack (documents.quote); formats from its numberLocale.
+const texts = lang => {
+  const t = locales().document(lang, "quote");
+  const female = new RegExp(`^(${(t.femalePrefixes ?? []).join("|") || "(?!)"})\\b`, "i");
+  const fill = (tpl, name) => tpl.replace("{name}", name).replace("{first}", String(name).split(" ")[0]);
+  return { ...t, greeting: name => (!name ? t.greetingNone : fill(female.test(name) ? t.greetingFemale : t.greetingDefault, name)) };
 };
+const numberLocale = lang => locales().get(lang).format?.numberLocale ?? locales().bcp47(lang);
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-export function money(n, lang = "en", currency = "USD") {
-  return n == null ? "" : new Intl.NumberFormat(lang === "de" ? "de-DE" : "en-US", { style: "currency", currency }).format(n);
+export function money(n, lang = locales().defaultId, currency = "USD") {
+  return n == null ? "" : new Intl.NumberFormat(numberLocale(lang), { style: "currency", currency }).format(n);
 }
 
 function fmtDate(iso, lang) {
   if (!iso) return "";
-  return new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", { day: "2-digit", month: lang === "de" ? "2-digit" : "short", year: "numeric" });
+  return new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString(numberLocale(lang), { dateStyle: "medium" });
 }
 
 export function renderQuoteHtml(q, company) {
-  const t = T[q.lang] ?? T.en;
+  const t = texts(q.lang);
   const c = q.customer ?? {};
   const cur = q.currency ?? company.currency ?? "USD";
   const m = n => money(n, q.lang, cur);
-  const qty = n => new Intl.NumberFormat(q.lang === "de" ? "de-DE" : "en-US", { maximumFractionDigits: 2 }).format(n);
+  const qty = n => new Intl.NumberFormat(numberLocale(q.lang), { maximumFractionDigits: 2 }).format(n);
   const rows = q.lines.map(l => `
       <tr>
         <td class="num">${l.pos}</td>
@@ -50,7 +38,7 @@ export function renderQuoteHtml(q, company) {
         <td class="num strong">${l.total == null ? "" : m(l.total)}</td>
       </tr>`).join("");
   return `<!doctype html>
-<html lang="${q.lang === "de" ? "de" : "en"}">
+<html lang="${esc(locales().get(q.lang).id)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -119,11 +107,11 @@ export function renderQuoteHtml(q, company) {
   </table>
   <div class="totals">
     <div><span>${t.net}</span>${m(q.net)}</div>
-    <div><span>${esc(company.taxLabel?.[q.lang] ?? company.taxLabel?.en ?? "Tax")}</span>${m(q.vat)}</div>
+    <div><span>${esc(company.taxLabel?.[q.lang] ?? company.taxLabel?.[company.lang] ?? "Tax")}</span>${m(q.vat)}</div>
     <div class="gross"><span>${t.gross}</span>${m(q.gross)}</div>
   </div>
   ${q.neededBy || q.notes ? `<div class="info">${q.neededBy ? `<b>${t.needed}:</b> ${fmtDate(q.neededBy, q.lang)}<br>` : ""}${q.notes ? `<b>${t.notes}:</b> ${esc(q.notes)}` : ""}</div>` : ""}
-  <p style="margin-top:18px">${esc(company.paymentTerms?.[q.lang] ?? company.paymentTerms?.de ?? "")}</p>
+  <p style="margin-top:18px">${esc(company.paymentTerms?.[q.lang] ?? company.paymentTerms?.[company.lang] ?? "")}</p>
   <p>${t.closing}</p>
   <div class="sign">${t.regards}<div class="name">${esc(company.owner)}</div><div style="color:var(--muted)">${esc(company.name)}</div></div>
   <footer><span>${esc(company.name)} · ${esc(company.street)} · ${esc(company.city)}</span><span>${esc(company.license ?? company.vatId ?? "")}</span><span>${esc(company.bank)}</span><span>${t.page}</span></footer>

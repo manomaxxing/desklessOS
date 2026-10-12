@@ -529,7 +529,14 @@ evidence for H2). A briefing no longer saves a duplicate note.
   pilot); DPAs with Google and Fish; `RECORD_CALLS` off.
 - **Clean start:** reset the data so test calls don't count, or use `--from`.
 
-## 15. Status (2026-10-11)
+## 15. v2 architecture (2026-10-12)
+
+Templates and primitives, pluggable languages, memory on Supabase Postgres,
+admin requests ("call Niko and find out X"), outbound calls. The full plan, with
+decisions and phases, is in `docs/v2-architecture.md`. Phase 1 (locale packs,
+English data keys, regression calls) is done.
+
+## 16. Status (2026-10-11)
 
 Done and tested locally (browser test phone and scripted fake-Dial calls):
 

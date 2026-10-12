@@ -1,7 +1,7 @@
 // Parses the assistant's streamed answer as it arrives. The model starts with
 // header lines, then speaks:
 //   HEARD: <what the caller said, word for word>
-//   LANG: de | en
+//   LANG: <language id, one of the enabled locales>
 //   NEXT: listen | wait | ask | confirm | hangup   (wait: he isn't done, say nothing;
 //         ask: an open question, confirm: a yes/no question)
 //   <blank line>
@@ -13,7 +13,8 @@
 const MIN_SENTENCE = 24; // shorter pieces ride along with the next sentence
 const NEXT_VALUES = new Set(["listen", "wait", "ask", "confirm", "hangup"]);
 
-export function createReplyParser({ onHeader, onSentence }) {
+// `langs`: the language ids LANG may name (the enabled locales); other values read as "".
+export function createReplyParser({ onHeader, onSentence, langs = null }) {
   let buf = "";
   let headerDone = false;
   let heard = "";
@@ -80,7 +81,8 @@ export function createReplyParser({ onHeader, onSentence }) {
       pending = pending.slice(m[0].length);
     }
     heard = fields.HEARD ?? "";
-    lang = /^(de|en)/i.test(fields.LANG ?? "") ? fields.LANG.slice(0, 2).toLowerCase() : "";
+    const tag = (fields.LANG ?? "").trim().toLowerCase().match(/^[a-z]{2,3}/)?.[0] ?? "";
+    lang = tag && (!langs || langs.includes(tag)) ? tag : "";
     const n = (fields.NEXT ?? "").toLowerCase().match(/[a-z]+/)?.[0];
     next = NEXT_VALUES.has(n) ? n : "listen";
     act = /^execute/i.test(fields.DO ?? "") ? "execute" : "none";

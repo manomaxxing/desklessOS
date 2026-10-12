@@ -18,6 +18,7 @@ import { consolidateCall } from "./consolidate.mjs";
 import { createMeter, geminiCost } from "./cost.mjs";
 import { createVad } from "./vad.mjs";
 import { resample, frames, wav, durationMs } from "./audio.mjs";
+import { locales, pickLanguage } from "../locale/index.mjs";
 
 const MARK_EVERY_MS = 800; // playback checkpoints, to know how much the caller actually heard
 
@@ -46,7 +47,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
   const turns = [];
   let note = {};
   let missing = skill.missingFields(note);
-  let lang = "de";
+  let lang = locales().defaultId;
   let gem = null; // WebSocket to Gemini
   let ready = false;
   let ended = false;
@@ -92,14 +93,14 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
   async function connect() {
     const headers = target.vertex ? { Authorization: (await endpoint.headers()).authorization } : {};
     gem = new WebSocket(target.url, { headers });
-    const greeting = [].concat(skill.VOICE_LINES[lang]?.greeting ?? "")[0];
+    const greeting = locales().persona(lang, skill.PERSONA)?.greeting ?? "";
     gem.on("open", () => {
       gem.send(JSON.stringify({
         setup: {
           model: target.modelPath,
           generationConfig: {
             responseModalities: ["AUDIO"],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.liveVoice } }, ...(target.vertex ? { languageCode: lang === "en" ? "en-US" : "de-DE" } : {}) },
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.liveVoice } }, ...(target.vertex ? { languageCode: locales().bcp47(lang) } : {}) },
           },
           systemInstruction: { parts: [{ text: skill.livePrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang }) }] },
           realtimeInputConfig: {
@@ -181,8 +182,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
     if (!text) return;
     turns.push({ role: "user", text });
     const file = pcm ? saveAudio(`turn-${turnSeq + 1}-in.wav`, wav(pcm)) : null;
-    if (/^[\x00-\x7F\s]*$/.test(text) && /\b(the|and|i|is|you|that|it)\b/i.test(text)) lang = "en";
-    else if (/[äöüß]|\b(und|ich|ist|das|die|der|nicht)\b/i.test(text)) lang = "de";
+    lang = locales().guess(text) ?? lang; // Live has no LANG header: guess from his words
     debug("heard", { turn: turnSeq + 1, text, lang, next: "live", audio: file });
   }
 
@@ -298,7 +298,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
       if (spoke) await refreshNote();
       let saved = null;
       if (skill.worthSaving(note)) {
-        saved = store.save({ ...note, sprache: lang, call_id: call.id, from: call.from, ended_reason: reason, engine: "live", transcript: turns });
+        saved = store.save({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, engine: "live", transcript: turns });
         debug("saved", { id: saved.id });
       }
       if (spoke && memory) await consolidate(saved?.id);
@@ -319,7 +319,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
           Object.assign(call, { id: msg.call_id, from: msg.from, to: msg.to });
           if (!msg.reconnect) {
             call.startedAt = Date.now();
-            lang = skill.initialLanguage(msg);
+            lang = pickLanguage({ locales: locales(), dialTag: msg.language, from: msg.from, fallback: skill.DEFAULT_LANG });
             connect().catch(err => goFatal(err.message));
           }
           log(`call ${msg.call_id} from ${msg.from ?? "?"} (${lang}) on ${target.id}${msg.reconnect ? " (reconnect)" : ""}`);

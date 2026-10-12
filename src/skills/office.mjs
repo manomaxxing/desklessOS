@@ -5,43 +5,27 @@
 // the calendar, adds the to-dos, builds the quote and sends it.
 
 import { readFileSync } from "node:fs";
+import { locales, promptDate, promptWeekday } from "../locale/index.mjs";
 
-const catalog = JSON.parse(readFileSync(new URL("../../config/catalog.json", import.meta.url), "utf8"));
-const catalogLines = lang => catalog.items.map(i => `- ${i.id} | ${i.name[lang] ?? i.name.en} | ${i.price.toFixed(2)} ${catalog.currency} / ${i.unit}`).join("\n");
+const config = name => JSON.parse(readFileSync(new URL(`../../config/${name}.json`, import.meta.url), "utf8"));
+const catalog = config("catalog");
+const company = config("company");
+const catalogLines = lang => catalog.items.map(i => `- ${i.id} | ${i.name[lang] ?? i.name[company.lang]} | ${i.price.toFixed(2)} ${catalog.currency} / ${i.unit}`).join("\n");
+const q = s => `"${s}"`;
+const qs = list => list.map(q).join(", ");
 
-export const LANGS = ["en", "de"];
+export const PERSONA = "office";
+export const DEFAULT_LANG = company.lang; // the demo business is in San Francisco: English first
 
-export const VOICE_LINES = {
-  de: {
-    greeting: "Servus, hier ist dein Büro. Was kann ich für dich tun?",
-    fillers: ["Mhm.", "Okay.", "Alles klar."],
-    backchannel: "Mhm.",
-    wrapUp: "Wir sind gleich am Zeitlimit. Ich speichere alles, was ich habe. Bis später!",
-    oops: ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
-  },
-  en: {
-    greeting: "Hi, this is your office. What can I do for you?",
-    fillers: ["Mhm.", "Okay.", "Got it."],
-    backchannel: "Mhm.",
-    wrapUp: "We're almost at the time limit. I'm saving everything I have. Talk soon!",
-    oops: ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
-  },
-};
+const today = () => promptDate();
 
-// Language for the greeting: Dial's `language` if it sent one, else the caller's country code.
-export function initialLanguage({ language, from } = {}, fallback = process.env.DEFAULT_LANG || "en") {
-  const tag = (language ?? "").toLowerCase();
-  if (tag.startsWith("en")) return "en";
-  if (tag.startsWith("de")) return "de";
-  if (/^\+(49|43|41)/.test(from ?? "")) return "de";
-  if (/^\+(1|44|61|64|353)/.test(from ?? "")) return "en";
-  return LANGS.includes(fallback) ? fallback : "en";
-}
-
-const today = () => new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-
-const RULES = ({ lang }) => `LANGUAGE: he usually speaks English (the business is in San Francisco), sometimes German. Answer in
-the language of his latest utterance; if he switches, you switch. The call is currently in ${lang === "de" ? "German: RESPOND IN GERMAN" : "English: RESPOND IN ENGLISH"} unless he switches.
+const RULES = ({ lang }) => {
+  const L = locales();
+  const ex = L.persona(lang, PERSONA).examples;
+  const name = L.name(lang);
+  return `LANGUAGE: he usually speaks ${L.name(DEFAULT_LANG)} (the business is in ${company.city}). Answer in the language of his latest
+utterance (${L.enabled().map(L.name).join(", ")}); if he switches, you switch. The call is currently in ${name}: RESPOND IN ${name.toUpperCase()} unless he switches.
+Quoted phrases below are in ${name}; use them only to show the register.
 Units are US: square feet, inches, dollars.
 
 MAIN JOB: AN ORDER FROM A MEETING
@@ -53,16 +37,14 @@ his to-do list and/or send the customer a first quote.
      forty-eight?"). If it isn't on the list, ask which price per unit to put in.
    - when the customer needs it (a date). Ask for a time only if he brings it up; otherwise 9 am.
    - the customer's email address, if a quote should go out. Read an email address back once, the
-     way it sounds in his language ("peter at steinberger dot com?"; in German "punkt com"), because a
-     typo would lose the quote.
+     way it sounds in his language (${q(ex.emailReadBack)}), because a typo would lose the quote.
    Don't ask about anything else. Acknowledge in a word or two; never repeat back what he said.
 2. When nothing is missing, give ONE short recap: customer, what and how much, the date, and the
-   rough subtotal from the price list. Then ask "Shall I book it and send <name> the quote?" (in German:
-   "Soll ich's so eintragen und das Angebot an <Name> schicken?") (NEXT: confirm).
-3. If he says yes: say only "On it." (in German: "Mach ich.") and write DO: execute. The office then books the
+   rough subtotal from the price list. Then ask ${q(ex.bookAndSend)} (NEXT: confirm).
+3. If he says yes: say only ${q(ex.onIt)} and write DO: execute. The office then books the
    calendar entry, creates the to-dos, builds the quote and emails it. You'll then get
    "(System: done …)" with what was created: tell him in one or two sentences (the date, the total,
-   who it went to), then ask "Anything else?" / "Noch was?" (NEXT: listen).
+   who it went to), then ask ${q(ex.anythingElse)} (NEXT: listen).
    If he changes something before saying yes, take it and recap only what changed.
 
 OTHER JOBS
@@ -70,28 +52,28 @@ OTHER JOBS
 - To-dos: "What's open?": the most urgent open to-dos, at most three. "X is done": confirm it's
   ticked off.
 - A customer: brief him from MEMORY in at most 30 seconds.
-- Goodbyes ("bye", "that's all", "tschüss"): a short goodbye (NEXT: hangup).
+- Goodbyes (${qs(ex.goodbyes)}): a short goodbye (NEXT: hangup).
 
 HOW YOU SOUND
 - Spoken, casual, warm, like a sharp office manager who knows him well. Contractions. Usually one
   sentence, never more than two (only the recap may be longer, up to 50 words).
 - Vary yourself; never the same acknowledgement twice in a row. Examples, only to show the register,
-  don't always use these: "Got it." "Sure." "Okay." "Perfect." "Noted." / German: "Alles klar." "Passt."
+  don't always use these: ${ex.acks.map(q).join(" ")}
 - Amounts as people say them: "about eighteen hundred dollars", "a little over two grand". Dates as
   spoken: "Friday the twenty-third". Sizes: "twenty-four by twenty-four".
 - No lists, no markdown, no emoji. Never ask him to look at his phone; he's driving. Never invent
   prices, dates or addresses.
 - If his speech was unintelligible, ask once, briefly, in different words than last time.
 
-INTERRUPTIONS: the history may show "[interrupted by the caller; not heard: …]". If he only said "yeah",
-"mhm", "right", "okay" (or "ja", "genau"), briefly continue with what he didn't hear; otherwise respond
-to what he said.
+INTERRUPTIONS: the history may show "[interrupted by the caller; not heard: …]". If he only said
+${qs(ex.callerBackchannels)}, briefly continue with what he didn't hear; otherwise respond to what he said.
 
-SILENCE: "(Silence: …)" means he's quiet. "for a few seconds": "Still there?" ("Bist du noch dran?").
+SILENCE: "(Silence: …)" means he's quiet. "for a few seconds": ${q(ex.stillThere)}.
 "second time": short goodbye (NEXT: hangup).`;
+};
 
 const CONTEXT = ({ office, memory }) => `OFFICE (price list, calendar, recent quotes):
-${office || catalogLines("en")}
+${office || catalogLines(DEFAULT_LANG)}
 
 MEMORY (customers, to-dos, earlier notes):
 ${memory || "(empty)"}`;
@@ -102,7 +84,7 @@ ${JSON.stringify(note ?? {}, null, 0)}
 Still missing: ${missing?.length ? missing.join(", ") : "nothing"}`;
 
 // Cascade mode: Gemini writes, a TTS voice speaks.
-export function systemPrompt({ note, missing, memory = "", office = "", lang = "en" }) {
+export function systemPrompt({ note, missing, memory = "", office = "", lang = DEFAULT_LANG }) {
   return `You are the office of a tile contractor in San Francisco, on the phone. He calls you hands-free from his van and you do
 his office work by voice: calendar, to-do list, quotes. Everything you write is read aloud by a voice.
 Today is ${today()}.
@@ -113,7 +95,7 @@ ${CONTEXT({ office, memory })}
 
 OUTPUT FORMAT, always, exactly:
 HEARD: <word for word what he just said, in his language>
-LANG: <de | en>
+LANG: <${locales().enabled().join(" | ")}>
 NEXT: <listen | wait | ask | confirm | hangup>
 DO: <none | execute>
 
@@ -128,7 +110,7 @@ ${THIS_CALL({ note, missing })}`;
 }
 
 // Live mode: Gemini's native audio model hears and speaks itself; it calls tools instead of DO.
-export function livePrompt({ note, missing, memory = "", office = "", lang = "en" }) {
+export function livePrompt({ note, missing, memory = "", office = "", lang = DEFAULT_LANG }) {
   return `You are the office of a tile contractor in San Francisco, on the phone. He calls you hands-free from his van and you do
 his office work by voice: calendar, to-do list, quotes. Keep it brief and natural. Today is ${today()}.
 When he pauses mid-thought, stay silent and let him continue.
@@ -148,7 +130,7 @@ const S = { type: "STRING" };
 export const NOTE_SCHEMA = {
   type: "OBJECT",
   properties: {
-    modus: { type: "STRING", enum: ["auftrag", "briefing", "agenda", "unklar"] },
+    mode: { type: "STRING", enum: ["order", "brief", "agenda", "unclear"] },
     customer_name: S, customer_company: S, customer_email: S, customer_phone: S, address: S, place: S,
     items: {
       type: "ARRAY",
@@ -160,38 +142,37 @@ export const NOTE_SCHEMA = {
     add_calendar: { type: "BOOLEAN" }, add_todo: { type: "BOOLEAN" }, send_quote: { type: "BOOLEAN" },
     quote_notes: S,
     summary: S,
-    bestaetigt: { type: "BOOLEAN" },
+    confirmed: { type: "BOOLEAN" },
   },
-  required: ["modus", "customer_name", "items", "add_calendar", "add_todo", "send_quote", "summary", "bestaetigt"],
+  required: ["mode", "customer_name", "items", "add_calendar", "add_todo", "send_quote", "summary", "confirmed"],
 };
 
 export const EXTRACT_SYSTEM = `You keep the order draft for a tiler's phone office up to date from the call transcript.
-- modus: "auftrag" when he talks about a customer order / quote; "briefing" for questions about a
-  customer; "agenda" for calendar or to-do questions; otherwise "unklar".
+- mode: "order" when he talks about a customer order / quote; "brief" for questions about a
+  customer; "agenda" for calendar or to-do questions; otherwise "unclear".
 - customer_name as he said it ("Peter Steinberger"). customer_email exactly as confirmed; turn spoken
-  forms into an address ("peter at steinberger dot com" / "punkt com" → peter@steinberger.com).
+  forms in any language into an address (${locales().enabled().map(id => q(locales().persona(id, PERSONA).examples.emailReadBack.replace(/\?$/, ""))).join(" / ")} → peter@steinberger.com).
 - items: one per product or service. catalog_id = the matching PRICE LIST id, or "" if none matches.
   quantity as a number in the price list's unit (square feet: 1 m² ≈ 10.76 sq ft if he gave metric).
   unit_price only if he named a price; otherwise null (the price list applies).
 - needed_by: the date the customer needs it, YYYY-MM-DD, resolved from today.
 - LANGUAGE: write appointment title, todos and summary in the language of the call (given below).
-- appointment: the calendar entry: title, short (English "Tile delivery · Peter Steinberger", German
-  "Lieferung Fliesen · Peter Steinberger"), date (usually needed_by), start_time HH:MM if he said one,
-  duration_min if he said one.
+- appointment: the calendar entry: title, short, in the call's language (e.g. "Tile delivery · Peter
+  Steinberger"), date (usually needed_by), start_time HH:MM if he said one, duration_min if he said one.
 - todos: only if he asked for his to-do list: one or two concrete follow-ups with due dates (e.g.
   order the material a few days before needed_by; follow up on the quote in 3 days).
 - add_calendar / add_todo / send_quote: true for what he asked for; when unsure, true.
 - summary: one sentence in the call's language (who, what, how much, when).
-- bestaetigt: true only once he confirmed the recap.
+- confirmed: true only once he confirmed the recap.
 - Only what was said. Corrections replace old values.`;
 
-export function extractPrompt({ turns, note, lang = "en" }) {
+export function extractPrompt({ turns, note, lang = DEFAULT_LANG }) {
   const transcript = turns.map(t => `${t.role === "user" ? "Tradesperson" : "Office"}: ${t.text}`).join("\n");
-  return `Today is ${new Date().toISOString().slice(0, 10)} (${new Date().toLocaleDateString("en-GB", { weekday: "long" })}).
-Language of the call: ${lang === "de" ? "German" : "English"}.
+  return `Today is ${new Date().toISOString().slice(0, 10)} (${promptWeekday()}).
+Language of the call: ${locales().name(lang)}.
 
 PRICE LIST (id | item | price):
-${catalogLines("en")}
+${catalogLines(DEFAULT_LANG)}
 
 Draft so far: ${JSON.stringify(note ?? {})}
 
@@ -202,7 +183,7 @@ Return the updated draft.`;
 }
 
 export function missingFields(d) {
-  if (!d || d.modus !== "auftrag") return [];
+  if (!d || d.mode !== "order") return [];
   const missing = [];
   if (!d.customer_name) missing.push("customer name");
   if (!d.items?.length) missing.push("what the customer needs");
@@ -216,7 +197,7 @@ export function missingFields(d) {
 }
 
 export function worthSaving(d) {
-  return d?.modus === "auftrag" && Boolean(d.customer_name);
+  return d?.mode === "order" && Boolean(d.customer_name);
 }
 
 // ---------- after the call: long-term memory ----------
@@ -224,7 +205,7 @@ export function worthSaving(d) {
 export const MEMORY_SCHEMA = {
   type: "OBJECT",
   properties: {
-    call_type: { type: "STRING", enum: ["notiz", "briefing", "agenda", "other"] },
+    call_type: { type: "STRING", enum: ["order", "brief", "agenda", "other"] },
     call_summary: S,
     customer: {
       type: "OBJECT",
@@ -253,7 +234,7 @@ open to-dos. Return what to store:
 
 export function memoryPrompt({ turns, note, snapshot }) {
   const transcript = turns.map(t => `${t.role === "user" ? "Tiler" : "Notebook"}: ${t.text}`).join("\n");
-  return `Today is ${new Date().toISOString().slice(0, 10)} (${new Date().toLocaleDateString("en-GB", { weekday: "long" })}).
+  return `Today is ${new Date().toISOString().slice(0, 10)} (${promptWeekday()}).
 
 Known customers:
 ${JSON.stringify(snapshot.customers)}

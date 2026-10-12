@@ -2,20 +2,20 @@
 // mode selector). Not streamed: returns the whole sentence as 16 kHz PCM16.
 
 import { resample } from "./audio.mjs";
+import { locales } from "../locale/index.mjs";
 
 export function createGeminiTts({ endpoint, env = process.env }) {
   const model = env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts";
-  const voices = { de: env.GEMINI_TTS_VOICE_DE || "Kore", en: env.GEMINI_TTS_VOICE_EN || "Aoede" };
   return {
     model,
-    async synth(text, { lang = "de", signal } = {}) {
+    async synth(text, { lang = locales().defaultId, signal } = {}) {
       const res = await fetch(endpoint.url(model, "generateContent"), {
         method: "POST",
         headers: await endpoint.headers(),
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000),
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text }] }],
-          generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voices[lang] ?? voices.de } } } },
+          generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: locales().voice(lang, "geminiTts", env) } } } },
         }),
       });
       if (!res.ok) throw new Error(`gemini tts ${res.status}: ${(await res.text()).slice(0, 160)}`);

@@ -1,0 +1,135 @@
+// Regression calls: real scripted calls against a fresh server, checked against
+// what they must (and should) produce. Run before every merge.
+//   npm run regress                      all scenarios in test/calls/<skill>/*.json
+//   npm run regress -- pilot/02-briefing only these (scenarios before them in the same skill run too,
+//                                        because later calls build on earlier memory)
+//   npm run regress -- --keep            keep the scratch data dirs
+//
+// Each skill gets its own server (SKILL=<dir name>) on a scratch DATA_DIR, so
+// scenarios in a folder share memory in file order. A scenario:
+//   { "lang": "de", "says": ["…", "…"], "config": {…},
+//     "must":   [ <check>, … ],   failing one fails the run
+//     "should": [ <check>, … ] }  failing one only warns (models vary run to run)
+// Checks: {"saved": true} {"hangup": true} {"event": "workflow"} {"noEvent": "error"}
+//   {"heard": "regex"} {"heardNext": "wait"} {"said": "regex"} {"note": "regex"}
+//   {"falseStart": true} {"maxFirstAudioMs": 4000}
+
+import { spawn } from "node:child_process";
+import { readdirSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { runCall, describeEvent } from "../src/testing/caller.mjs";
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const callsDir = path.join(root, "test", "calls");
+const args = process.argv.slice(2);
+const keep = args.includes("--keep");
+const only = args.filter(a => !a.startsWith("--"));
+
+const median = xs => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
+const re = s => new RegExp(s, "i");
+
+// `saved` is the note the server stored for this call (fetched after the post-call step):
+// the call's socket is closed by then, so its "saved" event never reaches the caller.
+function check(spec, events, saved) {
+  const of = name => events.filter(e => e.event === name);
+  const said = of("say").filter(e => !e.note?.startsWith("stage")).map(e => e.text).join(" ");
+  const lastNote = saved ?? of("note").at(-1)?.note;
+  const [[kind, value]] = Object.entries(spec);
+  switch (kind) {
+    case "saved": return Boolean(saved) === value;
+    case "hangup": return of("end_call").length > 0 === value;
+    case "event": return of(value).length > 0;
+    case "noEvent": return of(value).length === 0;
+    case "heard": return of("heard").some(e => re(value).test(e.text ?? ""));
+    case "heardNext": return of("heard").some(e => e.next === value) || (value === "wait" && of("dangling").length > 0);
+    case "said": return re(value).test(said);
+    case "note": return Boolean(lastNote) && re(value).test(JSON.stringify(lastNote));
+    case "falseStart": return of("barge_in").some(e => e.falseStart) === value;
+    case "maxFirstAudioMs": { const p50 = median(of("latency").map(e => e.firstAudioMs)); return p50 != null && p50 <= value; }
+    default: throw new Error(`unknown check ${kind}`);
+  }
+}
+
+function startServer(skill, dataDir, port) {
+  const env = { ...process.env, SKILL: skill, DATA_DIR: dataDir, PORT: String(port), DEV_TOKEN: "", RECORD_CALLS: "0" };
+  const child = spawn(process.execPath, ["--env-file-if-exists=.env", "server.mjs"], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+  const log = [];
+  const waiters = [];
+  const onData = chunk => {
+    for (const line of String(chunk).split("\n").filter(Boolean)) {
+      log.push(line);
+      for (const w of [...waiters]) if (w.test(line)) { waiters.splice(waiters.indexOf(w), 1); w.resolve(line); }
+    }
+  };
+  child.stdout.on("data", onData);
+  child.stderr.on("data", onData);
+  const waitFor = (pattern, ms) => new Promise((resolve, reject) => {
+    const hit = log.find(l => pattern.test(l));
+    if (hit) return resolve(hit);
+    const w = { test: l => pattern.test(l), resolve };
+    waiters.push(w);
+    setTimeout(() => { const i = waiters.indexOf(w); if (i >= 0) { waiters.splice(i, 1); reject(new Error(`timeout waiting for ${pattern}`)); } }, ms);
+  });
+  return { child, log, waitFor, stop: () => child.kill() };
+}
+
+const skills = readdirSync(callsDir, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name).sort();
+const results = [];
+let port = 8890;
+for (const skill of skills) {
+  const files = readdirSync(path.join(callsDir, skill)).filter(f => f.endsWith(".json")).sort();
+  const wanted = only.length ? files.filter((f, i) => files.slice(i).some(g => only.some(o => `${skill}/${g}`.startsWith(o)))) : files;
+  if (!wanted.length) continue;
+  const dataDir = mkdtempSync(path.join(tmpdir(), `regress-${skill}-`));
+  const server = startServer(skill, dataDir, ++port);
+  try {
+    await server.waitFor(/voice assets ready/, 60000).catch(err => {
+      throw new Error(`${skill} server didn't start: ${err.message}\n${server.log.slice(-15).join("\n")}`);
+    });
+    for (const file of wanted) {
+      const name = `${skill}/${file.replace(/\.json$/, "")}`;
+      const sc = JSON.parse(readFileSync(path.join(callsDir, skill, file), "utf8"));
+      process.stdout.write(`${name} … `);
+      const started = Date.now();
+      let events = [];
+      let saved = null;
+      let error = null;
+      try {
+        let callId;
+        ({ events, callId } = await runCall({ url: `ws://localhost:${port}/dial`, lang: sc.lang, says: sc.says, config: sc.config ?? {}, from: sc.from }));
+        // Later scenarios build on this call's memory: wait for the post-call step.
+        await server.waitFor(new RegExp(`\\[${callId.slice(-6)}\\] (memory:|memory error|finalize error)`), 45000).catch(() => {});
+        const notes = await fetch(`http://localhost:${port}/api/notes`).then(r => r.json());
+        saved = notes.find(n => n.call_id === callId) ?? null;
+      } catch (err) { error = err; }
+      const must = (sc.must ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved) }));
+      const should = (sc.should ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved) }));
+      const p50 = median(events.filter(e => e.event === "latency").map(e => e.firstAudioMs));
+      const failed = Boolean(error) || must.some(m => !m.ok);
+      results.push({ name, failed, must, should, p50, error });
+      console.log(`${failed ? "FAIL" : "ok"} (${Math.round((Date.now() - started) / 1000)} s, first audio p50 ${p50 ?? "-"} ms)`);
+      if (error) console.log(`   error: ${error.message}`);
+      for (const m of must.filter(m => !m.ok)) console.log(`   must  ✗ ${JSON.stringify(m.spec)}`);
+      for (const s of should.filter(s => !s.ok)) console.log(`   should ~ ${JSON.stringify(s.spec)}`);
+      if (failed) {
+        // The conversation, so a failure can be read without rerunning it.
+        for (const e of events.filter(e => ["heard", "say", "workflow", "end_call", "barge_in", "nudge"].includes(e.event))) {
+          console.log(`   ${e.at.toFixed(1).padStart(5)}s ${describeEvent(e) ?? e.event}`);
+        }
+      }
+      const errors = events.filter(e => e.event === "error");
+      for (const e of errors) console.log(`   server error: ${e.where}: ${e.message}`);
+    }
+  } finally {
+    server.stop();
+    if (!keep) rmSync(dataDir, { recursive: true, force: true });
+    else console.log(`   data kept in ${dataDir}`);
+  }
+}
+
+const failed = results.filter(r => r.failed);
+const warned = results.filter(r => r.should.some(s => !s.ok));
+console.log(`\n${results.length - failed.length}/${results.length} passed${warned.length ? `, ${warned.length} with warnings` : ""}`);
+process.exit(failed.length ? 1 : 0);

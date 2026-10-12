@@ -4,11 +4,14 @@
 // Fish bills API credit separately from platform credit. Without API credit
 // every paid model answers 402, and only `s2.1-pro-free` works (the default).
 
+import { locales } from "../locale/index.mjs";
+
 export function createFish(env = process.env) {
   if (!env.FISH_AUDIO_API_KEY) return null;
   const voice = env.FISH_VOICE || env.FISH_NARRATOR_VOICE || (env.FISH_VOICE_IDS ?? "").split(",")[0]?.trim() || "";
-  // One voice per language, or the same persona for both (set FISH_VOICE_EN = FISH_VOICE).
-  const voices = { de: env.FISH_VOICE_DE || voice, en: env.FISH_VOICE_EN || voice };
+  // One voice per language, from the locale pack (FISH_VOICE_<ID> overrides it). Without a
+  // language (the scripted caller) the plain FISH_VOICE speaks.
+  const voiceFor = lang => (lang ? locales().voice(lang, "fish", env) || voice : voice);
   const model = env.FISH_MODEL || "s2.1-pro-free";
   const latency = env.FISH_LATENCY || "balanced";
 
@@ -24,7 +27,7 @@ export function createFish(env = process.env) {
 
   async function* stream(text, { signal, lang } = {}) {
     const started = Date.now();
-    const res = await request(text, signal, voices[lang] ?? voice);
+    const res = await request(text, signal, voiceFor(lang));
     if (!res.ok) throw new Error(`fish ${res.status}: ${(await res.text()).slice(0, 160)}`);
     let carry = Buffer.alloc(0); // keep sample boundaries: PCM16 needs even byte counts
     let first = true;
@@ -59,5 +62,5 @@ export function createFish(env = process.env) {
     return Buffer.concat(parts);
   }
 
-  return { voice, voices, model, stream, synth };
+  return { voice, voiceFor, model, stream, synth };
 }

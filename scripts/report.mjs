@@ -8,6 +8,8 @@ import { readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createDiscovery } from "../src/store/discovery.mjs";
 import { dataDir, readJson } from "../src/store/files.mjs";
+import { normalizeFinding } from "../src/store/note-keys.mjs";
+import { locales } from "../src/locale/index.mjs";
 
 const arg = name => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : null; };
 const discovery = createDiscovery();
@@ -20,11 +22,11 @@ const ids = new Set(log.map(c => c.callId));
 const findings = discovery.findings().filter(f => ids.has(f.callId));
 const state = discovery.questions();
 
-const tz = { timeZone: "Europe/Berlin" };
+const tz = { timeZone: fw.participant.timezone ?? "UTC" };
 const hour = ms => Number(new Date(ms).toLocaleString("en-GB", { ...tz, hour: "2-digit", hour12: false }));
 const weekday = date => new Date(date).toLocaleDateString("en-GB", { weekday: "short" });
 const median = xs => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
-const line = f => `- ${f.kind ? `[${f.kind}] ` : ""}${f.text}${f.quote ? ` "${f.quote}"` : ""} (${f.date})`;
+const line = finding => { const f = normalizeFinding(finding); return `- ${f.kind ? `[${f.kind}] ` : ""}${f.text}${f.quote ? ` "${f.quote}"` : ""} (${f.date})`; };
 
 // ---------- usage: behaviour, not opinions ----------
 const timed = log.map(c => records[c.callId]).filter(r => r?.startedAt && r?.endedAt);
@@ -42,7 +44,7 @@ const turnTaking = `- Turn-taking: ${count(e => e.event === "heard" && e.next ==
 
 const usage = [
   `- Calls: ${log.length} on ${byDay.length} days (${byDay.join("; ") || "none"})`,
-  `- When he calls (Konstanz time): ${bySlot.join(", ")}`,
+  `- When he calls (${fw.participant.place} time): ${bySlot.join(", ")}`,
   `- Median call: ${(median(timed.map(r => (r.endedAt - r.startedAt) / 60000)) || 0).toFixed(1)} min; calls that saved a note: ${notes}`,
   turnTaking,
   `- Research questions: asked in ${asked} calls, declined in ${declined}; ${Object.values(state).filter(q => q.answered).length} of ${fw.areas.flatMap(a => a.questions).length} framework questions answered`,
@@ -77,7 +79,7 @@ if (process.argv.includes("--synthesize")) {
     system: `You are a management consultant writing the executive summary of a one-week field study with one
 tradesperson. Use only the evidence given; say so where it is thin. Behaviour (usage) outweighs opinions.
 Call a hypothesis supported or contradicted only with at least two findings from different calls; else open.
-Write in English; keep his quotes in German.`,
+Write in English; keep his quotes in ${locales().name(fw.participant.lang)}.`,
     schema: {
       type: "OBJECT",
       properties: {

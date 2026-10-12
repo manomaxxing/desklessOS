@@ -22,6 +22,7 @@ import { warmModel } from "./src/engine/gemini.mjs";
 import { createGeminiTts } from "./src/engine/gemini-tts.mjs";
 import { typingLoop } from "./src/engine/ambience.mjs";
 import { gain } from "./src/engine/audio.mjs";
+import { locales } from "./src/locale/index.mjs";
 import { consolidateCall } from "./src/engine/consolidate.mjs";
 import { createNotesStore } from "./src/store/notes.mjs";
 import { createMonitor } from "./src/monitor.mjs";
@@ -93,15 +94,15 @@ setInterval(warmGemini, 5 * 60 * 1000).unref();
 // Pre-synthesised clips per language: the greeting plays the instant a call connects.
 const assets = {};
 const assetsReady = Promise.all(
-  skill.LANGS.map(async lang => {
-    const lines = skill.VOICE_LINES[lang];
+  locales().enabled().map(async lang => {
+    const lines = locales().persona(lang, skill.PERSONA);
     const synth = text => fish.synth(text, { lang }).catch(err => { log(`asset synth failed (${lang}):`, text, err.message); return null; });
     const oopsLines = [].concat(lines.oops);
     const [greeting, wrapUp, mhm, ...rest] = await Promise.all([lines.greeting, lines.wrapUp, lines.backchannel ?? "", ...oopsLines, ...lines.fillers].map(t => (t ? synth(t) : null)));
     // The backchannel plays while he's still thinking, so it's quieter than the agent's own turns.
     assets[lang] = { greeting, wrapUp, backchannel: mhm && gain(mhm, 0.5), oops: rest.slice(0, oopsLines.length).filter(Boolean), fillers: rest.slice(oopsLines.length).filter(Boolean) };
   }),
-).then(() => log(`voice assets ready (${skill.LANGS.map(l => `${l}: ${assets[l].fillers.length} fillers, ${assets[l].oops.length} oops`).join("; ")})`));
+).then(() => log(`voice assets ready (${locales().enabled().map(l => `${l}: ${assets[l].fillers.length} fillers, ${assets[l].oops.length} oops`).join("; ")})`));
 assets.typing = typingLoop();
 
 // Memory updates that failed during a call (API down) are retried here.
@@ -271,7 +272,7 @@ function attach(ws, { callId, dev }) {
       } else {
         await assetsReady;
         const config = { ...phoneConfig, ...(dev && msg.config ? msg.config : {}) };
-        monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describe(config), source: dev ? (msg.from === "+49-browser" || msg.from === "+1-browser" ? "browser" : "script") : "dial" });
+        monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describe(config), source: dev ? (/-browser$/.test(msg.from ?? "") ? "browser" : "script") : "dial" });
         const common = {
           send, dev, skill, endpoint, extractModel: MODEL, store, memory, office, config,
           log: (...a) => log(`[${id.slice(-6)}]`, ...a),

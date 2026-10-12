@@ -12,6 +12,7 @@
   "bank": "Payments by check, ACH or card",
   "currency": "USD",
   "locale": "en-US",
+  "lang": "en",
   "taxRate": 0.08625,
   "taxLabel": { "en": "San Francisco sales tax 8.625% (materials)", "de": "Verkaufssteuer San Francisco 8,625 % (Material)" },
   "quoteValidDays": 30,
