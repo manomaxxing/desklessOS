@@ -15,6 +15,19 @@ last spoke, switching mid-call if he does. Voices: `FISH_VOICE_DE` / `FISH_VOICE
 in both languages. Notes keep German keys; values are in the language spoken.
 See `PLAN.md` for the why and the roadmap.
 
+## Skills
+
+`SKILL` picks what the agent does:
+
+- **`pilot`** (default): the pilot week with one tradesperson. Notes and briefings
+  for any trade. At the end of a call it may ask one research question from the
+  discovery framework in `config/discovery.json`; after the call, what he said about
+  how he works is filed as findings in `data/discovery/`. `npm run report`
+  (`-- --synthesize` for an executive summary) writes `data/discovery/report.md`.
+  Method and rules: `PLAN.md` section 14.
+- **`office`**: the hackathon demo. Calendar, to-dos and quotes by voice, for a tile
+  contractor in San Francisco; the phone page's tabs are built for it.
+
 ## One protocol, three ways to call
 
 The server speaks Dial's self-hosted audio protocol (`call_connected`,
@@ -160,6 +173,8 @@ Notes are written to `data/notes/*.json`.
 7. Call the Dial number.
 
 Dial numbers are US-only for now; a German caller makes an international call.
+The German number plan (Twilio, one number per country) is in `PLAN.md`
+section 12; cost per tradesperson and pricing are in section 13.
 
 ## Layout
 
@@ -170,8 +185,11 @@ src/engine/vad.mjs         energy VAD, adaptive noise floor, end-of-turn by stat
 src/engine/gemini*.mjs     fast path (stream) + slow path (JSON schema); Vertex or AI Studio
 src/engine/fish.mjs        streamed TTS as 16 kHz PCM
 src/engine/reply.mjs       HEARD/NEXT header + sentence streaming
-src/skills/termin-notiz.mjs  prompt, note schema, required fields
+src/skills/pilot.mjs       pilot week: notes, briefings, one research question per call
+src/skills/office.mjs      order demo: calendar, to-dos, quotes
+config/discovery.json      the research framework: key question, hypotheses, areas, questions
 src/store/notes.mjs        data/notes/*.json
+src/store/discovery.mjs    data/discovery: findings, question state, which question to ask next
 web/index.html             browser test phone (pretends to be Dial)
-scripts/                   smoke, fake-dial, dial admin
+scripts/                   smoke, fake-dial, dial admin, report
 ```

@@ -25,7 +25,8 @@ import { consolidateCall } from "./src/engine/consolidate.mjs";
 import { createNotesStore } from "./src/store/notes.mjs";
 import { createMonitor } from "./src/monitor.mjs";
 import { createMemory } from "./src/store/memory.mjs";
-import * as skill from "./src/skills/office.mjs";
+import { createDiscovery, withDiscovery } from "./src/store/discovery.mjs";
+import { loadSkill } from "./src/skills/index.mjs";
 import { createCalendar } from "./src/store/calendar.mjs";
 import { createQuotes } from "./src/store/quotes.mjs";
 import { createOffice } from "./src/workflow/order.mjs";
@@ -38,25 +39,29 @@ const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const SECRET = process.env.DIAL_SIGNING_SECRET?.trim() || "";
 const DEV_TOKEN = process.env.DEV_TOKEN?.trim() || "";
 const RECONNECT_GRACE_MS = 20000; // Dial re-dials for ~15 s after a drop
+const SKILL = process.env.SKILL || "pilot";
+const skill = await loadSkill(SKILL);
 
 const log = (...args) => console.log(new Date().toISOString().slice(11, 19), ...args);
 const endpoint = geminiEndpoint();
 const fish = createFish();
 const store = createNotesStore();
 const monitor = createMonitor();
-const memory = createMemory();
+// The pilot skill brings a research framework; its findings live beside long-term memory.
+const discovery = skill.framework ? createDiscovery({ framework: skill.framework }) : null;
+const memory = discovery ? withDiscovery(createMemory(), discovery) : createMemory();
 const calendar = createCalendar();
 const quotes = createQuotes();
 const company = JSON.parse(readFileSync(path.join(here, "config", "company.json"), "utf8"));
 const catalog = JSON.parse(readFileSync(path.join(here, "config", "catalog.json"), "utf8"));
-const office = createOffice({ company, catalog, calendar, quotes, memory });
+const office = SKILL === "office" ? createOffice({ company, catalog, calendar, quotes, memory }) : null;
 
 // Demo reset: move all data aside (data/backups/<time>/) and start clean.
 function resetDemo() {
   const root = process.env.DATA_DIR || "data";
   const backup = path.join(root, "backups", new Date().toISOString().replace(/[:.]/g, "-"));
   mkdirSync(backup, { recursive: true });
-  for (const sub of ["notes", "memory", "calls", "calendar", "quotes"]) {
+  for (const sub of ["notes", "memory", "discovery", "calls", "calendar", "quotes"]) {
     try { renameSync(path.join(root, sub), path.join(backup, sub)); } catch {}
   }
   for (const s of [store, memory, calendar, quotes, monitor]) s.reset();
@@ -143,6 +148,10 @@ const server = http.createServer((req, res) => {
     return json(res, { phone: phoneConfig, modes: MODES });
   }
   if (url.pathname === "/api/memory") return json(res, { actions: memory.actions(), customers: Object.values(memory.customers()) });
+  if (url.pathname === "/api/discovery") {
+    if (!discovery) return json(res, { error: `no research framework in skill ${SKILL}` }, 404);
+    return json(res, { framework: discovery.framework, findings: discovery.findings(), questions: discovery.questions(), calls: discovery.calls(), next: discovery.next() });
+  }
   if (url.pathname === "/api/catalog") return json(res, { company: { name: company.name, vatRate: company.vatRate }, catalog });
   if (url.pathname === "/api/calendar") return json(res, { events: calendar.list({ from: url.searchParams.get("from") ?? undefined, to: url.searchParams.get("to") ?? undefined }) });
   if (url.pathname === "/api/quotes") return json(res, { quotes: quotes.list(), outbox: quotes.outbox(), company: { name: company.name } });
@@ -302,4 +311,4 @@ function attach(ws, { callId, dev }) {
   });
 }
 
-server.listen(PORT, () => log(`DesklessOS on http://localhost:${PORT}  (gemini: ${endpoint.door} ${MODEL}, fish: ${fish.model}, dial signature: ${SECRET ? "required" : "OFF"})`));
+server.listen(PORT, () => log(`DesklessOS on http://localhost:${PORT}  (skill: ${SKILL}, gemini: ${endpoint.door} ${MODEL}, fish: ${fish.model}, dial signature: ${SECRET ? "required" : "OFF"})`));

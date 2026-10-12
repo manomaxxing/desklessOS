@@ -1,5 +1,6 @@
 // Rebuilds long-term memory (customers, to-dos) from the saved notes, oldest first,
-// running the same consolidation step a call runs at hang-up.
+// running the same consolidation step a call runs at hang-up. The pilot's
+// research log (data/discovery) is left alone: it comes from calls, not notes.
 //   npm run rebuild-memory            (keeps existing memory and adds to it)
 //   npm run rebuild-memory -- --fresh (wipes data/memory first)
 
@@ -9,9 +10,10 @@ import { geminiEndpoint } from "../src/engine/gemini-endpoint.mjs";
 import { extractJson } from "../src/engine/gemini.mjs";
 import { createNotesStore } from "../src/store/notes.mjs";
 import { createMemory } from "../src/store/memory.mjs";
-import * as skill from "../src/skills/office.mjs";
+import { loadSkill } from "../src/skills/index.mjs";
 
 if (process.argv.includes("--fresh")) rmSync(process.env.MEMORY_DIR || path.join(process.env.DATA_DIR || "data", "memory"), { recursive: true, force: true });
+const skill = await loadSkill();
 const endpoint = geminiEndpoint();
 const model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const memory = createMemory();

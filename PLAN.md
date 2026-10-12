@@ -258,11 +258,11 @@ M1–M3 need nothing new. M4 needs Dial Self-Hosted access, which must be
 | Risk | Mitigation |
 |---|---|
 | **Dial Self-Hosted access not granted in time** (approval required; turnaround unknown) | Request today. Plan B: Twilio Media Streams. Plan C: Dial's managed agent plus post-call transcript extraction (section 11) |
-| **Dial numbers are US-only** | Fine for the demo; the tiler would make an international call. A German number later via Twilio or Dial once supported |
+| **Dial numbers are US-only** | Fine for the demo; the tiler would make an international call. German number via Twilio Media Streams in IE1 (section 12) |
 | Fish paid models return 402 without API credit | Default `s2.1-pro-free`; top up API credit for `latency: low` models if needed |
 | Phone latency feels slow | Filler clips, Fish `latency: low` and its WebSocket streaming; spike the Gemini Live API (audio in, text out, built-in VAD) as an upgrade |
 | Car noise or dialect hurts recognition | Noisy fixtures; on unclear audio the assistant asks again; read-back catches errors |
-| Customer data goes to Google and Fish (GDPR) | Demo with fictional customers; DPA before real use |
+| Customer data goes to Google, Fish and Twilio (GDPR) | Demo with fictional customers; DPA with each before real use |
 | Driving safety | Short turns, no screen prompts, at most 2 questions, he can hang up anytime and the note still saves |
 
 **Open questions for the team:**
@@ -337,7 +337,199 @@ in the `self-hosted` REST reference.
 - Send the Baustellenbeschreibung to employees.
 - Outbound AI calls later, e.g. confirming the appointment with the customer.
 
-## 12. Status (2026-10-11)
+## 12. German number and scaling: Twilio (2026-10-12)
+
+Dial sells US numbers only. For Germany and other countries we use **Twilio
+Media Streams in Twilio's Ireland region (IE1)**. Twilio sits behind a carrier
+adapter, so Telnyx or Dial can be added later or used as a fallback.
+
+**Why Twilio:**
+
+- Larger and publicly listed, with a mature process for German number
+  paperwork. Most voice-AI frameworks ship a Twilio integration.
+- Media Streams run in IE1 (Dublin): low latency to Fly `fra`, and the audio
+  stays in the EU. The account and the number must be homed in IE1.
+- Cost: local number $1.35/month; inbound $0.0100/min plus Media Streams
+  $0.0044/min = **$0.0144/min**.
+- Trade-off: Media Streams are μ-law 8 kHz only. Telnyx can stream 16 kHz L16,
+  but only Telnyx's own marketing claims the wideband audio survives the phone
+  network from a German mobile. Settle it with a $2 test: one number on each
+  carrier, ten calls from a German mobile, compare the transcripts.
+
+**Carriers compared:**
+
+| Carrier | Number | Per minute (inbound + stream) | Notes |
+|---|---|---|---|
+| **Twilio** (chosen) | $1.35/mo | $0.0144 | μ-law 8 kHz; IE1 region |
+| Telnyx | $1/mo | ≈ $0.0055–0.0087 | L16 16 kHz via Call Control (not TeXML); Frankfurt endpoint. Reviews flag strict account checks, suspensions and slow support. FCC proposed a $4.5M fine in 2025 (contested). Incidents in 2026, including a reported audio degradation |
+| easybell SIP trunk | €1.95/mo | probably free inbound | Needs our own SIP-to-WebSocket bridge (Asterisk or FreeSWITCH); not worth running |
+| Dial | $3/mo | not published | US numbers only |
+
+**One number per country, not per customer.** The caller is our user, the
+tradesperson, so every user in a country dials the same number. His caller ID
+(his mobile) identifies the account. Caller ID can be spoofed, so ask for a
+short PIN when it is unknown or withheld, and before sensitive actions. The
+number costs about $1/month per country whatever the user count, and the German
+paperwork happens once, for our company. A company gets its own local number
+only when its customers should call in, or outbound calls should show its
+number; that number is registered with the company's Gewerbeanmeldung and
+billed to it.
+
+**Regulatory (Germany):** a local number needs a business address inside the
+number's area code, proven by a Handelsregisterauszug or Gewerbeanmeldung. No
+P.O. boxes, and not available to individuals. It takes days, so start early.
+Each new country has its own rules. Austria and Switzerland come first; the
+greeting already picks German for +43 and +41.
+
+**Not on this number:** SMS. German landline numbers generally can't send or
+receive SMS, and a German mobile number on Twilio costs $30/month. Send the
+note by alphanumeric sender ID or WhatsApp instead.
+
+**Build:**
+
+1. Twilio account and number in IE1. Check Twilio's list of Voice features that
+   are unavailable in IE1.
+2. A Twilio adapter beside the Dial handler in `server.mjs`: a TwiML
+   `<Connect><Stream>` webhook; μ-law 8 kHz ↔ 16 kHz PCM (`resample` in
+   `audio.mjs` exists); Twilio's `start`/`media`/`mark`/`clear`/`stop` events
+   mapped to the session.
+3. Per-company data, keyed by the caller-ID lookup.
+
+**The phone isn't the scaling limit.** Data is JSON on one Fly volume and
+memory is one shared store, so today the server can serve one company from one
+machine. Before onboarding many companies: per-company data and a real database.
+
+Sources: [Twilio Voice pricing DE](https://www.twilio.com/en-us/voice/pricing/de),
+[Twilio DE regulatory](https://www.twilio.com/en-us/guidelines/de/regulatory),
+[Media Streams in IE1](https://www.twilio.com/en-us/changelog/media-streams-available-in-ie1-and-au1),
+[Telnyx Voice API pricing](https://telnyx.com/pricing/voice-api),
+[Telnyx streaming codecs](https://developers.telnyx.com/api-reference/call-commands/streaming-start),
+[FCC fine](https://broadbandbreakfast.com/telnyx-calls-fccs-4-5-million-penalty-mistaken/),
+[easybell SIP trunks](https://www.easybell.de/business/sip-trunks/).
+
+## 13. Unit economics and pricing (2026-10-12)
+
+**Cost per call minute**, measured by the cost meter on 26 test calls in
+`data/calls/` (about 1.2 min each, almost no memory), plus Twilio:
+
+| Engine | AI | Phone | Total |
+|---|---|---|---|
+| Gemini + Fish | $0.036 | $0.014 | **≈ $0.05/min** |
+| Gemini Live | $0.060 | $0.014 | **≈ $0.075/min** |
+
+Fish is counted at the paid rate ($15 per 1M bytes), although
+`s2.1-pro-free` bills $0 today. The Gemini 3.5 Flash prices ($1.50 in, $9.00
+out per 1M tokens) come from aggregators and aren't yet confirmed on Google's
+page.
+
+**Cost per tradesperson per month.** There are no real users yet, so usage is
+assumed. Typical means 3 debriefs, 1 briefing and 1 office call per working
+day, about 2 minutes each.
+
+| Usage | Minutes/month | Gemini + Fish | Gemini Live |
+|---|---|---|---|
+| Light | ~60 | $3 | $4.50 |
+| Typical | ~200 | **$10** | **$15** |
+| Heavy | ~400 | $20 | $30 |
+
+Real prompts carry up to 25 customers' notes, so budget 1.5× until measured.
+The shared number and hosting add a few dollars a month in total.
+
+**Price: about €69/month net, 300 minutes included, per-minute beyond.**
+
+- Typical use on Live costs €13–20, a 70–80% gross margin. The minute cap
+  protects against heavy users.
+- Comparable trades software: Craftnote €15–50 per user per month, Plancraft
+  about €29–48, HERO from €69. Sell it on saved office time: at €50–70 an hour,
+  it pays for itself with one saved hour a month.
+- €49 only works on Gemini + Fish.
+
+**Cut costs before fixing the price:**
+
+- Note extraction re-runs after every agent turn (`refreshNote` in
+  `session.mjs` and `live-session.mjs`) and is about 40% of the AI cost.
+  Running it once at the end, or on a cheaper model, cuts the AI cost by about
+  a third.
+- Gemini context caching: $0.15 instead of $1.50 per 1M tokens for the prompt
+  parts repeated every turn, mostly the memory.
+- Live costs about 1.7× the cascade. Use one engine for everyone, or put Live in
+  a higher tier.
+
+**Next:** a month of real use from pilot users replaces the usage assumption.
+
+Sources: [Craftnote pricing](https://omr.com/de/reviews/product/craftnote/pricing),
+[Plancraft](https://trusted.de/plancraft-kosten),
+[HERO](https://trusted.de/hero-kosten),
+[Gemini 3.5 Flash pricing (aggregator)](https://evolink.ai/blog/gemini-3-5-flash-pricing-guide).
+
+## 14. Pilot week with Niko, Konstanz: discovery framework (2026-10-12)
+
+After the hackathon: one real user, Niko in Konstanz, for one week. The goal is
+to understand his situation. For the product only note-taking matters; on top,
+the notebook works as a field researcher.
+
+**Method, consultant style:**
+
+1. **Key question:** where does he lose time, money or nerves between inquiry
+   and paid invoice, and which part of that can be done by a call from the car?
+2. **Issue tree:** seven areas, along the job from inquiry to payment plus
+   context and wrap-up: Betrieb und Rolle → Anfragen und Kundentermine →
+   Angebote → Ausführung, Material und Team → Rechnung und Geld → Werkzeuge,
+   Büro und Zeit → Abschluss und Prioritäten.
+3. **Hypotheses H1–H6**, each tied to an area. Every finding is tagged as
+   evidence for or against one, or none.
+4. **Questions** per area, each with one follow-up for vague answers. They
+   follow The Mom Test: what he did last time, not what he would do; numbers
+   (minutes, euros, how often); never pitch the notebook or ask if he'd pay.
+5. **Evidence:** each finding is a fact, a number, a story or an opinion, with
+   his own words as the quote. What he does (when and how often he calls)
+   counts more than what he says.
+6. **Synthesis:** at the end of the week, a report per area and hypothesis,
+   plus an executive summary.
+
+**In the call:**
+
+- Notes come first. The research question comes only at the end: after he
+  confirmed the summary, or after a briefing.
+- At most one question per call, plus one follow-up if the answer is vague. At
+  most three calls a day with a question. "Keine Zeit" ends the call at once.
+- First call: the notebook introduces itself and the week, says his answers go
+  to Max, and asks the Betrieb questions if he has two minutes.
+- Order: Betrieb first; then the area with the fewest findings; Abschluss from
+  day 5 (check the picture with him, rank the pains, ask what annoyed him about
+  the notebook). A question that wasn't answered comes back once, on another day.
+- It links the question to what he just said when it can. What he mentions in
+  passing while dictating ("das Angebot mach ich heute Abend") is a finding too.
+
+**Code:**
+
+- `config/discovery.json`: participant, key question, hypotheses, areas and
+  questions. Edit the framework there, no code change.
+- `src/skills/pilot.mjs`: note-taking for any trade, job D (research) in the
+  prompt, findings in the consolidation step after the call.
+- `src/store/discovery.mjs`: findings, question state, call log; picks the
+  question for each call.
+- `SKILL=pilot` is the default; `SKILL=office` brings back the order demo.
+- `npm run report` writes `data/discovery/report.md`; `-- --synthesize` adds the
+  executive summary, `-- --from +49…` keeps only his calls. `/api/discovery` has
+  the raw data.
+
+**Tested with scripted calls (2026-10-12):** a first call went note → intro →
+b1 plus its follow-up, and filed three findings; b2 and b3 were marked answered
+from what he said unprompted. A briefing call asked b4. An answer to a
+different question than the one asked was filed under the right one (q1, as
+evidence for H2). A briefing no longer saves a duplicate note.
+
+**Before the week starts:**
+
+- **Phone number:** see section 12. Dial is US-only and the Twilio adapter isn't
+  built yet.
+- **Consent:** his calls carry his customers' names and addresses. A short
+  written agreement with Niko (what's stored, who reads it, deleted after the
+  pilot); DPAs with Google and Fish; `RECORD_CALLS` off.
+- **Clean start:** reset the data so test calls don't count, or use `--from`.
+
+## 15. Status (2026-10-11)
 
 Done and tested locally (browser test phone and scripted fake-Dial calls):
 

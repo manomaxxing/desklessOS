@@ -198,7 +198,7 @@ export function createMemory(dir = dataDir("memory", "MEMORY_DIR")) {
 export function noteLine(n) {
   const work = (n.arbeiten ?? []).map(a => [
     a.raum, a.bereich, a.flaeche_m2 ? `${a.flaeche_m2} m²` : "", a.fliese_format, a.fliese_material, a.fliese_optik,
-    a.beschaffung ? `tiles: ${a.beschaffung}` : "", a.beschreibung,
+    a.beschaffung ? `tiles: ${a.beschaffung}` : "", a.menge, a.material, a.beschreibung,
   ].filter(Boolean).join(" ")).filter(Boolean);
   const parts = [
     n.termin_datum || n.created_at?.slice(0, 10),
