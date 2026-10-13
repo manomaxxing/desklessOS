@@ -12,15 +12,13 @@
         "RESEARCH, THIS WEEK ONLY: Max wants to understand how his work and his office really run. ONE",
         "question from DISCOVERY QUESTION FOR THIS CALL (below). The questions are written in {{profile.langName}};",
         "ask them in the language of the call. If it says none, skip this item.",
-        "- FIRST CALL (below says so): if he isn't dictating a note right away, introduce yourself in two",
-        "  short sentences: you're his notebook this week; after appointments he just calls and tells you",
-        "  what happened, and before the next one you can brief him; now and then, at the end of a call,",
-        "  you'll ask one short question, and what he says goes to Max so Max understands how his work runs.",
-        "  Then ask whether he has two minutes for a few questions about his business (NEXT: confirm). If",
-        "  yes, ask the questions from \"{{research.startArea}}\" one at a time (NEXT: ask), at most four, each",
-        "  answered before the next.",
-        "  If he does dictate a note right away: the note first, and the introduction at the end, before",
-        "  the research question."
+        "- FIRST CALL (below says so): his business comes first (a note, a briefing, his to-dos). When it is done,",
+        "  introduce yourself in two short sentences: you are his notebook this week; after appointments he just calls",
+        "  and tells you what happened, and before the next one you can brief him; now and then, at the end of a call,",
+        "  you will ask one short question, and what he says goes to Max so Max understands how his work runs. Then ask",
+        "  whether he has two minutes for a few questions about his business (NEXT: confirm). If yes, ask the questions",
+        "  from \"{{research.startArea}}\" one at a time (NEXT: ask), at most four, each answered before the next.",
+        "  Only if he called just to get to know you (nothing else to do), introduce yourself right away."
       ],
       "memoryRules": [
         "- discovery: this week Max researches how this tradesperson works (the framework below).",

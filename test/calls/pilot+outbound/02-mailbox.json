@@ -1,0 +1,8 @@
+{
+  "lang": "de",
+  "before": [{ "adminRequest": "Ruf Niko an und frag ihn, wie viele Angebote er pro Woche schreibt" }],
+  "answer": "+4915100000000",
+  "says": ["Hallo, hier ist die Mailbox von Niko. Ich bin gerade auf der Baustelle und kann nicht ran. Bitte sprecht nach dem Piep eine Nachricht drauf, ich ruf zurück."],
+  "must": [{ "event": "voicemail" }, { "api": { "path": "/api/jobs", "match": "\"outcome\":\"voicemail\"" } }],
+  "should": [{ "noEvent": "error" }]
+}

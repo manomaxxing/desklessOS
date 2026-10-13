@@ -12,6 +12,7 @@
   "testing": { "callerVoice": "536d3a5e000945adb7038665781a4aca", "from": "+14155550100" },
   "format": { "numberLocale": "en-US" },
   "lexicon": {
+    "digits": ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"],
     "dangling": [
       "the", "a", "and", "or", "but", "because", "that", "to", "of", "for", "with", "on", "at", "from", "by",
       "i", "we", "my", "his", "her", "their", "our",
@@ -35,7 +36,9 @@
       "oops": ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
       "working": "On it.",
       "looking": "Let me check.",
+      "outboundGreeting": "Hi, it's your notebook.",
       "examples": {
+        "twoMinutes": "Got two minutes?",
         "address": "you",
         "acks": ["Got it.", "Okay.", "Sure.", "Makes sense.", "Noted."],
         "askDeadline": "When's the quote due?",
@@ -72,7 +75,9 @@
       "oops": ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
       "working": "On it.",
       "looking": "Let me check.",
+      "outboundGreeting": "Hi, it's your office.",
       "examples": {
+        "twoMinutes": "Got two minutes?",
         "acks": ["Got it.", "Sure.", "Okay.", "Perfect.", "Noted."],
         "emailReadBack": "peter at steinberger dot com?",
         "bookAndSend": "Shall I book it and send <name> the quote?",
@@ -81,6 +86,24 @@
         "goodbyes": ["bye", "that's all"],
         "callerBackchannels": ["yeah", "mhm", "right", "okay"],
         "stillThere": "Still there?"
+      }
+    },
+    "admin": {
+      "greeting": "Hi Max. What should I find out?",
+      "outboundGreeting": "Hi Max, it's the assistant.",
+      "wrapUp": "We're almost at the time limit. Talk later!",
+      "backchannel": "Mhm.",
+      "fillers": ["Mhm.", "Okay."],
+      "oops": ["Sorry, that glitched. Once more?", "That didn't come through. Say it again?"],
+      "working": "On it.",
+      "looking": "One moment, I'll plan it.",
+      "examples": {
+        "acks": ["Okay.", "Got it.", "Sure."],
+        "approve": "Shall I approve it like that?",
+        "goodbyes": ["bye", "that's all"],
+        "callerBackchannels": ["yeah", "mhm", "right"],
+        "stillThere": "Still there?",
+        "twoMinutes": "Got a minute?"
       }
     }
   },

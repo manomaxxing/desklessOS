@@ -5,6 +5,9 @@
 #     GOOGLE_CLOUD_PROJECT=… GOOGLE_SERVICE_ACCOUNT_JSON="$(base64 -w0 sa.json)" \
 #     DIAL_SIGNING_SECRET=… DEV_TOKEN=…
 #   (or GEMINI_BACKEND=studio GEMINI_API_KEY=… instead of the Vertex pair)
+#   Twilio (German number, EU): fly secrets set TWILIO_ACCOUNT_SID=… TWILIO_AUTH_TOKEN=… TWILIO_NUMBER=+49… \
+#     TWILIO_REGION=ie1 TWILIO_EDGE=dublin PUBLIC_URL=https://deskless-os.fly.dev
+#     then the number's voice webhook: https://deskless-os.fly.dev/twilio/voice (POST); outbound calls need MEMORY_BACKEND=pg
 #   admin page (/admin): fly secrets set ADMIN_CODE=… ADMIN_TOTP_SECRET=… SESSION_SECRET=… PUBLIC_URL=https://deskless-os.fly.dev
 #     results by webhook/email: NOTIFY_WEBHOOK_URL=… or RESEND_API_KEY=… NOTIFY_EMAIL_TO=…
 #   memory on Postgres (Supabase, eu-central-1, session pooler or direct connection):

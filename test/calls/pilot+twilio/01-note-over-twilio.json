@@ -1,0 +1,11 @@
+{
+  "lang": "de",
+  "carrier": "twilio",
+  "says": [
+    "Ich komm grad von der Frau Weber in Radolfzell. Bad komplett neu, so zwölf Quadratmeter. Angebot bis Freitag. Das war's.",
+    "Ja, passt.",
+    "Keine Zeit, tschüss."
+  ],
+  "must": [{ "saved": true }, { "note": "Weber|Radolfzell" }],
+  "should": [{ "note": "zwölf|12" }]
+}

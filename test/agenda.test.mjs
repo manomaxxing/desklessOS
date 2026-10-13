@@ -130,7 +130,7 @@ test("objectives store: create, pick for a call, record answers, done or expired
   const skill = loadSkillFromTemplates("pilot");
   const store = createObjectives({ skill, dir: tmp() });
   assert.throws(() => store.create({ template: "nope", params: {} }), /unknown objective template/);
-  assert.throws(() => store.create({ ...question, mode: "outbound" }), /mode "outbound" isn't possible/);
+  assert.throws(() => store.create({ ...question, mode: "smoke-signal" }), /mode "smoke-signal" isn't possible/);
   const a = store.create(question);
   const b = store.create({ ...question, priority: 5 });
   assert.equal(a.status, "pending");

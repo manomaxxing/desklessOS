@@ -12,6 +12,7 @@
   "testing": { "callerVoice": "a20517d0d23048319e4ced960899187e", "from": "+4915100000000" },
   "format": { "numberLocale": "de-DE" },
   "lexicon": {
+    "digits": ["null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun"],
     "dangling": [
       "und", "oder", "aber", "also", "dann", "weil", "dass", "wenn", "ob", "sondern", "denn", "sowie",
       "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer", "eines",
@@ -41,7 +42,9 @@
       "oops": ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
       "working": "Mach ich.",
       "looking": "Moment, ich schau nach.",
+      "outboundGreeting": "Hallo, hier ist dein Notizbuch.",
       "examples": {
+        "twoMinutes": "Hast du zwei Minuten?",
         "address": "du",
         "acks": ["Okay.", "Alles klar.", "Verstehe.", "Gut.", "Notiert.", "Ah, okay.", "Mhm, und?"],
         "askDeadline": "Bis wann soll das Angebot raus?",
@@ -78,7 +81,9 @@
       "oops": ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
       "working": "Mach ich.",
       "looking": "Moment, ich schau nach.",
+      "outboundGreeting": "Hallo, hier ist dein Büro.",
       "examples": {
+        "twoMinutes": "Hast du zwei Minuten?",
         "acks": ["Alles klar.", "Passt."],
         "emailReadBack": "peter at steinberger punkt com?",
         "bookAndSend": "Soll ich's so eintragen und das Angebot an <Name> schicken?",
@@ -87,6 +92,24 @@
         "goodbyes": ["tschüss"],
         "callerBackchannels": ["ja", "genau"],
         "stillThere": "Bist du noch dran?"
+      }
+    },
+    "admin": {
+      "greeting": "Hallo Max. Was soll ich herausfinden?",
+      "outboundGreeting": "Hallo Max, hier ist der Assistent.",
+      "wrapUp": "Wir sind gleich am Zeitlimit. Bis später!",
+      "backchannel": "Mhm.",
+      "fillers": ["Mhm.", "Okay."],
+      "oops": ["Sorry, da hat's gehakt. Nochmal bitte?", "Das ist nicht angekommen. Sag's nochmal?"],
+      "working": "Mach ich.",
+      "looking": "Moment, ich plane das.",
+      "examples": {
+        "acks": ["Okay.", "Alles klar.", "Gut."],
+        "approve": "Soll ich das so freigeben?",
+        "goodbyes": ["tschüss", "das war's"],
+        "callerBackchannels": ["ja", "mhm", "genau"],
+        "stillThere": "Bist du noch dran?",
+        "twoMinutes": "Hast du kurz Zeit?"
       }
     }
   },

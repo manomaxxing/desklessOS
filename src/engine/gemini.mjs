@@ -78,7 +78,18 @@ export function warmModel({ endpoint, model }) {
 // Background JSON calls: try each model with a timeout before giving up.
 // `hedgeMs`: if the first model hasn't answered by then, the next one races it
 // (a hung request then costs seconds, not the whole timeout); the first answer wins.
-export async function extractJsonResilient({ models, timeoutMs = 15000, hedgeMs = 0, ...args }) {
+// `retries429`: when every model answered 429 (quota), wait and go again (1.5 s, 4 s, …);
+// only for work that can wait (the admin's planner, background notes), never a live turn.
+export async function extractJsonResilient({ retries429 = 0, ...args }) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await extractOnce(args); } catch (err) {
+      if (attempt >= retries429 || !/\b429\b/.test(err.message)) throw err;
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1) ** 1.5));
+    }
+  }
+}
+
+async function extractOnce({ models, timeoutMs = 15000, hedgeMs = 0, ...args }) {
   const list = [...new Set(models.filter(Boolean))];
   if (!hedgeMs) {
     let last;

@@ -62,9 +62,10 @@ export const endCall = defineTool({
  * The tools for one call. `engine`: "cascade" | "live". `allow`: the tool names the
  * call's templates may use (agenda.tools()); end_call is the Live engine's own.
  */
-export function callTools({ engine, office = null, memory = null, allow = null }) {
+export function callTools({ engine, office = null, memory = null, allow = null, extra = [] }) {
   const ok = name => !allow || allow.includes(name);
   return [
+    ...extra.filter(t => ok(t.name)), // e.g. the admin line's request tools (src/tools/admin.mjs)
     ...(office && ok("order_execute") ? [orderExecute(office)] : []),
     ...(memory?.search && ok("memory_search") ? [memorySearch({ memory })] : []),
     ...(engine === "live" ? [endCall] : []),

@@ -3,7 +3,7 @@
 // every other enabled pack, with the same type. Extra keys are fine.
 
 const REQUIRED_TOP = ["id", "name", "bcp47", "status", "countryCodes", "voices", "lexicon", "personas"];
-const REQUIRED_PERSONA = ["greeting", "wrapUp", "backchannel", "fillers", "oops", "working", "looking"];
+const REQUIRED_PERSONA = ["greeting", "outboundGreeting", "wrapUp", "backchannel", "fillers", "oops", "working", "looking"];
 
 function missingKeys(ref, pack, prefix = "") {
   const out = [];

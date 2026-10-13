@@ -90,3 +90,41 @@ export function resample(pcm, fromRate, toRate) {
   }
   return out;
 }
+
+// ---------- phone lines: G.711 μ-law at 8 kHz (Twilio's audio/x-mulaw) ----------
+const MULAW_BIAS = 0x84;
+const MULAW_CLIP = 32635;
+const MULAW_EXP = new Uint8Array(256).map((_, i) => (i ? Math.floor(Math.log2(i)) : 0));
+
+/** PCM16 (any rate) → μ-law bytes, one per sample. */
+export function mulawEncode(pcm) {
+  const n = pcm.length >> 1;
+  const out = Buffer.alloc(n);
+  for (let i = 0; i < n; i++) {
+    let s = pcm.readInt16LE(i * 2);
+    const sign = s < 0 ? 0x80 : 0;
+    if (sign) s = -s;
+    if (s > MULAW_CLIP) s = MULAW_CLIP;
+    s += MULAW_BIAS;
+    const exponent = MULAW_EXP[(s >> 7) & 0xff];
+    const mantissa = (s >> (exponent + 3)) & 0x0f;
+    out[i] = ~(sign | (exponent << 4) | mantissa) & 0xff;
+  }
+  return out;
+}
+
+/** μ-law bytes → PCM16 at the same rate. */
+export function mulawDecode(bytes) {
+  const out = Buffer.alloc(bytes.length * 2);
+  for (let i = 0; i < bytes.length; i++) {
+    const u = ~bytes[i] & 0xff;
+    const exponent = (u >> 4) & 0x07;
+    const sample = (((u & 0x0f) << 3) + MULAW_BIAS << exponent) - MULAW_BIAS;
+    out.writeInt16LE(u & 0x80 ? -sample : sample, i * 2);
+  }
+  return out;
+}
+
+/** A phone line's audio (μ-law 8 kHz) → the engine's (PCM16 16 kHz), and back. */
+export const fromPhone = mulaw => resample(mulawDecode(mulaw), 8000, SAMPLE_RATE);
+export const toPhone = pcm => mulawEncode(resample(pcm, SAMPLE_RATE, 8000));

@@ -11,7 +11,6 @@
 import http from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { geminiEndpoint } from "./src/engine/gemini-endpoint.mjs";
@@ -29,6 +28,15 @@ import { locales } from "./src/locale/index.mjs";
 import { consolidateCall } from "./src/engine/consolidate.mjs";
 import { createMonitor } from "./src/monitor.mjs";
 import { openMemory } from "./src/memory/index.mjs";
+import { createCallHost } from "./src/telephony/host.mjs";
+import { dialAdapter } from "./src/telephony/dial.mjs";
+import { twilioAdapter } from "./src/telephony/twilio.mjs";
+import { fakeAdapter } from "./src/telephony/fake.mjs";
+import { createScheduler } from "./src/jobs/scheduler.mjs";
+import { createTurnDetector } from "./src/engine/turn-detector.mjs";
+import { adminTools } from "./src/tools/admin.mjs";
+import { loadSkillFromTemplates } from "./src/skills/from-templates.mjs";
+import { e164 } from "./src/memory/pg.mjs";
 import { loadSkill } from "./src/skills/index.mjs";
 import { createCalendar } from "./src/store/calendar.mjs";
 import { createQuotes } from "./src/store/quotes.mjs";
@@ -58,7 +66,9 @@ const notifier = createNotifier();
 const plannerModels = [process.env.PLANNER_MODEL, MODEL, "gemini-2.5-flash"];
 const requests = createRequests({
   memory, skill, auth, notifier, publicUrl: process.env.PUBLIC_URL ?? "", log,
-  llm: args => extractJsonResilient({ endpoint, models: plannerModels, think: true, timeoutMs: 45000, ...args }),
+  onCancel: objectiveId => scheduler?.cancelFor(objectiveId),
+  outbound: () => Boolean(scheduler),
+  llm: args => extractJsonResilient({ endpoint, models: plannerModels, think: true, timeoutMs: 45000, retries429: 2, ...args }),
 });
 const calendar = createCalendar();
 const quotes = createQuotes();
@@ -101,20 +111,30 @@ const warmGemini = () => endpoint.warm().then(() => warmModel({ endpoint, model:
 warmGemini();
 setInterval(warmGemini, 5 * 60 * 1000).unref();
 
-// Pre-synthesised clips per language: the greeting plays the instant a call connects.
+// Max's own line (phase 7): calls from ADMIN_PHONE get the admin persona (personas/admin.md):
+// draft requests, approve them with ADMIN_PIN, hear the answers. Nothing goes into memory.
+const adminPhones = new Set((process.env.ADMIN_PHONE ?? "").split(",").map(e164).filter(Boolean));
+const adminSkill = adminPhones.size ? loadSkillFromTemplates("admin") : null;
+const isAdminCaller = from => adminPhones.has(e164(from));
+
+// Pre-synthesised clips per language and persona: the greeting plays the instant a call connects.
 const assets = {};
-const assetsReady = Promise.all(
+const adminAssets = {};
+const synthPersona = (persona, target) => Promise.all(
   locales().enabled().map(async lang => {
-    const lines = locales().persona(lang, skill.PERSONA);
+    const lines = locales().persona(lang, persona);
     const synth = text => fish.synth(text, { lang }).catch(err => { log(`asset synth failed (${lang}):`, text, err.message); return null; });
     const oopsLines = [].concat(lines.oops);
-    const [greeting, wrapUp, mhm, working, looking, ...rest] = await Promise.all([lines.greeting, lines.wrapUp, lines.backchannel ?? "", lines.working ?? "", lines.looking ?? "", ...oopsLines, ...lines.fillers].map(t => (t ? synth(t) : null)));
+    const [greeting, outboundGreeting, wrapUp, mhm, working, looking, ...rest] = await Promise.all([lines.greeting, lines.outboundGreeting ?? "", lines.wrapUp, lines.backchannel ?? "", lines.working ?? "", lines.looking ?? "", ...oopsLines, ...lines.fillers].map(t => (t ? synth(t) : null)));
     // The backchannel plays while he's still thinking, so it's quieter than the agent's own turns.
     // working / looking: said before a tool runs when the model called it without a word.
-    assets[lang] = { greeting, wrapUp, backchannel: mhm && gain(mhm, 0.5), working, looking, oops: rest.slice(0, oopsLines.length).filter(Boolean), fillers: rest.slice(oopsLines.length).filter(Boolean) };
+    target[lang] = { greeting, outboundGreeting, wrapUp, backchannel: mhm && gain(mhm, 0.5), working, looking, oops: rest.slice(0, oopsLines.length).filter(Boolean), fillers: rest.slice(oopsLines.length).filter(Boolean) };
   }),
-).then(() => log(`voice assets ready (${locales().enabled().map(l => `${l}: ${assets[l].fillers.length} fillers, ${assets[l].oops.length} oops`).join("; ")})`));
+);
+const assetsReady = Promise.all([synthPersona(skill.PERSONA, assets), adminSkill && synthPersona(adminSkill.PERSONA, adminAssets)])
+  .then(() => log(`voice assets ready (${locales().enabled().map(l => `${l}: ${assets[l].fillers.length} fillers, ${assets[l].oops.length} oops`).join("; ")}${adminSkill ? "; admin line too" : ""})`));
 assets.typing = typingLoop();
+adminAssets.typing = assets.typing;
 
 // Memory updates that failed during a call (API down) are retried here.
 async function retryPending() {
@@ -163,6 +183,7 @@ const server = http.createServer((req, res) => {
 });
 async function route(req, res) {
   const url = new URL(req.url, "http://x");
+  for (const a of adapters) if (a.http && (await a.http(req, res, url))) return; // Twilio's webhooks carry their own signature
   if (url.pathname === "/api/admin/login" && req.method === "POST") {
     const { code, totp } = await readBody(req);
     const out = auth.login({ code, totp, ip: clientIp(req) });
@@ -175,8 +196,17 @@ async function route(req, res) {
   }
   if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" && !authorized(url, req)) return json(res, { error: "token required" }, 401);
   if (url.pathname === "/api/admin/me") return json(res, { admin: isAdmin(req, url), login: auth.enabled, twoFactor: auth.twoFactor, notify: notifier.channels });
-  if (/^\/api\/(requests|users|objectives)/.test(url.pathname) && !isAdmin(req, url)) return json(res, { error: "admin login required" }, 401);
-  if (url.pathname === "/api/users") return json(res, { users: await memory.listUsers() });
+  if (/^\/api\/(requests|users|objectives|jobs)/.test(url.pathname) && !isAdmin(req, url)) return json(res, { error: "admin login required" }, 401);
+  if (url.pathname === "/api/users") return json(res, { users: await memory.listUsers(), outbound: Boolean(scheduler) });
+  const userMatch = url.pathname.match(/^\/api\/users\/([\w-]+)$/);
+  if (userMatch && req.method === "POST") {
+    try {
+      const u = await memory.updateUser(userMatch[1], await readBody(req));
+      if (u) monitor.system(`person ${u.name}: phone ${u.phone || "-"}, outbound calls ${u.consentOutboundAt ? "agreed" : "not agreed"}${u.outboundPaused ? " (paused)" : ""}`);
+      return u ? json(res, { user: u }) : json(res, { error: "no such person" }, 404);
+    } catch (err) { return json(res, { error: err.message }, err.status ?? 500); }
+  }
+  if (url.pathname === "/api/jobs") return json(res, { jobs: scheduler ? await scheduler.list() : [], outbound: Boolean(scheduler) });
   if (url.pathname === "/api/requests") {
     if (req.method !== "POST") return json(res, { requests: (await requests.list()).map(r => requests.view(r)) });
     try { return json(res, await requests.plan({ instruction: (await readBody(req)).instruction, by: "admin" }), 201); }
@@ -278,7 +308,7 @@ async function route(req, res) {
   }
   if (url.pathname === "/api/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ ok: true, gemini: endpoint.door, model: MODEL, fishModel: fish.model, dialSigned: Boolean(SECRET), sessions: sessions.size }));
+    return res.end(JSON.stringify({ ok: true, gemini: endpoint.door, model: MODEL, fishModel: fish.model, dialSigned: Boolean(SECRET), sessions: host.calls.size }));
   }
   if (url.pathname === "/api/notes") return json(res, (await memory.listNotes()).map(({ transcript, ...n }) => ({ ...n, turns: transcript?.length ?? 0 })));
   const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
@@ -290,17 +320,98 @@ async function route(req, res) {
   res.writeHead(404).end("not found");
 }
 
-// ---------- WebSocket (Dial protocol) ----------
+// ---------- calls: lines from Dial, Twilio and the test phone, one host ----------
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
-const sessions = new Map(); // call_id → { session, out, graceTimer }
 
-function verifySignature(header, callId) {
-  const m = /t=(\d+),v1=([0-9a-f]+)/i.exec(header ?? "");
-  if (!m) return false;
-  if (Math.abs(Date.now() / 1000 - Number(m[1])) > 300) return false;
-  const expected = createHmac("sha256", SECRET).update(`${m[1]}.${callId}`).digest();
-  const given = Buffer.from(m[2], "hex");
-  return given.length === expected.length && timingSafeEqual(given, expected);
+// One call: what we know about the caller (read once, within a budget), its agenda
+// (his capabilities plus what the agent brings), and the engine.
+// Max on his own line: the admin persona, the request tools, and a memory that keeps nothing.
+function startAdminCall({ id, msg, send, dev, config }) {
+  monitor.system(`call ${id}: Max on the admin line`);
+  const nothing = async () => null;
+  const scope = {
+    user: null, context: "", hidden: 0, discovery: null, objectives: [], consolidates: false,
+    search: async () => [], saveNote: nothing, endCall: nothing, snapshot: async () => ({}), apply: async () => ({ skipped: true }),
+    consolidationFailed: nothing, upsertCustomer: nothing, addAction: nothing, recordObjectives: async () => [], recordToolRun: nothing,
+  };
+  const session = createCallSession({
+    send, dev, skill: adminSkill, agenda: adminSkill.createAgenda(), endpoint, extractModel: MODEL, memory: scope, office: null, config: { ...config, engine: "cascade" },
+    model: MODEL, fish, geminiTts, assets: adminAssets, turnDetector, tools: adminTools({ requests, auth }),
+    log: (...a) => log(`[${id.slice(-6)}]`, ...a), onEvent: ev => monitor.event(id, ev), onEnd: reason => monitor.end(id, reason),
+    recordDir: monitor.record ? callId => monitor.audioDir(callId) : null,
+  });
+  return { session, userId: null };
+}
+
+async function startCall({ id, msg, send, dev, source }) {
+  await assetsReady;
+  const outbound = msg.direction === "outbound";
+  const config = { ...phoneConfig, ...(dev && msg.config ? msg.config : {}) };
+  if (!outbound && adminSkill && isAdminCaller(msg.from)) {
+    monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: "admin line", source });
+    return startAdminCall({ id, msg, send, dev, config });
+  }
+  monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describe(config), source: source === "dev" ? (/-browser$/.test(msg.from ?? "") ? "browser" : "script") : source });
+  const scope = await memory.openCall({ callId: id, from: outbound ? msg.to : msg.from, to: outbound ? msg.from : msg.to, userId: msg.user_id ?? null, direction: outbound ? "outbound" : "inbound" });
+  if (scope.stats) monitor.event(id, { event: "context", ...scope.stats });
+  if (!scope.user) monitor.system(`call ${id}: unknown caller ${msg.from ?? "?"}: empty memory, nothing saved`, "warn");
+  const agenda = skill.createAgenda({ objectives: scope.objectives, discovery: scope.discovery, direction: outbound ? "outbound" : "inbound" });
+  if (agenda.objectives.length) monitor.system(`call ${id}: agenda ${agenda.objectives.map(o => o.stored ? `${o.template.id} ${o.id}` : o.template.id).join(", ")}`);
+  const common = {
+    send, dev, skill, agenda, endpoint, extractModel: MODEL, memory: scope, office, config,
+    log: (...a) => log(`[${id.slice(-6)}]`, ...a),
+    onEvent: ev => monitor.event(id, ev),
+    onEnd: reason => {
+      scope.recordObjectives(agenda.results()).then(async changed => {
+        for (const o of changed) monitor.system(`objective ${o.id}: ${o.status}${o.result?.questions ? ` · ${o.result.questions.map(q => `${q.id} ${q.status}${q.answer ? `: ${q.answer}` : ""}`).join("; ")}` : ""}`);
+        for (const r of await requests.objectivesChanged(changed)) if (r.status !== "approved") monitor.system(`request ${r.id}: ${r.status}`);
+        if (outbound) await scheduler?.callEnded({ callId: id, reason, outcome: agenda.callOutcome?.() ?? null, objectives: agenda.results() });
+      }).catch(err => log("after-call error", err.message));
+      monitor.end(id, reason);
+    },
+    recordDir: monitor.record ? callId => monitor.audioDir(callId) : null,
+  };
+  const cascade = (extra = {}) => createCallSession({ ...common, model: MODEL, fish, geminiTts, assets, turnDetector, ...extra, config: { ...config, engine: "cascade" } });
+  // Calls the agent makes run on the cascade engine (it handles the outbound opening).
+  // A call we made speaks his language from the start (our own number says nothing about him).
+  if (config.engine !== "live" || outbound) return { session: cascade(outbound && scope.user?.lang ? { initialLang: scope.user.lang } : {}), userId: scope.user?.id ?? null };
+  // If Gemini Live fails (setup refused, socket drop), carry the call on with the cascade engine.
+  const holder = { session: null, userId: scope.user?.id ?? null };
+  const live = createLiveSession({
+    ...common,
+    assets,
+    onFatal: ({ reason, turns, lang, greeted }) => {
+      monitor.system(`Live failed on ${id}: ${reason} → continuing on ${MODEL} + Fish`, "warn");
+      live.abandon();
+      const next = cascade({ initialTurns: turns, initialLang: lang });
+      next.handle({ ...msg, reconnect: greeted });
+      session.current = next;
+    },
+  });
+  // The host keeps one object per call; Live may hand the call to the cascade engine mid-call.
+  const session = { current: live, handle: m => session.current.handle(m), close: r => session.current.close(r), get ended() { return session.current.ended; } };
+  holder.session = session;
+  return holder;
+}
+
+// Smart Turn v3 (TURN_DETECTOR=smart-turn): hears in his voice whether he's done.
+const turnDetector = process.env.TURN_DETECTOR === "smart-turn" ? await createTurnDetector({ log }) : null;
+const host = createCallHost({ startCall, monitor, log, graceMs: RECONNECT_GRACE_MS });
+let scheduler = null; // outbound calls: set up below when a carrier can dial out
+const onStatus = status => scheduler?.callStatus(status).catch(err => log("call status error", err.message));
+const twilio = twilioAdapter({ host, wss, onStatus, monitor, log });
+const fakeCarrier = process.env.OUTBOUND === "fake" ? fakeAdapter({ wss, devToken: DEV_TOKEN, onStatus, monitor, log }) : null;
+const adapters = [dialAdapter({ host, wss, secret: SECRET, devToken: DEV_TOKEN, monitor, log }), twilio, fakeCarrier].filter(Boolean);
+
+// Outbound calls (OUTBOUND=twilio, or fake for tests): only on Postgres memory, where users
+// carry their consent, call times and phone number.
+const carrier = process.env.OUTBOUND === "fake" ? fakeCarrier : process.env.OUTBOUND === "off" ? null : twilio;
+if (carrier && memory.kind === "pg") {
+  scheduler = createScheduler({ memory, carrier, host, requests, log, monitor, tickMs: Number(process.env.SCHEDULER_TICK_MS || 30000) });
+  scheduler.start();
+  log(`outbound calls: on (${carrier.id}${carrier.number ? ` from ${carrier.number}` : ""})`);
+} else if (carrier) {
+  log("outbound calls: off (they need MEMORY_BACKEND=pg)");
 }
 
 server.on("upgrade", (req, socket, head) => {
@@ -312,97 +423,8 @@ server.on("upgrade", (req, socket, head) => {
       ws.on("close", unsubscribe);
     });
   }
-  if (!url.pathname.startsWith("/dial")) return socket.destroy();
-  const callId = decodeURIComponent(url.pathname.split("/").filter(Boolean).slice(1).join("/") || "");
-  const dev = url.searchParams.get("dev") === "1";
-  if (dev) {
-    if (DEV_TOKEN && url.searchParams.get("token") !== DEV_TOKEN) return socket.destroy();
-  } else if (SECRET) {
-    if (!verifySignature(req.headers["x-dial-signature"], callId)) {
-      log("rejected unsigned/invalid Dial connection for", callId || "(no call id)");
-      monitor.system(`rejected connection ${callId || "(no call id)"}: ${req.headers["x-dial-signature"] ? "bad or stale signature" : "no X-Dial-Signature header"}`, "error");
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      return socket.destroy();
-    }
-  } else {
-    log("warning: accepting unsigned connection (set DIAL_SIGNING_SECRET for real calls)");
-  }
-  monitor.system(`${dev ? "test phone" : SECRET ? "Dial (signed)" : "unsigned caller"} connected: ${callId || "(no call id)"}`);
-  wss.handleUpgrade(req, socket, head, ws => attach(ws, { callId, dev }));
+  for (const a of adapters) if (a.upgrade?.(req, socket, head, url)) return;
+  socket.destroy();
 });
-
-function attach(ws, { callId, dev }) {
-  const out = { ws };
-  const send = frame => { if (out.ws.readyState === 1) out.ws.send(JSON.stringify(frame)); };
-  let entry = null;
-
-  ws.on("message", async data => {
-    let msg;
-    try { msg = JSON.parse(data); } catch { return; }
-    if (msg.type === "call_connected") {
-      const id = msg.call_id || callId || `dev-${Date.now()}`;
-      const existing = sessions.get(id);
-      if (existing && msg.reconnect) {
-        clearTimeout(existing.graceTimer);
-        existing.out.ws = ws; // same call, new socket
-        entry = existing;
-        monitor.system(`reconnect: ${id}`, "warn");
-      } else {
-        await assetsReady;
-        const config = { ...phoneConfig, ...(dev && msg.config ? msg.config : {}) };
-        monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describe(config), source: dev ? (/-browser$/.test(msg.from ?? "") ? "browser" : "script") : "dial" });
-        // What we know about the caller (read once, within a budget), and this call's agenda:
-        // his capabilities plus what the agent brings (pending objectives, research).
-        const scope = await memory.openCall({ callId: id, from: msg.from, to: msg.to, direction: msg.direction === "outbound" ? "outbound" : "inbound" });
-        if (scope.stats) monitor.event(id, { event: "context", ...scope.stats });
-        if (!scope.user) monitor.system(`call ${id}: unknown caller ${msg.from ?? "?"}: empty memory, nothing saved`, "warn");
-        const agenda = skill.createAgenda({ objectives: scope.objectives, discovery: scope.discovery });
-        if (agenda.objectives.length) monitor.system(`call ${id}: agenda ${agenda.objectives.map(o => o.stored ? `${o.template.id} ${o.id}` : o.template.id).join(", ")}`);
-        const common = {
-          send, dev, skill, agenda, endpoint, extractModel: MODEL, memory: scope, office, config,
-          log: (...a) => log(`[${id.slice(-6)}]`, ...a),
-          onEvent: ev => monitor.event(id, ev),
-          onEnd: reason => {
-            scope.recordObjectives(agenda.results()).then(async changed => {
-              for (const o of changed) monitor.system(`objective ${o.id}: ${o.status}${o.result?.questions ? ` · ${o.result.questions.map(q => `${q.id} ${q.status}${q.answer ? `: ${q.answer}` : ""}`).join("; ")}` : ""}`);
-              for (const r of await requests.objectivesChanged(changed)) if (r.status !== "approved") monitor.system(`request ${r.id}: ${r.status}`);
-            }).catch(err => log("objectives error", err.message));
-            monitor.end(id, reason);
-          },
-          recordDir: monitor.record ? callId => monitor.audioDir(callId) : null,
-        };
-        const cascade = (extra = {}) => createCallSession({ ...common, model: MODEL, fish, geminiTts, assets, ...extra, config: { ...config, engine: "cascade" } });
-        entry = { out };
-        if (config.engine === "live") {
-          // If Gemini Live fails (setup refused, socket drop), carry the call on with the cascade engine.
-          entry.session = createLiveSession({
-            ...common,
-            assets,
-            onFatal: ({ reason, turns, lang, greeted }) => {
-              monitor.system(`Live failed on ${id}: ${reason} → continuing on ${MODEL} + Fish`, "warn");
-              entry.session.abandon();
-              entry.session = cascade({ initialTurns: turns, initialLang: lang });
-              entry.session.handle({ ...msg, reconnect: greeted });
-            },
-          });
-        } else {
-          entry.session = cascade();
-        }
-        sessions.set(id, entry);
-      }
-      entry.id = id;
-    }
-    entry?.session.handle(msg);
-    if (msg.type === "call_ended") sessions.delete(entry?.id);
-  });
-
-  ws.on("close", () => {
-    if (!entry || entry.session.ended) { if (entry) sessions.delete(entry.id); return; }
-    if (dev) { entry.session.close("dev_hangup"); sessions.delete(entry.id); return; }
-    // Dial keeps the call up and reconnects; only give up after the grace period.
-    monitor.system(`socket dropped: ${entry.id}, waiting ${RECONNECT_GRACE_MS / 1000}s for Dial to reconnect`, "warn");
-    entry.graceTimer = setTimeout(() => { entry.session.close("socket_lost"); sessions.delete(entry.id); }, RECONNECT_GRACE_MS);
-  });
-}
 
 server.listen(PORT, () => log(`DesklessOS on http://localhost:${PORT}  (skill: ${SKILL}, gemini: ${endpoint.door} ${MODEL}, fish: ${fish.model}, dial signature: ${SECRET ? "required" : "OFF"})`));

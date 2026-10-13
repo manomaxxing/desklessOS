@@ -1,0 +1,16 @@
+{
+  "lang": "de",
+  "before": [
+    { "user": { "phone": "+4915100000000", "consentOutbound": true, "callWindow": { "days": [1, 2, 3, 4, 5, 6, 7], "from": "00:00", "to": "23:59" } } },
+    { "adminRequest": "Ruf Niko an und frag ihn, wie lange sein letztes Angebot gedauert hat" }
+  ],
+  "answer": "+4915100000000",
+  "says": [
+    "Hallo?",
+    "Ja, klar, schieß los.",
+    "Puh, so zwei Stunden, am Sonntagabend halt.",
+    "Okay, tschüss."
+  ],
+  "must": [{ "event": "outbound" }, { "api": { "path": "/api/requests", "match": "\"status\":\"done\"" } }, { "api": { "path": "/api/jobs", "match": "\"outcome\":\"completed\"" } }],
+  "should": [{ "said": "Minuten" }, { "api": { "path": "/api/requests", "match": "zwei Stunden|2 Stunden" } }, { "noEvent": "error" }]
+}

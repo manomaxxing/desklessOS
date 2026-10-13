@@ -116,6 +116,8 @@ export function pickLanguage({ locales, userLang, dialTag, from, fallback }) {
 
 // Prompts are written in English whatever the call's language, so their dates are too.
 const PROMPT_LOCALE = "en-GB";
+/** For parsing dates into parts (digits, 24 h), not for anything spoken. */
+export const FORMAT_LOCALE = "en-GB";
 /** "Monday, 12 October 2026", for a prompt. */
 export const promptDate = (d = new Date()) => d.toLocaleDateString(PROMPT_LOCALE, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 /** "Monday", for a prompt. */

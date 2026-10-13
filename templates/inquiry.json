@@ -3,10 +3,12 @@
   "version": 1,
   "kind": "objective",
   "title": "MAX'S QUESTION",
-  "description": "Find out something specific: 1 to 5 questions, asked at the end of his next call after his own business. The answers and his words come back as the result.",
+  "description": "Find out something specific: 1 to 5 questions, asked at the end of his next call after his own business, or in a call the assistant makes (with his consent, in his call times). The answers and his words come back as the result.",
   "priority": 1,
   "modes": [
-    "next_inbound"
+    "next_inbound",
+    "outbound",
+    "either"
   ],
   "params": {
     "purpose": "why Max wants to know (optional, one line)",

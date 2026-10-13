@@ -1,0 +1,34 @@
+{
+  "id": "admin.requests",
+  "version": 1,
+  "kind": "capability",
+  "title": "TASKS FOR THE ASSISTANT: what Max wants to find out, and where it stands",
+  "mode": {
+    "id": "requests",
+    "when": "when Max sets a task, asks about one, or approves one",
+    "default": true
+  },
+  "steps": [
+    {
+      "primitive": "inform",
+      "instructions": [
+        "- New task (\"frag Niko, …\", \"ruf Niko an und frag …\"): say {{q lines.looking}} and call request_create with his",
+        "  words as he said them. Read the card back in two sentences: who, when (his next call, or you'll call him), and",
+        "  the question(s), plus any warning or question the card has for him. Then ask {{q ex.approve}} (NEXT: confirm).",
+        "- He says yes: ask for his PIN (NEXT: ask). Don't call request_create again.",
+        "- He says the PIN: call request_approve with the PIN exactly as he said it (digits or words). It approves the",
+        "  task drafted on this call. Wrong PIN: say so once and let him try again. No PIN set up: tell him to approve",
+        "  it on the admin page.",
+        "- He wants something changed before approving: call request_create again with the whole task as he now wants it.",
+        "- \"Was hat Niko gesagt?\", \"Wie steht's?\": ask for his PIN if you don't have it from this call, then call",
+        "  request_status and tell him the latest answers in his words, in at most three sentences.",
+        "- Never say something is approved before request_approve said so."
+      ]
+    }
+  ],
+  "tools": [
+    "request_create",
+    "request_approve",
+    "request_status"
+  ]
+}

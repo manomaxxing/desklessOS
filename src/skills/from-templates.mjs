@@ -12,7 +12,7 @@ import { render } from "../agenda/render.mjs";
 import { loadFramework } from "../store/discovery.mjs";
 import { locales as sharedLocales, promptWeekday } from "../locale/index.mjs";
 
-const PERSONA_OF = { pilot: "notebook", office: "office" };
+const PERSONA_OF = { pilot: "notebook", office: "office", admin: "admin" };
 const MAX_OBJECTIVES = 2; // the agent's own items per call, always after his business
 const config = name => JSON.parse(readFileSync(new URL(`../../config/${name}.json`, import.meta.url), "utf8"));
 const S = { type: "STRING" };
@@ -32,6 +32,11 @@ function profileFor(persona, framework, L) {
   if (persona.profile === "company") {
     const company = config("company");
     return { ...company, langName: L.name(company.lang), business: company.business ?? "a contractor" };
+  }
+  if (persona.profile === "admin") {
+    // Max, on his own line (ADMIN_PHONE): ADMIN_NAME, ADMIN_LANG.
+    const lang = L.isEnabled?.(process.env.ADMIN_LANG) ? process.env.ADMIN_LANG : L.defaultId;
+    return { name: process.env.ADMIN_NAME || "Max", lang, langName: L.name(lang) };
   }
   throw new Error(`personas/${persona.id}.md: unknown profile "${persona.profile}"`);
 }
@@ -100,10 +105,12 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
      * (src/store/objectives.mjs), best first. `discovery`: the research store, if the
      * persona researches. At most MAX_OBJECTIVES of the agent's own items per call.
      */
-    createAgenda({ objectives = [], discovery = null } = {}) {
+    createAgenda({ objectives = [], discovery = null, direction = "inbound" } = {}) {
       const own = objectives.map(o => ({ id: o.id, key: o.id, template: byId(o.template), params: o.params, stored: true, questionLang: o.lang ?? locales.guess(o.params.questions?.map(q => q.ask).join(" ") ?? "") ?? profile.lang }));
       const always = standing.filter(t => discovery || !t.steps.some(s => s.primitive === "research")).map(t => ({ id: t.id, key: t.id.replace(/\W/g, "_"), template: t, params: {}, stored: false }));
-      return createAgenda({ persona, capabilities, objectives: [...own, ...always].slice(0, MAX_OBJECTIVES), profile, locales, discovery, framework, extractContext });
+      // A call the agent makes is for its errand only: no standing items (research) on top.
+      const items = direction === "outbound" ? own : [...own, ...always];
+      return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile, locales, discovery, framework, extractContext, direction });
     },
 
     /** Checks an objective's params against its template; returns them normalised (throws on bad input). */

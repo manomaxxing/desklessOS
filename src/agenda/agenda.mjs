@@ -28,9 +28,11 @@ function forEngine(text, engine) {
  * objectives: [{ id, key, template, params, stored, questionLang }] (key: where its answers go in the extraction).
  * profile: who the persona serves ({{profile.*}}). extractContext(lang): extra blocks for the extraction (price list).
  */
-export function createAgenda({ persona, capabilities, objectives = [], profile, locales, discovery = null, framework = null, extractContext = () => "" }) {
+export function createAgenda({ persona, capabilities, objectives = [], profile, locales, discovery = null, framework = null, extractContext = () => "", direction = "inbound" }) {
   const items = objectives.map(o => ({ ...o, output: undefined, done: false }));
+  const outbound = direction === "outbound";
   let last = {}; // the latest extraction, his note and the objectives' answers
+  let outcome = { consent: "unknown", callbackWhen: "" }; // outbound: did he agree to talk, call back when
 
   function slotContext(lang) {
     const lines = locales.persona(lang, persona.id) ?? {};
@@ -101,6 +103,7 @@ ${section("next")}`;
         engine === "cascade" && tools.length ? toolRules(tools, slotContext(lang).lines) : "",
         // per call
         `Today is ${today}.`,
+        outbound ? section("outbound") : "",
         own.length ? `${section("agenda")}\n\nItems for this call, in this order:\n${own.join("\n\n")}` : "",
         office ? `OFFICE (price list, calendar, recent quotes):\n${office}` : "",
         `MEMORY (persists across calls: to-dos, customers and their notes):\n${memory || "(empty)"}`,
@@ -133,6 +136,11 @@ Still missing: ${miss?.length ? miss.join(", ") : "nothing"}${status.length ? `\
         properties.agenda = { type: "OBJECT", properties: agenda, required: Object.keys(agenda) };
         required.push("agenda");
       }
+      if (outbound) {
+        properties.call_consent = { type: "STRING", enum: ["unknown", "yes", "no", "later", "never"] };
+        properties.callback_when = { type: "STRING" };
+        required.push("call_consent", "callback_when");
+      }
       return { type: "OBJECT", properties, required: [...new Set(required)] };
     },
 
@@ -151,6 +159,11 @@ Still missing: ${miss?.length ? miss.join(", ") : "nothing"}${status.length ? `\
         ...capabilities.flatMap(ruleLines(null)),
         ...general,
         ...items.flatMap(o => ruleLines(o)(o.template)),
+        ...(outbound ? [
+          `- call_consent: the ${(persona.agentLabel ?? "agent").toLowerCase()} made this call. Did he agree to talk now? "yes"; "no" (no time, no`,
+          "  other time named); \"later\" (call him back: callback_when = YYYY-MM-DDTHH:MM in his local time if he named a",
+          "  time, else \"\"); \"never\" (he doesn't want such calls); \"unknown\" (not asked or not answered yet).",
+        ] : []),
       ].join("\n");
     },
 
@@ -171,7 +184,8 @@ Return the updated note.`;
     /** Takes one extraction: his note, what's still missing, and objectives that just got done. */
     update(extracted = {}) {
       last = extracted ?? {};
-      const { agenda: answers = {}, ...note } = last;
+      const { agenda: answers = {}, call_consent: consent, callback_when: callbackWhen, ...note } = last;
+      if (outbound) outcome = { consent: consent ?? "unknown", callbackWhen: callbackWhen ?? "" };
       const changes = [];
       for (const o of items) {
         if (!(o.key in answers)) continue;
@@ -190,6 +204,10 @@ Return the updated note.`;
       const cap = capabilities.find(t => t.mode.id === note?.mode);
       return Boolean(cap?.steps.some(s => P(s).save?.(s, note)));
     },
+
+    direction,
+    /** Outbound calls: { consent: yes|no|later|never|unknown, callbackWhen } for the scheduler. */
+    callOutcome: () => (outbound ? outcome : null),
 
     /** Tool names the templates on this call may use. */
     tools: () => [...new Set([...capabilities, ...items.map(o => o.template)].flatMap(t => t.tools ?? []))],

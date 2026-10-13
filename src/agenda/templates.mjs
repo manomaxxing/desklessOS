@@ -4,7 +4,7 @@
 //   (id, version, profile, capabilities, standing, agentLabel), then "## <name>"
 //   sections of English text with {{slots}} (src/agenda/render.mjs) filled from
 //   the locale pack: role, language, closing, sound, interruptions, silence,
-//   next, agenda, extract, memory.
+//   next, agenda, outbound (when the agent made the call), extract, memory.
 // templates/<id>.json: what a call can do. kind "capability" (he starts it:
 //   capture, brief, order) or "objective" (the agent brings it: research,
 //   inquiry). A template has a title, steps made of primitives
@@ -19,7 +19,7 @@ import { primitives } from "./primitives.mjs";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const PERSONAS_DIR = path.join(root, "personas");
 export const TEMPLATES_DIR = path.join(root, "templates");
-const PERSONA_SECTIONS = ["role", "language", "closing", "sound", "interruptions", "silence", "next", "agenda", "extract", "memory"];
+const PERSONA_SECTIONS = ["role", "language", "closing", "sound", "interruptions", "silence", "next", "agenda", "outbound", "extract", "memory"];
 const LIST_KEYS = new Set(["capabilities", "standing"]);
 
 export function parsePersona(text, where = "persona") {

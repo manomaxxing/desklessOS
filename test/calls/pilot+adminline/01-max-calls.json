@@ -1,0 +1,12 @@
+{
+  "lang": "de",
+  "from": "+4915199999999",
+  "says": [
+    "Frag Niko bei seinem nächsten Anruf, wie lange sein letztes Angebot gedauert hat.",
+    "Ja, genau so.",
+    "Vier sieben eins eins.",
+    "Danke, tschüss."
+  ],
+  "must": [{ "tool": "request_create" }, { "tool": "request_approve" }, { "api": { "path": "/api/requests", "match": "\"status\":\"approved\"" } }],
+  "should": [{ "said": "Niko" }, { "noEvent": "error" }]
+}

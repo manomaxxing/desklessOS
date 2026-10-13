@@ -50,18 +50,24 @@ const BACKCHANNEL_IDLE_MS = 3000;
 const STAGE_DIRECTION = /^\s*[[(][^\])]*[\])]\s*$/; // "[Silence]", "(wartet)": never read out loud
 const INTERRUPT_MS = Number(process.env.INTERRUPT_MIN_MS || 500); // loud speech needed to cut the agent off
 const TYPING_AFTER_MS = 250; // typing starts almost at once, like someone writing it down
+// A call the agent made: it greets after his "Hallo?", or after this much silence.
+const OUTBOUND_GREET_MS = 1500;
+// His first words run this long without a pause: that's a voicemail greeting, not him.
+const VOICEMAIL_MS = Number(process.env.VOICEMAIL_MS || 4000);
+// Smart Turn's "not done" counts from this much of his speech on (short answers fooled it).
+const SMART_TURN_MIN_MS = 1200;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const pick = (arr, i) => (Array.isArray(arr) ? arr[i % arr.length] : arr);
 
 // `onEvent` feeds the monitor (every call); dev callers also get the events inline.
 // `recordDir(callId)` → directory for per-turn audio, or null to not record.
-export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, geminiTts, memory = null, office = null, assets, config = {}, initialTurns = [], initialLang = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null }) {
+export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, geminiTts, memory = null, office = null, assets, config = {}, initialTurns = [], initialLang = null, turnDetector = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null, tools: extraTools = [] }) {
   const cfg = { model, tts: "fish", mask: "typing", ...Object.fromEntries(Object.entries(config).filter(([, v]) => v)) };
   const fastModel = cfg.model;
   const slowModel = extractModel || model; // notes and memory stay on one model so modes compare fairly
   const fallbackModel = process.env.FALLBACK_MODEL || (fastModel === "gemini-2.5-flash" ? "gemini-3.5-flash" : "gemini-2.5-flash");
   // The tools this call's templates may use (src/tools/).
-  const runner = createToolRunner({ tools: callTools({ engine: "cascade", office, memory, allow: agenda.tools() }) });
+  const runner = createToolRunner({ tools: callTools({ engine: "cascade", office, memory, allow: agenda.tools(), extra: extraTools }) });
   let toolDecls = null;
   const declarations = () => (toolDecls ??= runner.declarations());
   const meter = createMeter();
@@ -98,12 +104,14 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
   const lex = (id = lang) => locales().lexicon(id); // this language's word lists (locales/<id>.json)
   let lastWasBackchannel = false;
   let lastHold = false; // he said "Moment" and got a reply: give him longer before nudging
+  let retryable = false; // a write failed last turn: his "yes, try again" may run it again
   let lastSpoken = null; // the latest answer to his audio: { turn, at, userAudio, turnsBefore, prevNext }
   let idleTimer = null;
   let waitTimer = null;
   let falseStartTimer = null;
   let nudges = 0;
   let oopsCount = 0;
+  let outbound = null; // a call the agent made: { greeted, timer }
   const markText = new Map(); // mark name → { turn, text } for sentences, so we know what was heard
 
   const vad = createVad({ onSpeechStart, onSpeechEnd, endSilenceMs: END_SILENCE.listen, interruptMs: INTERRUPT_MS });
@@ -298,6 +306,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
   }
 
   function onSpeechStart() {
+    if (outbound && !outbound.greeted) clearTimeout(outbound.timer); // he's saying hello: wait for him
     clearTimeout(idleTimer);
     clearTimeout(waitTimer);
     debug("vad", { speaking: true });
@@ -329,6 +338,11 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
   }
 
   function onSpeechEnd(pcm) {
+    if (outbound && !outbound.greeted && !ended) {
+      // The first thing after picking up: "Hallo?" gets the greeting; a long monologue is a mailbox.
+      if (durationMs(pcm) >= VOICEMAIL_MS) return voicemail(`${Math.round(durationMs(pcm) / 100) / 10} s without a pause`);
+      return greetOutbound({ heardHello: true });
+    }
     debug("vad", { speaking: false, ms: Math.round(durationMs(pcm)) });
     if (ended || durationMs(pcm) < 250) return;
     pendingUser.push(pcm);
@@ -341,10 +355,20 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     clearTimeout(idleTimer);
     clearTimeout(waitTimer);
     if (!text && !force && pendingUser.reduce((n, p) => n + durationMs(p), 0) > MAX_PENDING_MS) force = true;
-    const turn = { id: ++turnSeq, abort: new AbortController(), audioSent: false, fillerPlayed: false, endpointAt: performance.now(), marks: [], prevNext: lastNext, toolNotes: [] };
+    const turn = { id: ++turnSeq, abort: new AbortController(), audioSent: false, fillerPlayed: false, endpointAt: performance.now(), marks: [], prevNext: lastNext, toolNotes: [], retryable: text ? retryable : (r => (retryable = false, r))(retryable) };
     current = turn;
     const signal = turn.abort.signal;
-    const audio = text ? null : wav(Buffer.concat(pendingUser.flatMap((p, i) => (i ? [silence(300), p] : [p]))));
+    const heardPcm = text ? null : Buffer.concat(pendingUser.flatMap((p, i) => (i ? [silence(300), p] : [p])));
+    const audio = heardPcm && wav(heardPcm);
+    const heardMs = heardPcm ? durationMs(heardPcm) : 0;
+    // Is he done? Smart Turn hears it in the audio, while the model writes its answer
+    // (it's back in ~0.1 s, the model's header in ~1.5 s). No detector: the word lists decide.
+    if (heardPcm && !force && turnDetector) {
+      turnDetector.predict(heardPcm).then(r => {
+        turn.turnEnd = r;
+        if (r) debug("turn", { turn: turn.id, probability: Math.round(r.probability * 1000) / 1000, complete: r.complete, ms: r.ms });
+      });
+    }
     const inFile = audio ? saveAudio(`turn-${turn.id}-in.wav`, audio) : null;
     const outAudio = [];
     debug("turn_start", { turn: turn.id, ...(text ? { text } : { utteranceMs: Math.round(durationMs(audio) - 44 / 32), merged: pendingUser.length, force }) });
@@ -439,7 +463,16 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       langs: locales().enabled(),
       onHeader: ({ heard, lang: l, next: n }) => {
         if (n === "wait" && (force || text || lastNext === "confirm")) n = "listen"; // he's been quiet, or answered a yes/no question: answer now
-        else if (n !== "wait" && !force && !text && lastNext !== "confirm" && dangling(heard, lex(l || lang))) { n = "wait"; debug("dangling", { turn: turn.id, text: heard }); } // "…die will": he isn't done
+        else if (n !== "wait" && !force && !text && lastNext !== "confirm") {
+          // He isn't done: Smart Turn says so from his voice, or his words stop on "…die will".
+          // Smart Turn only counts on turns of some length the model would answer by listening or
+          // asking: on a short "Ja." or a "Tschüss" it said "not done" in testing.
+          const st = turn.turnEnd;
+          const by = st && heardMs >= SMART_TURN_MIN_MS && (n === "listen" || n === "ask")
+            ? (st.complete ? null : "smart-turn")
+            : dangling(heard, lex(l || lang)) ? "words" : null;
+          if (by) { n = "wait"; debug("dangling", { turn: turn.id, text: heard, by }); }
+        }
         next = n;
         if (l) lang = l;
         turn.hold = !text && holdOn(heard, lex(l || lang));
@@ -477,7 +510,8 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       signal,
       // He answered a yes/no question, and this answer isn't itself asking one (a recap that
       // calls the tool in the same breath would ride on an earlier yes, e.g. to the email read-back).
-      confirmed: turn.prevNext === "confirm" && next !== "confirm" && next !== "ask",
+      // …or a write failed in the turn before and the agent offered to try again.
+      confirmed: (turn.prevNext === "confirm" || turn.retryable) && next !== "confirm" && next !== "ask",
       latestNote: freshNote, // the draft, his latest words included
       memory,
       emit: (event, data) => debug(event, { turn: turn.id, ...data }),
@@ -514,6 +548,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         outcomes.push(o);
         debug("tool", { turn: turn.id, name: o.name, args: o.args, status: o.status, ms: o.ms, summary: o.summary });
         if (STATUS_WORDS[o.status]) turn.toolNotes.push(`[${STATUS_WORDS[o.status]} ${o.name}${o.summary ? `: ${o.summary}` : ""}]`);
+        if (o.status === "error" && runner.get(o.name)?.effect === "write") retryable = true;
         if (signal.aborted) return;
       }
 
@@ -617,13 +652,14 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
   // applied only if no newer one already was, so an older one never overwrites it.
   let noteSeq = 0;
   let noteApplied = 0;
-  function extractNote({ hedgeMs }) {
+  function extractNote({ hedgeMs, retries429 = 0 }) {
     const seq = ++noteSeq;
     const snapshot = turns.slice();
-    return extractJsonResilient({ endpoint, models: [slowModel, fallbackModel], hedgeMs, system: agenda.extractSystem(lang), prompt: agenda.extractPrompt({ turns: snapshot, lang }), schema: agenda.schema(), onUsage: u => record("note", u) })
+    return extractJsonResilient({ endpoint, models: [slowModel, fallbackModel], hedgeMs, retries429, system: agenda.extractSystem(lang), prompt: agenda.extractPrompt({ turns: snapshot, lang }), schema: agenda.schema(), onUsage: u => record("note", u) })
       .then(updated => {
         if (seq < noteApplied) return note;
         noteApplied = seq;
+        noteCovers = snapshot.length;
         const u = agenda.update(updated); // his note, and which of the agent's own items got done (checked in code)
         note = u.note;
         missing = u.missing;
@@ -634,12 +670,18 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
   }
   // Background refresh after each turn: chained, so they never pile up in parallel.
   function refreshNote() {
-    extracting = (extracting ?? Promise.resolve()).then(() => extractNote({ hedgeMs: 6000 })).catch(err => fail("extract", err));
+    extracting = (extracting ?? Promise.resolve()).then(() => extractNote({ hedgeMs: 6000, retries429: 1 })).catch(err => fail("extract", err));
     return extracting;
   }
   // A tool needs the draft now, his latest words included: a fresh extraction that
   // doesn't queue behind a slow background one. Fails rather than act on a stale draft.
-  const freshNote = () => extractNote({ hedgeMs: 3500 });
+  // If that extraction fails (Gemini slow), the background draft still serves when it already
+  // covers every turn but his last one (the "yes" to the recap it was read from).
+  let noteCovers = 0;
+  const freshNote = () => extractNote({ hedgeMs: 3500 }).catch(err => {
+    if (note?.mode && noteCovers >= turns.length - 1) { debug("note", { note, missing, fallback: "the draft from before his yes" }); return note; }
+    throw err;
+  });
 
   function finalize(reason) {
     if (finalized) return finalized;
@@ -660,7 +702,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         if (saved) { log("saved note", saved.id); debug("saved", { id: saved.id }); }
       }
       await memory?.endCall({ turns, reason, lang, consolidate: spoke, note, noteId: saved?.id ?? null });
-      if (spoke && memory) await consolidate(saved?.id);
+      if (spoke && memory && memory.consolidates !== false) await consolidate(saved?.id);
     })()
       .catch(err => fail("finalize", err))
       .finally(() => {
@@ -688,6 +730,31 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     }
   }
 
+  // ---------- calls the agent made ----------
+  // Greeting from the locale pack at once, then the model says why it's calling and asks
+  // for two minutes (the persona's outbound section has the rules).
+  function greetOutbound({ heardHello }) {
+    if (!outbound || outbound.greeted || ended) return;
+    outbound.greeted = true;
+    clearTimeout(outbound.timer);
+    pendingUser = []; // his "Hallo?" needs no answer of its own
+    const line = locales().persona(lang, skill.PERSONA)?.outboundGreeting ?? "";
+    speakCached(assets[lang]?.outboundGreeting, "greet");
+    debug("say", { text: line, note: "outbound greeting" });
+    if (line) turns.push({ role: "model", text: line });
+    runTurn({ text: `(You called him. He picked up${heardHello ? " and said hello" : ""}; you've just said: "${line}". Go on: in one sentence why you're calling, then ask whether he has two minutes. NEXT: confirm.)` }).catch(err => fail("turn", err));
+  }
+  function voicemail(why) {
+    if (ended) return;
+    clearTimeout(outbound?.timer);
+    debug("voicemail", { why });
+    log(`voicemail (${why}): hanging up`);
+    stopSpeaking();
+    send({ type: "end_call" });
+    debug("hangup", { by: "agent", reason: "voicemail" });
+    finalize("voicemail");
+  }
+
   // ---------- protocol ----------
   return {
     get ended() { return ended; },
@@ -698,7 +765,10 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
           if (!msg.reconnect) call.startedAt = Date.now();
           if (!msg.reconnect && !initialLang) lang = pickLanguage({ locales: locales(), dialTag: msg.language, from: msg.from, fallback: skill.DEFAULT_LANG });
           log(`call ${msg.call_id} from ${msg.from ?? "?"} (${lang})${msg.reconnect ? " (reconnect)" : ""}`);
-          if (!msg.reconnect) speakCached(assets[lang]?.greeting, "greet");
+          if (!msg.reconnect && msg.direction === "outbound") {
+            outbound = { greeted: false, timer: setTimeout(() => greetOutbound({ heardHello: false }), OUTBOUND_GREET_MS) };
+            debug("outbound", { user: msg.user_id ?? null });
+          } else if (!msg.reconnect) speakCached(assets[lang]?.greeting, "greet");
           warmModel({ endpoint, model: fastModel }); // Vertex's first request is slow; take that hit during the greeting
           debug("connected", { formats: msg.formats, lang, config: cfg });
           break;
@@ -723,6 +793,11 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
           stopSpeaking();
           speakCached(assets[lang]?.wrapUp, "wrap");
           hangupMark = sendMark("bye");
+          break;
+        case "answered_by":
+          // The carrier's answering-machine detection (Twilio AMD): a machine gets no message.
+          debug("answered_by", { value: msg.answered_by });
+          if (/^(machine|fax)/.test(msg.answered_by ?? "")) voicemail(`answered by ${msg.answered_by}`);
           break;
         case "call_ended":
           debug("ended", { reason: msg.reason ?? "ended" });

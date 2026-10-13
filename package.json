@@ -21,7 +21,8 @@
     "regress": "node --env-file-if-exists=.env scripts/regress.mjs",
     "locale:check": "node scripts/locale-check.mjs",
     "admin:totp": "node scripts/admin-totp.mjs",
-    "migrate:pg": "node --env-file-if-exists=.env scripts/migrate-json-to-pg.mjs"
+    "migrate:pg": "node --env-file-if-exists=.env scripts/migrate-json-to-pg.mjs",
+    "smart-turn:fetch": "node scripts/smart-turn-fetch.mjs"
   },
   "dependencies": {
     "postgres": "3.4.9",
@@ -30,5 +31,8 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
     "@electric-sql/pglite-pgvector": "0.0.9"
+  },
+  "optionalDependencies": {
+    "onnxruntime-node": "1.30.0"
   }
 }

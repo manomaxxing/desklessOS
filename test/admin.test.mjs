@@ -82,7 +82,13 @@ test("planner: who it is must be clear, the questions valid, the mode possible",
   assert.match(unsure.warnings[0], /Is it Niko\? Could also be Nina/);
   const now = checkPlan(good({ mode: "outbound" }), { users, skill });
   assert.equal(now.plan.mode, "next_inbound");
-  assert.match(now.card.warnings[0], /isn't available yet/);
+  assert.match(now.card.warnings[0], /aren't set up on this server/);
+  const noConsent = checkPlan(good({ mode: "outbound" }), { users, skill, outbound: true });
+  assert.equal(noConsent.plan.mode, "next_inbound");
+  assert.match(noConsent.card.warnings[0], /Niko can't be called \(he hasn't agreed to be called\)/);
+  const agreed = [{ ...users[0], consentOutboundAt: "2026-10-01T00:00:00Z" }, users[1]];
+  assert.equal(checkPlan(good({ mode: "outbound" }), { users: agreed, skill, outbound: true }).plan.mode, "outbound");
+  assert.match(checkPlan(good({ mode: "either" }), { users: agreed, skill, outbound: true }).card.when, /whichever comes first/);
   const edited = editPlan(now.plan, { questions: [{ ask: "Wann hast du es geschrieben?", probe: "" }] }, { users, skill });
   assert.equal(edited.plan.params.questions[0].ask, "Wann hast du es geschrieben?");
   assert.equal(edited.plan.target.name, "Niko");

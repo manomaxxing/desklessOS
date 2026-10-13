@@ -17,6 +17,8 @@ export function openJsonMemory({ skill }) {
   const memory = discovery ? withDiscovery(createMemory(), discovery) : createMemory();
   const objectives = createObjectives({ skill });
   const user = { id: "default", name: skill.profile?.owner ?? skill.profile?.name ?? "", lang: skill.DEFAULT_LANG };
+  // JSON has one user and no outbound calls (no consent field): those need MEMORY_BACKEND=pg.
+  const userRow = { id: user.id, name: user.name, phone: skill.profile?.phone ?? "", lang: user.lang, role: "owner", timezone: skill.profile?.timezone ?? "Europe/Berlin", consentOutboundAt: null, outboundPaused: false, callWindow: {} };
 
   // Admin requests (src/admin/requests.mjs): data/admin/requests.json, newest first.
   const adminDir = dataDir("admin", "ADMIN_DIR");
@@ -82,7 +84,9 @@ export function openJsonMemory({ skill }) {
     },
 
     /** Who can be asked something: the one user of a JSON deployment. */
-    listUsers: async () => [{ id: user.id, name: user.name, phone: skill.profile?.phone ?? "", lang: user.lang, role: "owner", consentOutboundAt: null }],
+    listUsers: async () => [userRow],
+    getUser: async id => (id === user.id ? userRow : null),
+    updateUser: async () => { throw Object.assign(new Error("people can be edited with MEMORY_BACKEND=pg"), { status: 409 }); },
     requests,
     listNotes: async () => store.list(),
     memoryOverview: async () => ({ actions: memory.actions(), customers: Object.values(memory.customers()) }),

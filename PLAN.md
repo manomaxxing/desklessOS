@@ -539,7 +539,10 @@ English data keys, regression calls), phase 2 (native tool calls: `order_execute
 primitives, a per-call agenda; "find out X" via `POST /api/objectives`) are done. Phase 4
 (memory on Postgres: per user, budgeted context, search, `MEMORY_BACKEND=json|pg`) is built
 and tested on PGlite; Supabase itself is still to be connected. Phase 5 (the admin page at
-`/admin`: "Frag Niko, …" → plan → card → approve → his answer) is done.
+`/admin`: "Frag Niko, …" → plan → card → approve → his answer) is done. Phase 6 (Twilio for
+the German number, and calls the assistant makes, with consent, call times and retries) is
+built and tested without a Twilio account. Phase 7 (Smart Turn v3 turn detection, and Max's
+own phone line to set and approve requests) is done.
 
 ## 16. Status (2026-10-11)
 

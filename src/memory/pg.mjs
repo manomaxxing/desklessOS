@@ -34,16 +34,20 @@ const tag = (f, name) => f.tags?.find(t => t.startsWith(`${name}:`))?.slice(name
 const customerOut = c => c && ({ id: c.id, name: c.name, company: c.company, email: c.email, phone: c.phone, address: c.address, place: c.place, summary: c.summary, lastContact: c.last_contact ? day(c.last_contact) : "", history: c.history ?? [] });
 const taskOut = t => t && ({ id: t.id, text: t.text, due: t.due ? day(t.due) : "", status: t.status, customerId: t.contact_id, customerName: t.contact_name, createdAt: t.created_at, doneAt: t.done_at, sourceCallId: t.source_call_id });
 const noteOut = n => ({ ...n.data, id: n.id, lang: n.lang || n.data?.lang || "", call_id: n.call_id, created_at: new Date(n.created_at).toISOString(), customerId: n.contact_id ?? undefined, ...(n.transcript ? { transcript: n.transcript } : {}) });
+const userOut = u => u && ({
+  id: u.id, orgId: u.org_id, name: u.name, phone: u.phone_e164 ?? "", lang: u.lang, role: u.role, timezone: u.timezone,
+  callWindow: u.call_window ?? {}, consentOutboundAt: u.consent_outbound_at ? new Date(u.consent_outbound_at).toISOString() : null, outboundPaused: Boolean(u.outbound_paused),
+});
 const requestOut = r => r && ({
   id: r.id, userId: r.user_id, instruction: r.instruction, plan: r.plan, planHash: r.plan_hash, card: r.card, turns: r.turns, status: r.status,
   objectiveId: r.objective_id, result: r.result, createdBy: r.created_by, createdAt: new Date(r.created_at).toISOString(),
   approvedAt: r.approved_at && new Date(r.approved_at).toISOString(), closedAt: r.closed_at && new Date(r.closed_at).toISOString(),
-  notifyStatus: r.notify_status, notifyAttempts: r.notify_attempts, notifyError: r.notify_error, notifiedAt: r.notified_at && new Date(r.notified_at).toISOString(),
+  notifyStatus: r.notify_status, notifyAttempts: r.notify_attempts, notifyError: r.notify_error, notifiedAt: r.notified_at && new Date(r.notified_at).toISOString(), log: r.log ?? [],
   updatedAt: new Date(r.updated_at).toISOString(),
 });
 // request fields (camelCase) → columns
-const REQUEST_COLUMNS = { userId: "user_id", instruction: "instruction", plan: "plan", planHash: "plan_hash", card: "card", turns: "turns", status: "status", objectiveId: "objective_id", result: "result", approvedAt: "approved_at", closedAt: "closed_at", notifyStatus: "notify_status", notifyAttempts: "notify_attempts", notifyError: "notify_error", notifiedAt: "notified_at" };
-const JSON_COLUMNS = new Set(["plan", "card", "turns", "result"]);
+const REQUEST_COLUMNS = { log: "log", userId: "user_id", instruction: "instruction", plan: "plan", planHash: "plan_hash", card: "card", turns: "turns", status: "status", objectiveId: "objective_id", result: "result", approvedAt: "approved_at", closedAt: "closed_at", notifyStatus: "notify_status", notifyAttempts: "notify_attempts", notifyError: "notify_error", notifiedAt: "notified_at" };
+const JSON_COLUMNS = new Set(["plan", "card", "turns", "result", "log"]);
 const objectiveOut = o => o && ({
   id: o.id, template: o.template, version: o.version, params: o.params, mode: o.mode, status: o.status, priority: o.priority, lang: o.lang,
   createdAt: new Date(o.created_at).toISOString(), createdBy: o.created_by, notBefore: o.not_before, deadline: o.deadline,
@@ -292,6 +296,11 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
       const [o] = await db.query("update objectives set status = case when status = 'pending' then 'cancelled' else status end, updated_at = now() where id = $1 returning *", [id]);
       return objectiveOut(o) ?? null;
     },
+    /** Couldn't be done by calling him: ask in his next call instead. */
+    async toNextInbound(id) {
+      const [o] = await db.query("update objectives set mode = 'next_inbound', updated_at = now() where id = $1 and status = 'pending' returning *", [id]);
+      return objectiveOut(o) ?? null;
+    },
     async forCall(user, { direction = "inbound", at = new Date() } = {}) {
       return (await db.query("select * from objectives where user_id = $1 and status = 'pending' and mode = any($2::text[]) and (not_before is null or not_before <= $3) and (deadline is null or deadline >= $3) order by priority desc, created_at",
         [user.id, MODES_FOR[direction] ?? [], at.toISOString()])).map(objectiveOut);
@@ -326,9 +335,10 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
     db,
     ensureUser,
 
-    async openCall({ callId, from = null, to = null, direction = "inbound", at = new Date() }) {
+    async openCall({ callId, from = null, to = null, userId = null, direction = "inbound", at = new Date() }) {
       const started = performance.now();
-      const user = await resolveUser(from);
+      // An outbound call knows whom it called; an inbound one goes by caller ID.
+      const user = isUuid(userId) ? (await db.query("select * from users where id = $1", [userId]))[0] ?? null : await resolveUser(from);
       if (!user) return guest(callId);
       await db.query("insert into calls (id, org_id, user_id, direction, from_e164, to_e164, started_at) values ($1, $2, $3, $4, $5, $6, $7) on conflict (id) do nothing",
         [callId, user.org_id, user.id, direction, e164(from), e164(to), at.toISOString()]);
@@ -432,11 +442,29 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
       const d = research.discovery;
       return { framework, findings: d.findings(), questions: d.questions(), calls: d.calls(), next: d.next() };
     },
-    objectives: { list: objectives.list, get: objectives.get, create: objectives.create, cancel: objectives.cancel },
+    objectives: { list: objectives.list, get: objectives.get, create: objectives.create, cancel: objectives.cancel, toNextInbound: objectives.toNextInbound },
 
     /** Who can be asked something. */
     async listUsers() {
-      return (await db.query("select id, name, phone_e164, lang, role, consent_outbound_at from users order by created_at")).map(u => ({ id: u.id, name: u.name, phone: u.phone_e164 ?? "", lang: u.lang, role: u.role, consentOutboundAt: u.consent_outbound_at }));
+      return (await db.query("select * from users order by created_at")).map(userOut);
+    },
+    getUser: async id => (isUuid(id) ? userOut((await db.query("select * from users where id = $1", [id]))[0]) : null),
+    /** Admin edits: phone, language, time zone, call window, consent to outbound calls (with its date), pause. */
+    async updateUser(id, patch) {
+      if (!isUuid(id)) return null;
+      const sets = [];
+      const values = [id];
+      const set = (col, v) => { values.push(v); sets.push(`${col} = $${values.length}`); };
+      if ("name" in patch) set("name", String(patch.name || "").trim() || "?");
+      if ("phone" in patch) { const p = patch.phone ? e164(patch.phone) : null; if (patch.phone && !p) throw Object.assign(new Error("phone: an international number like +4915112345678"), { status: 400 }); set("phone_e164", p); }
+      if ("lang" in patch) set("lang", String(patch.lang));
+      if ("timezone" in patch) { try { new Intl.DateTimeFormat(undefined, { timeZone: patch.timezone }); } catch { throw Object.assign(new Error(`unknown time zone ${patch.timezone}`), { status: 400 }); } set("timezone", patch.timezone); }
+      if ("callWindow" in patch) set("call_window", json(patch.callWindow ?? {}));
+      if ("consentOutbound" in patch) set("consent_outbound_at", patch.consentOutbound ? new Date().toISOString() : null);
+      if ("outboundPaused" in patch) set("outbound_paused", Boolean(patch.outboundPaused));
+      if (!sets.length) return this.getUser(id);
+      const [u] = await db.query(`update users set ${sets.join(", ")} where id = $1 returning *`, values);
+      return userOut(u);
     },
 
     // Admin requests (src/admin/requests.mjs).
@@ -468,7 +496,7 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
     },
     embedPending,
     async reset() {
-      for (const t of ["requests", "tool_runs", "objectives", "research_state", "facts", "tasks", "notes", "call_contacts", "calls", "contacts"]) await db.query(`delete from ${t}`);
+      for (const t of ["call_jobs", "requests", "tool_runs", "objectives", "research_state", "facts", "tasks", "notes", "call_contacts", "calls", "contacts"]) await db.query(`delete from ${t}`);
     },
     close: () => db.close(),
   };

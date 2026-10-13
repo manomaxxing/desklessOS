@@ -81,6 +81,12 @@ Results also go out by webhook (`NOTIFY_WEBHOOK_URL`) and/or email (`RESEND_API_
   `POST /api/requests/:id/revise {answer | edits}`; `POST /api/requests/:id/approve
   {confirmToken}`; `POST /api/requests/:id/cancel`; `GET /api/requests[/:id]`; `GET /api/users`.
 
+**By phone:** calls from `ADMIN_PHONE` (E.164, comma-separated) reach Max's own line
+(`personas/admin.md`): "Frag Niko, …" drafts the same request and reads the card back;
+approving it, and hearing what came back, need `ADMIN_PIN` (said on the call; three wrong
+tries and that call can't approve). Without a PIN it only drafts, and the card waits on the
+admin page. Nothing from these calls goes into anyone's memory.
+
 **Objectives directly:** post an objective and the next inbound call asks it at the end:
 
 ```
@@ -124,17 +130,46 @@ first-audio latency. A folder named `<skill>+<variant>` starts from a copy of it
 `-- --backend pg` runs the same calls with memory on Postgres (PGlite per folder; seeds
 go through `scripts/migrate-json-to-pg.mjs`). Run it before every merge; `npm test` stays offline.
 
-## One protocol, three ways to call
+## One protocol, several ways to call
 
-The server speaks Dial's self-hosted audio protocol (`call_connected`,
-`media`, `mark`, `clear`, `end_call`, `ping_pong`; 16 kHz PCM). Everything
-that calls it uses that same protocol:
+Inside, every call speaks Dial's self-hosted audio protocol (`call_connected`,
+`media`, `mark`, `clear`, `end_call`, `ping_pong`; 16 kHz PCM). Carriers come in
+through adapters (`src/telephony/`) that translate their protocol into it; the
+call host (`host.mjs`) keeps the calls, whichever line they came in on.
 
 | Caller | How | Use it for |
 |---|---|---|
 | **Browser** | `npm run dev` → http://localhost:8787 → "Anrufen" | Talking to it yourself (Chrome, headphones) |
 | **Fake Dial** | `npm run fake-dial -- --say "…" --say "…"` | Scripted calls, no mic needed; caller voice via Fish |
-| **Dial** | real phone call → `wss://<public-host>/dial/<call_id>` | The real thing |
+| **Dial** | real phone call → `wss://<public-host>/dial/<call_id>` | US numbers |
+| **Twilio** | the number's voice webhook → `POST /twilio/voice` → media stream `wss://<public-host>/twilio/stream` | The German number (region IE1), and calls we make |
+| **Fake carrier** | `OUTBOUND=fake`, then `npm run fake-dial -- --answer +49…` | Being called by the server, in tests |
+
+**Twilio:** set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_NUMBER` (E.164),
+`PUBLIC_URL` (https://…), and for the EU `TWILIO_REGION=ie1` `TWILIO_EDGE=dublin`; point
+the number's "A call comes in" webhook at `https://<public-host>/twilio/voice` (POST).
+Every webhook's `X-Twilio-Signature` is checked; the media stream must present a token we
+signed into the TwiML. Audio is μ-law 8 kHz on the line, converted at the edge. Calls are
+wrapped up before `MAX_CALL_MIN` (15).
+
+## Calls we make (outbound)
+
+When Max approves "Ruf Niko an und frag ihn …" (mode `outbound`, or `either`: whichever
+comes first), the scheduler (`src/jobs/scheduler.mjs`, `MEMORY_BACKEND=pg` only) makes one
+job per person and calls through `OUTBOUND` (`twilio` when configured, `fake` for tests,
+`off`). Guards, checked against the person's row before every try:
+
+- they **agreed to be called** (ticked on the admin page, dated), aren't **paused**, have a number;
+  a job only ever dials a person, never a raw number;
+- inside their **call times** in their time zone (default Mon–Fri 08:00–18:00), never while
+  they're on a call, at most `OUTBOUND_PER_DAY` (1) calls they actually took per day.
+
+The call: the agent waits for "Hallo?" (or 1.5 s), says the persona's outbound greeting,
+why it's calling, and asks for two minutes. Yes: the questions, then goodbye. Not now: it asks
+when, and the job comes back at that time (his wall clock). Doesn't want such calls: calls
+to him are paused. A mailbox (Twilio's answering-machine detection, or 4 s of speech without
+a pause) gets no message. No answer, busy or mailbox: retries after 30 min, 2 h, then the next
+day's window; after the fourth try the question moves to his next own call, and Max is told.
 
 ## Modes (selector in the phone's top bar)
 
@@ -176,6 +211,14 @@ Realtime and Google's Live best practices.
   - False starts: if he goes on talking within 1.5 s of the agent starting, a
     short burst (0.3 s) cuts it off, the reply is forgotten, and his two parts
     are answered as one.
+  - **Smart Turn v3** (`TURN_DETECTOR=smart-turn`; `npm run smart-turn:fetch` for the 8 MB
+    model, the optional dependency `onnxruntime-node`): when he stops, a small audio model
+    (pipecat-ai/smart-turn-v3, BSD-2) hears from his voice whether he's done, in ~50–150 ms in a
+    worker thread, while the model writes its answer. "Not done" keeps the agent silent, like
+    "…die will"; without it, or if it's late, the word lists decide. Tested: finished German
+    and English sentences 0.97–0.99, broken-off ones 0.01–0.07; but short closings ("Ja.",
+    "Tschüss") also scored "not done", so it only counts on turns of 1.2 s or more that the model
+    would answer by listening or asking. Off by default until checked on real recordings.
   - Gemini Live uses Gemini's own silence detection (0.8 s) without these checks,
     so the pilot runs on the cascade.
 - **Interruptions:** otherwise half a second of loud speech is needed to cut the
@@ -328,6 +371,10 @@ src/admin/                 admin login (code + TOTP), planner, requests (plan �
 src/notify.mjs             results to Max: webhook, email (Resend)
 web/admin.html             the admin page (/admin)
 src/memory/                memory v2: per-call scope, JSON or Postgres backend, budgeted context
+src/telephony/             call host + carriers: Dial, Twilio (IE1, μ-law), a fake carrier for tests
+src/engine/turn-*.mjs      Smart Turn v3: Whisper features in JS, the model in a worker thread
+src/tools/admin.mjs        the admin line's tools: draft, approve (PIN), status
+src/jobs/                  outbound scheduler, guards, call windows (time zones, DST)
 src/db/                    Postgres client (Supabase or PGlite) and migrations
 config/discovery.json      the research framework: key question, hypotheses, areas, questions
 locales/<id>.json          everything language-specific (see Languages)

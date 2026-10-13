@@ -20,14 +20,18 @@
 //   {"tool": "order_execute"}  the tool ran (status ok)    {"count": {"workflow": 1}}  exactly n such events
 //   {"api": {"path": "/api/objectives", "match": "regex"}}  what the server says after the call
 // "before": [{ "post": "/api/objectives", "body": {…} }] runs before the call (e.g. Max's question);
-//   [{ "adminRequest": "Frag Niko, …" }] plans it like the admin page and approves the card.
+//   [{ "adminRequest": "Frag Niko, …" }] plans it like the admin page and approves the card;
+//   [{ "user": { phone, consentOutbound, callWindow } }] sets up the (first) user.
+// "answer": "+49…" instead of calling: be that phone and wait for the server to call (OUTBOUND=fake).
+// A folder's _config.json: { "backend": "pg", "env": { … } } for the server it needs ("{port}" is filled in).
+// "carrier": "twilio": the call goes through the Twilio path (src/testing/caller.mjs runTwilioCall).
 
 import { spawn, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, mkdtempSync, rmSync, existsSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCall, describeEvent } from "../src/testing/caller.mjs";
+import { runCall, answerCall, runTwilioCall, describeEvent } from "../src/testing/caller.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const callsDir = path.join(root, "test", "calls");
@@ -65,10 +69,11 @@ function check(spec, events, saved, api = {}) {
   }
 }
 
-const backendEnv = dataDir => (backend === "pg" ? { MEMORY_BACKEND: "pg", DATABASE_URL: `pglite:${path.join(dataDir, "pg")}` } : { MEMORY_BACKEND: "json" });
+const backendEnv = (dataDir, b = backend) => (b === "pg" ? { MEMORY_BACKEND: "pg", DATABASE_URL: `pglite:${path.join(dataDir, "pg")}` } : { MEMORY_BACKEND: "json" });
 
-function startServer(skill, dataDir, port) {
-  const env = { ...process.env, SKILL: skill, DATA_DIR: dataDir, PORT: String(port), DEV_TOKEN: "", RECORD_CALLS: "0", ...backendEnv(dataDir) };
+function startServer(skill, dataDir, port, folderConfig = {}) {
+  const own = Object.fromEntries(Object.entries(folderConfig.env ?? {}).map(([k, v]) => [k, String(v).replace("{port}", port)])); // "{port}": this server's port
+  const env = { ...process.env, SKILL: skill, DATA_DIR: dataDir, PORT: String(port), DEV_TOKEN: "", RECORD_CALLS: "0", OUTBOUND: "off", TWILIO_ACCOUNT_SID: "", ...backendEnv(dataDir, folderConfig.backend ?? backend), ...own };
   const child = spawn(process.execPath, ["--env-file-if-exists=.env", "server.mjs"], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   const log = [];
   const waiters = [];
@@ -95,17 +100,20 @@ const results = [];
 let port = 8890;
 for (const folder of folders) {
   const skill = folder.split("+")[0];
-  const files = readdirSync(path.join(callsDir, folder)).filter(f => f.endsWith(".json")).sort();
+  const files = readdirSync(path.join(callsDir, folder)).filter(f => f.endsWith(".json") && !f.startsWith("_")).sort();
   const wanted = only.length ? files.filter((f, i) => files.slice(i).some(g => only.some(o => `${folder}/${g}`.startsWith(o)))) : files;
   if (!wanted.length) continue;
   const dataDir = mkdtempSync(path.join(tmpdir(), `regress-${folder}-`));
   const seed = path.join(callsDir, folder, "_seed");
+  const configFile = path.join(callsDir, folder, "_config.json");
+  const folderConfig = existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : {};
+  const folderBackend = folderConfig.backend ?? backend;
   if (existsSync(seed)) cpSync(seed, dataDir, { recursive: true });
-  if (existsSync(seed) && backend === "pg") {
-    const r = spawnSync(process.execPath, ["--env-file-if-exists=.env", "scripts/migrate-json-to-pg.mjs"], { cwd: root, env: { ...process.env, SKILL: skill, DATA_DIR: dataDir, ...backendEnv(dataDir) }, encoding: "utf8" });
+  if (existsSync(seed) && folderBackend === "pg") {
+    const r = spawnSync(process.execPath, ["--env-file-if-exists=.env", "scripts/migrate-json-to-pg.mjs"], { cwd: root, env: { ...process.env, SKILL: skill, DATA_DIR: dataDir, ...backendEnv(dataDir, "pg") }, encoding: "utf8" });
     if (r.status !== 0) throw new Error(`seed migration failed: ${r.stdout}${r.stderr}`);
   }
-  const server = startServer(skill, dataDir, ++port);
+  const server = startServer(skill, dataDir, ++port, folderConfig);
   try {
     await server.waitFor(/voice assets ready/, 60000).catch(err => {
       throw new Error(`${skill} server didn't start: ${err.message}\n${server.log.slice(-15).join("\n")}`);
@@ -125,23 +133,43 @@ for (const folder of folders) {
           if (!res.ok) throw new Error(`before: POST ${p} → ${res.status} ${await res.text()}`);
           return res.json();
         };
-        for (const b of sc.before ?? []) {
+        const before = async () => { for (const b of sc.before ?? []) {
           if (b.post) await post(b.post, b.body);
+          if (b.user) {
+            const { users } = await fetch(`http://localhost:${port}/api/users`).then(r => r.json());
+            await post(`/api/users/${users[0].id}`, b.user);
+          }
           if (b.adminRequest) {
             const { request, confirmToken } = await post("/api/requests", { instruction: b.adminRequest });
             if (!confirmToken) throw new Error(`before: the card can't be approved: ${JSON.stringify(request.card)}`);
             console.log(`\n   card: ${request.card.summary} · ${request.card.questions.map(q => `"${q.ask}"`).join(" ")}`);
             await post(`/api/requests/${request.id}/approve`, { confirmToken });
           }
-        }
+        } };
         let callId;
-        ({ events, callId } = await runCall({ url: `ws://localhost:${port}/dial`, lang: sc.lang, says: sc.says, config: sc.config ?? {}, from: sc.from }));
+        if (sc.carrier === "twilio") {
+          // Through the Twilio path (signed webhook, TwiML, μ-law stream); checks go through the API.
+          await before();
+          ({ events, callId } = await runTwilioCall({ base: `http://localhost:${port}`, authToken: folderConfig.env?.TWILIO_AUTH_TOKEN, lang: sc.lang, says: sc.says }));
+        } else if (sc.answer) {
+          // Be the phone: listen first, then approve what makes the server call us.
+          ({ events, callId } = await answerCall({ base: `ws://localhost:${port}`, number: sc.answer, beforeRing: before, lang: sc.lang, says: sc.says, config: sc.config ?? {} }));
+        } else {
+          await before();
+          ({ events, callId } = await runCall({ url: `ws://localhost:${port}/dial`, lang: sc.lang, says: sc.says, config: sc.config ?? {}, from: sc.from }));
+        }
         // Later scenarios build on this call's memory: wait for the post-call step.
         await server.waitFor(new RegExp(`\\[${callId.slice(-6)}\\] (memory:|memory error|finalize error)`), 45000).catch(() => {});
         const notes = await fetch(`http://localhost:${port}/api/notes`).then(r => r.json());
         saved = notes.find(n => n.call_id === callId) ?? null;
+        // What happens after the call (objectives, requests, jobs) settles a moment after the memory step: poll.
         for (const spec of [...(sc.must ?? []), ...(sc.should ?? [])].filter(c => c.api)) {
-          api[spec.api.path] ??= await fetch(`http://localhost:${port}${spec.api.path}`).then(r => r.text());
+          const until = Date.now() + 15000;
+          do {
+            api[spec.api.path] = await fetch(`http://localhost:${port}${spec.api.path}`).then(r => r.text());
+            if (re(spec.api.match).test(api[spec.api.path])) break;
+            await new Promise(r => setTimeout(r, 1000));
+          } while (Date.now() < until);
         }
       } catch (err) { error = err; }
       const must = (sc.must ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved, api) }));
@@ -155,7 +183,7 @@ for (const folder of folders) {
       for (const s of should.filter(s => !s.ok)) console.log(`   should ~ ${JSON.stringify(s.spec)}`);
       if (failed || show) {
         // The conversation, so a failure can be read without rerunning it.
-        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "workflow", "objective", "retry", "end_call", "barge_in", "nudge"].includes(e.event))) {
+        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "workflow", "objective", "retry", "turn", "dangling", "end_call", "barge_in", "nudge"].includes(e.event))) {
           console.log(`   ${e.at.toFixed(1).padStart(5)}s ${describeEvent(e) ?? e.event}`);
         }
       }

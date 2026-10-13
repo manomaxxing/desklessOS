@@ -19,6 +19,7 @@
     "numberLocale": "en-US"
   },
   "lexicon": {
+    "digits": ["xzero", "xone", "xtwo", "xthree", "xfour", "xfive", "xsix", "xseven", "xeight", "xnine"],
     "dangling": [
       "zor",
       "blen"
@@ -68,7 +69,9 @@
       ],
       "working": "xx:On it.",
       "looking": "xx:Let me check.",
+      "outboundGreeting": "xx:Hi, it's your notebook.",
       "examples": {
+        "twoMinutes": "xx:Got two minutes?",
         "address": "xx:you",
         "acks": [
           "xx:Got it.",
@@ -165,7 +168,9 @@
       ],
       "working": "xx:On it.",
       "looking": "xx:Let me check.",
+      "outboundGreeting": "xx:Hi, it's your office.",
       "examples": {
+        "twoMinutes": "xx:Got two minutes?",
         "acks": [
           "xx:Got it.",
           "xx:Sure.",
@@ -188,6 +193,41 @@
           "xx:okay"
         ],
         "stillThere": "xx:Still there?"
+      }
+    },
+    "admin": {
+      "greeting": "xx:Hi Max. What should I find out?",
+      "outboundGreeting": "xx:Hi Max, it's the assistant.",
+      "wrapUp": "xx:We're almost at the time limit. Talk later!",
+      "backchannel": "xx:Mhm.",
+      "fillers": [
+        "xx:Mhm.",
+        "xx:Okay."
+      ],
+      "oops": [
+        "xx:Sorry, that glitched. Once more?",
+        "xx:That didn't come through. Say it again?"
+      ],
+      "working": "xx:On it.",
+      "looking": "xx:One moment, I'll plan it.",
+      "examples": {
+        "acks": [
+          "xx:Okay.",
+          "xx:Got it.",
+          "xx:Sure."
+        ],
+        "approve": "xx:Shall I approve it like that?",
+        "goodbyes": [
+          "xx:bye",
+          "xx:that's all"
+        ],
+        "callerBackchannels": [
+          "xx:yeah",
+          "xx:mhm",
+          "xx:right"
+        ],
+        "stillThere": "xx:Still there?",
+        "twoMinutes": "xx:Got a minute?"
       }
     }
   },

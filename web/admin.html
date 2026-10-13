@@ -63,6 +63,12 @@
   .answer { margin-top: 6px; } .quote { color: var(--muted); font-style: italic; }
   .empty { color: var(--muted); text-align: center; padding: 24px; }
   .err { color: var(--red); font-size: 14px; margin-top: 8px; min-height: 1em; }
+  .log { font-size: 13px; color: var(--muted); margin-top: 10px; border-left: 2px solid var(--sep); padding-left: 10px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .grid2 label { font-size: 12px; color: var(--muted); display: block; }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 14px; }
+  .days { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .days label { display: flex; gap: 3px; align-items: center; font-size: 13px; color: var(--ink); }
   @media (max-width: 520px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } .bar { padding: 0 16px; } }
 </style>
 </head>
@@ -92,6 +98,10 @@
     </div>
     <h2>Requests</h2>
     <div id="list"><div class="empty">Nothing yet.</div></div>
+    <h2>People</h2>
+    <div id="people"><div class="empty">…</div></div>
+    <h2 id="jobsTitle" style="display:none">Calls we make</h2>
+    <div id="jobs"></div>
   </section>
 </main>
 <script>
@@ -165,6 +175,7 @@ function render() {
       <dl><dt>Who</dt><dd>${esc(c.who)}</dd><dt>When</dt><dd>${esc(c.when)}</dd>${c.purpose ? `<dt>Why</dt><dd>${esc(c.purpose)}</dd>` : ""}
       ${calls.length ? `<dt>Calls</dt><dd>${calls.map((id, i) => `<a href="${callLink(id)}" target="_blank">call ${i + 1}</a>`).join(", ")}</dd>` : ""}</dl>
       ${questionsBlock(view)}
+      ${(r.log ?? []).length ? `<div class="log">${r.log.map(l => `${esc(new Date(l.at).toLocaleString())}: ${esc(l.text)}`).join("<br>")}</div>` : ""}
       ${r.status === "draft" ? [
         ...c.blocked.map(b => `<div class="note block">Can't approve: ${esc(b)}</div>`),
         ...c.warnings.map(w => `<div class="note warn">${esc(w)}</div>`),
@@ -231,9 +242,56 @@ $("planBtn").onclick = async () => {
   $("planBusy").textContent = "";
 };
 
-async function refresh() {
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function renderPeople(users, outbound) {
+  $("people").innerHTML = users.map(u => {
+    const w = { days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", ...(u.callWindow || {}) };
+    return `<div class="card" data-user="${esc(u.id)}">
+      <div class="title">${esc(u.name)} <span class="chip">${esc(u.lang)}</span>${u.consentOutboundAt ? '<span class="chip done">may be called</span>' : ""}${u.outboundPaused ? '<span class="chip expired">paused</span>' : ""}</div>
+      <div class="grid2">
+        <div><label>Phone</label><input type="text" name="phone" value="${esc(u.phone)}" placeholder="+4915112345678"></div>
+        <div><label>Time zone</label><input type="text" name="timezone" value="${esc(u.timezone || "Europe/Berlin")}"></div>
+        <div><label>Calls from</label><input type="text" name="from" value="${esc(w.from)}"></div>
+        <div><label>until</label><input type="text" name="to" value="${esc(w.to)}"></div>
+      </div>
+      <div class="days">${DAYS.map((d, i) => `<label><input type="checkbox" name="day" value="${i + 1}" ${w.days.includes(i + 1) ? "checked" : ""}>${d}</label>`).join("")}</div>
+      <label class="check"><input type="checkbox" name="consent" ${u.consentOutboundAt ? "checked" : ""}> Agreed to be called by the assistant${u.consentOutboundAt ? ` (since ${esc(new Date(u.consentOutboundAt).toLocaleDateString())})` : ""}</label>
+      <label class="check"><input type="checkbox" name="paused" ${u.outboundPaused ? "checked" : ""}> Pause calls to ${esc(u.name)}</label>
+      <div class="row"><button class="btn" data-save-user="${esc(u.id)}">Save</button>${outbound ? "" : '<span class="muted small">Outbound calls are off on this server.</span>'}</div>
+      <div class="err" id="uerr-${esc(u.id)}"></div>
+    </div>`;
+  }).join("") || '<div class="empty">Nobody yet.</div>';
+  for (const b of document.querySelectorAll("[data-save-user]")) b.onclick = async () => {
+    const card = b.closest("[data-user]");
+    const v = n => card.querySelector(`[name=${n}]`);
+    const patch = {
+      phone: v("phone").value.trim(), timezone: v("timezone").value.trim(),
+      callWindow: { days: [...card.querySelectorAll("[name=day]:checked")].map(x => Number(x.value)), from: v("from").value.trim(), to: v("to").value.trim() },
+      consentOutbound: v("consent").checked, outboundPaused: v("paused").checked,
+    };
+    const was = users.find(u => u.id === b.dataset.saveUser);
+    if (Boolean(was.consentOutboundAt) === patch.consentOutbound) delete patch.consentOutbound; // keep the original date
+    try { await api(`/api/users/${b.dataset.saveUser}`, patch); await refresh(true); } catch (e) { $(`uerr-${b.dataset.saveUser}`).textContent = e.message; }
+  };
+}
+function renderJobs(jobs) {
+  $("jobsTitle").style.display = jobs.length ? "" : "none";
+  $("jobs").innerHTML = jobs.map(j => `<div class="card">
+    <div class="title">${esc(j.user_name)} <span class="chip ${j.status === "done" ? "done" : j.status === "failed" || j.status === "cancelled" ? "expired" : "approved"}">${esc(j.status)}</span>${j.outcome ? `<span class="chip">${esc(j.outcome)}</span>` : ""}</div>
+    <div class="muted small">try ${j.attempts} of ${j.max_attempts}${j.status === "queued" ? ` · next ${esc(new Date(j.next_attempt_at).toLocaleString())}` : ""}${j.call_id ? ` · <a href="${callLink(j.call_id)}" target="_blank">last call</a>` : ""}</div>
+    ${(j.log || []).length ? `<div class="log">${j.log.slice(-4).map(l => esc(l.text)).join("<br>")}</div>` : ""}
+  </div>`).join("");
+}
+
+async function refresh(people = false) {
   const data = await api("/api/requests");
   requests = data.requests;
+  if (people || !$("people").dataset.loaded) {
+    const u = await api("/api/users");
+    renderPeople(u.users, u.outbound);
+    $("people").dataset.loaded = "1";
+  }
+  api("/api/jobs").then(j => renderJobs(j.jobs)).catch(() => {});
   // Don't re-render under someone typing into a card.
   if (document.activeElement?.matches?.("input[data-req], input[id^=answer-]")) return;
   render();

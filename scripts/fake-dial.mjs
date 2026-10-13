@@ -4,11 +4,12 @@
 //   npm run fake-dial -- --url wss://<host>/dial --signed --say "…"     (deployed, signed like Dial)
 //   npm run fake-dial -- --wav caller.wav                                (your own 16 kHz recording)
 //   npm run fake-dial -- --say "Ich komm grad von … [pause 3] … und die will ein neues Bad."   (a thinking pause mid-line)
+//   npm run fake-dial -- --answer +4915100000000 --say "Hallo?" --say "Ja, klar."   (be called: OUTBOUND=fake)
 // Mode, like the selector: --engine cascade|live  --model <gemini>  --mask typing|filler|none  --live-model <door:model>  --live-voice Kore
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { wav, wavData } from "../src/engine/audio.mjs";
-import { runCall, describeEvent } from "../src/testing/caller.mjs";
+import { runCall, answerCall, describeEvent } from "../src/testing/caller.mjs";
 import { locales } from "../src/locale/index.mjs";
 
 const args = process.argv.slice(2);
@@ -20,11 +21,16 @@ const utterances = opt("--wav") ? [wavData(readFileSync(opt("--wav"))).pcm] : nu
 if (!utterances && !says.length) says.push("Hallo? Hörst du mich? Ich komm grad von einem Termin bei Herrn Huber in Pullach, Küche, Fliesenspiegel neu.");
 
 const stamp = s => `${s.toFixed(1).padStart(5)}s`;
-const { agentAudio } = await runCall({
-  url: opt("--url", "ws://localhost:8787/dial"), lang, says, utterances, config,
-  signed: args.includes("--signed"), voice: opt("--voice"), from: opt("--from"),
-  onEvent: (ev, at) => { const line = describeEvent(ev); if (line) console.log(stamp(at), line); },
-});
+const onEvent = (ev, at) => { const line = describeEvent(ev); if (line) console.log(stamp(at), line); };
+// --answer +49…: be the phone the server calls (OUTBOUND=fake); --reject no-answer|busy to not pick up.
+const answer = opt("--answer");
+if (answer && !opt("--say")) says.splice(0, says.length, "Hallo?");
+const { agentAudio = Buffer.alloc(0) } = answer
+  ? await answerCall({ base: opt("--url", "ws://localhost:8787/dial").replace(/\/dial\/?$/, ""), number: answer, token: opt("--token", ""), reject: opt("--reject"), lang, says, utterances, config, voice: opt("--voice"), onEvent, beforeRing: async () => console.log(`waiting for a call to ${answer}…`) })
+  : await runCall({
+    url: opt("--url", "ws://localhost:8787/dial"), lang, says, utterances, config,
+    signed: args.includes("--signed"), voice: opt("--voice"), from: opt("--from"), onEvent,
+  });
 mkdirSync("data", { recursive: true });
 writeFileSync("data/fake-dial-agent.wav", wav(agentAudio));
 console.log("done. agent audio → data/fake-dial-agent.wav");

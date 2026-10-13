@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { draftPlan, editPlan } from "./planner.mjs";
 import { planHash } from "./auth.mjs";
 
-export function createRequests({ memory, skill, auth, llm, notifier = null, publicUrl = "", log = () => {} }) {
+export function createRequests({ memory, skill, auth, llm, notifier = null, publicUrl = "", log = () => {}, onCancel = async () => {}, outbound = () => false }) {
   // A draft goes out with its confirm token, unless something blocks approval.
   const withToken = r => ({ request: r, confirmToken: r.status === "draft" && !r.card.blocked.length ? auth.confirmToken(r.id, r.planHash) : null });
 
@@ -19,7 +19,7 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
     if (text.length < 5) throw Object.assign(new Error("say what you want to find out"), { status: 400 });
     if (text.length > 2000) throw Object.assign(new Error("that's too long for one request"), { status: 400 });
     const users = await memory.listUsers();
-    const { plan, card } = await draftPlan({ instruction: text, users, skill, llm });
+    const { plan, card } = await draftPlan({ instruction: text, users, skill, llm, outbound: outbound() });
     const r = await memory.requests.create({
       id: `req_${randomUUID().slice(0, 8)}`, userId: plan.target?.userId ?? null, instruction: text, plan, planHash: planHash(plan), card, turns: [],
       status: "draft", createdBy: by, createdAt: new Date().toISOString(), notifyStatus: "none", notifyAttempts: 0,
@@ -35,8 +35,8 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
     if (r.status !== "draft") throw Object.assign(new Error(`it's ${r.status} already`), { status: 409 });
     const users = await memory.listUsers();
     const next = edits
-      ? editPlan(r.plan, edits, { users, skill })
-      : await draftPlan({ instruction: r.instruction, users, skill, llm, previous: r.plan, answer: String(answer).trim() });
+      ? editPlan(r.plan, edits, { users, skill, outbound: outbound() })
+      : await draftPlan({ instruction: r.instruction, users, skill, llm, previous: r.plan, answer: String(answer).trim(), outbound: outbound() });
     const turns = answer ? [...(r.turns ?? []), { role: "admin", text: String(answer).trim() }] : r.turns ?? [];
     return withToken(await memory.requests.update(id, { plan: next.plan, planHash: planHash(next.plan), card: next.card, turns, userId: next.plan.target?.userId ?? null }));
   }
@@ -61,7 +61,7 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
     const r = await memory.requests.get(id);
     if (!r) throw Object.assign(new Error("no such request"), { status: 404 });
     if (!["draft", "approved"].includes(r.status)) return r;
-    if (r.objectiveId) await memory.objectives.cancel(r.objectiveId);
+    if (r.objectiveId) { await memory.objectives.cancel(r.objectiveId); await onCancel(r.objectiveId); }
     return memory.requests.update(id, { status: "cancelled", closedAt: new Date().toISOString() });
   }
 
@@ -80,6 +80,18 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
     }
     if (closed.some(r => r.notifyStatus === "pending")) flushNotifications().catch(err => log("notify error", err.message));
     return closed;
+  }
+
+  /** Something happened on the way (couldn't reach him, moved to his next call): logged on the card, and Max is told. */
+  async function note(objectiveId, text) {
+    const r = await memory.requests.byObjective(objectiveId);
+    if (!r) return null;
+    const updated = await memory.requests.update(r.id, { log: [...(r.log ?? []), { at: new Date().toISOString(), text }] });
+    if (notifier?.channels.length) {
+      notifier.send({ subject: `${r.plan?.target?.name ?? "Request"}: ${text.slice(0, 80)}`, text: `${text}\n\n${r.instruction}${link(r) ? `\n\n${link(r)}` : ""}`, payload: { type: "request.note", request: { id: r.id, instruction: r.instruction, text, link: link(r) } } })
+        .catch(err => log(`notify ${r.id} failed: ${err.message}`));
+    }
+    return updated;
   }
 
   const link = r => (publicUrl ? `${publicUrl.replace(/\/$/, "")}/admin#${r.id}` : "");
@@ -113,7 +125,7 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
   }
 
   return {
-    plan, revise, approve, cancel, objectivesChanged, flushNotifications,
+    plan, revise, approve, cancel, objectivesChanged, flushNotifications, note,
     list: () => memory.requests.list(),
     get: id => memory.requests.get(id),
     /** A request as the admin page shows it (drafts with their confirm token). */

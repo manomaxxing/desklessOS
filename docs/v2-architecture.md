@@ -5,7 +5,9 @@
 > primitives, agenda, objectives, "find out X" by API) done on `v2`. P4 (memory on Postgres behind
 > MEMORY_BACKEND, budgeted context, search, migration) done on `v2`, tested on PGlite; not yet run
 > against Supabase. P5 (admin page: instruction → plan → card → approve → result) done on `v2`.
-> P6–P7 not started. Each phase ships on its own; the pilot keeps working throughout.
+> P6 (telephony adapters incl. Twilio, outbound scheduler) done on `v2`, tested without a real Twilio
+> account. P7 (Smart Turn v3, the admin line by phone) done on `v2`. Each phase ships on its own;
+> the pilot keeps working throughout.
 
 ## Context
 
@@ -259,9 +261,21 @@ DesklessOS grew from a hackathon demo into a pilot (Niko, Konstanz). Its shape n
 
 **Done when:** a German Twilio number (IE1) handles every template inbound; an approved outbound request rings Niko inside his window and fills the result; no-answer ends in `next_inbound`.
 
+**As built (2026-10-13), without a Twilio account yet:**
+- `src/telephony/`: `host.mjs` (calls by id, reconnect grace, who's on a call), `dial.mjs` (Dial + the dev phone), `twilio.mjs` (voice webhook → TwiML `<Connect><Stream>` with a signed token parameter; stream ↔ host frames with μ-law 8 kHz ↔ PCM16 16 kHz at the edge; REST `Calls.json` with async AMD and status callbacks; `X-Twilio-Signature` on every webhook), `fake.mjs` (rings a test phone). `browser.mjs` wasn't needed: the browser phone is Dial's dev path.
+- `src/jobs/`: `windows.mjs` (wall-clock windows per time zone, DST-safe without a library), `scheduler.mjs` (`call_jobs`, migration 003; guard; retries 30 min / 2 h / next day; four tries, then `next_inbound` and a note to Max). The plan's "at most one outbound call per day" counts calls he took (a mailbox doesn't count); `OUTBOUND_PER_DAY` changes it.
+- The outbound opening is the session's (cached greeting on "Hallo?" or after 1.5 s, then the model: why, two minutes?), with the rules in the persona's new `outbound` section; `consent_check` became two extracted fields (`call_consent`, `callback_when`) the scheduler acts on, not a primitive. Outbound calls carry only their errand (no research question) and run on the cascade engine.
+- The planner may plan `outbound`/`either` only for people who agreed to be called (admin page: People); otherwise the card says why it falls back to their next call.
+- Verified: unit tests (μ-law, Twilio signatures and stream bridge, windows across DST, guard, scheduler on PGlite); regression `pilot+outbound` (the real planner on "Ruf Niko an …", the fake carrier rings `fake-dial --answer`, the answer lands on the request, the job completes; a mailbox is hung up on) and `pilot+twilio` (a whole call through the Twilio webhook and μ-law stream). Not verified: real PSTN calls, Twilio's AMD timing, IE1 credentials.
+
 ### P7: Later
 - **Smart Turn v3 sidecar** (`src/engine/turn-detector.mjs`, audio-native, 23 languages) combined with `NEXT: wait`; the word lists become the fallback.
 - **An admin persona reachable by phone**, with a `request_create` tool. It only drafts; approval stays a card or PIN.
+
+**As built (2026-10-13):**
+- Smart Turn runs in process, in a `worker_thread`, not as a separate service: `turn-features.mjs` reimplements Whisper's feature extractor in JS (Slaney mel, periodic Hann, reflect-padded STFT, log10 with an 8 dynamic range; Smart Turn's left padding to 8 s and whole-window normalisation), `turn-worker.mjs` runs `smart-turn-v3.2-cpu.onnx` with `onnxruntime-node` (an optional dependency, 1.30.0; the image only includes it with `--build-arg SMART_TURN=1`). No Python reference was available to diff the features against; the check is the model itself on real speech (finished 0.97–0.99, broken-off 0.005–0.07, German and English), kept as an offline test with two recorded clips. It runs when he stops, in parallel with Gemini, and only adds "not done" (wait); the word lists decide when it's off or late. In the pilot regression with it on (4/4 passed) it caught "…die will" (0.17) but also called short closings "not done" ("Ja." 0.07, "Keine Zeit. Tschüss." 0.06), holding the agent silent ~6 s; so its "not done" only counts when the model would listen or ask and he spoke ≥ 1.2 s. It stays off by default (`TURN_DETECTOR`) until it's been checked on Niko's real recordings rather than TTS voices. Shortening the end-of-turn silence when it says "done" is the obvious next step, not taken yet.
+- The admin line: `personas/admin.md` + `templates/admin.requests.json`, tools in `src/tools/admin.mjs` (`request_create`, `request_approve`, `request_status`). Caller ID (`ADMIN_PHONE`) picks the persona; the PIN (`ADMIN_PIN`) is the actual check for approving and for reading answers, since caller ID can be spoofed; three wrong PINs lock that call. A refused PIN is an error, not a result, so the tool runner's write idempotency doesn't keep it. Admin calls get a memory scope that keeps nothing. The first live run showed Gemini re-drafting instead of approving, so the tools carry the flow: `request_create` returns the call's existing draft for the same words, `request_approve` takes just the PIN (digits or spoken number words, from each locale's `lexicon.digits`) and approves the call's latest draft.
+- Vertex answered 429 "Resource exhausted" and timed out for long stretches while these phases were tested (most regression failures today were that, rerun once it recovered). What changed because of it: the planner and background note updates retry 429s (1.5 s, 4 s); `order_execute` falls back to the background draft when that draft already covers every turn before his "yes" (otherwise it still refuses rather than book from a stale one); after a failed write, his "yes, try again" may run it again without a new recap.
 
 ## Risks and how the plan handles them
 
