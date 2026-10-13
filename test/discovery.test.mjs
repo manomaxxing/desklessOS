@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDiscovery, loadFramework, withDiscovery } from "../src/store/discovery.mjs";
 import { createMemory } from "../src/store/memory.mjs";
-import * as pilot from "../src/skills/pilot.mjs";
+import { loadSkill } from "../src/skills/index.mjs";
 
 const tmp = () => mkdtempSync(path.join(tmpdir(), "deskless-discovery-"));
 const framework = loadFramework();
@@ -64,25 +64,31 @@ test("findings keep only known areas and hypotheses", () => {
   assert.equal(findings[1].stance, "", "no stance without a hypothesis");
 });
 
-test("withDiscovery: memory and findings in one apply, both in the prompt context", () => {
+test("withDiscovery: memory and findings in one apply; the question goes to the agenda, not memory", () => {
   const dir = tmp();
-  const memory = withDiscovery(createMemory(path.join(dir, "memory")), createDiscovery({ framework, dir: path.join(dir, "discovery") }));
+  const discovery = createDiscovery({ framework, dir: path.join(dir, "discovery") });
+  const memory = withDiscovery(createMemory(path.join(dir, "memory")), discovery);
   const changed = memory.apply({
-    call_type: "notiz", call_summary: "Bad Meier aufgenommen.", customer: { name: "Herr Meier", place: "Allensbach" },
+    call_type: "capture", call_summary: "Bad Meier aufgenommen.", customer: { name: "Herr Meier", place: "Allensbach" },
     new_actions: [], completed_action_ids: [],
-    discovery: call({ asked_question_ids: ["b1"], answered_question_ids: ["b1"], findings: [{ area: "betrieb", kind: "fakt", text: "Er ist Fliesenleger mit zwei Gesellen." }] }),
+    discovery: call({ asked_question_ids: ["b1"], answered_question_ids: ["b1"], findings: [{ area: "betrieb", kind: "fact", text: "Er ist Fliesenleger mit zwei Gesellen." }] }),
   }, { callId: "c1", date: "2026-10-19" });
   assert.equal(changed.customer.name, "Herr Meier");
   assert.equal(changed.discovery.findings.length, 1);
-  const ctx = memory.context({ today: mon });
-  assert.match(ctx, /Herr Meier/);
-  assert.match(ctx, /Fliesenleger mit zwei Gesellen/);
-  assert.match(ctx, /\[b2\]/);
+  assert.match(memory.context({ today: mon }), /Herr Meier/);
+  assert.doesNotMatch(memory.context({ today: mon }), /DISCOVERY QUESTION/);
+  assert.match(discovery.context({ today: mon }), /Fliesenleger mit zwei Gesellen/);
+  assert.match(discovery.context({ today: mon }), /\[b2\]/);
   assert.ok(memory.snapshot().discovery.questions.length > 10);
 });
 
-test("the pilot memory schema knows every framework area", () => {
+test("the pilot: its memory schema knows every framework area; research is on the agenda", async () => {
+  const pilot = await loadSkill("pilot");
   const areas = pilot.MEMORY_SCHEMA.properties.discovery.properties.findings.items.properties.area.enum;
   assert.deepEqual(areas, framework.areas.map(a => a.id));
-  assert.match(pilot.systemPrompt({ note: {}, missing: [], memory: "", lang: "de" }), /RESEARCH, THIS WEEK ONLY/);
+  const agenda = pilot.createAgenda({ discovery: createDiscovery({ framework, dir: tmp() }) });
+  const prompt = agenda.prompt({ engine: "cascade", lang: "de" });
+  assert.match(prompt, /RESEARCH, THIS WEEK ONLY/);
+  assert.match(prompt, /DISCOVERY QUESTION FOR THIS CALL/);
+  assert.match(pilot.MEMORY_SYSTEM, /asked_question_ids/);
 });

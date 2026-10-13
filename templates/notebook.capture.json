@@ -1,0 +1,154 @@
+{
+  "id": "notebook.capture",
+  "version": 1,
+  "kind": "capability",
+  "title": "AFTER A CUSTOMER APPOINTMENT: he dictates, you take the note.",
+  "mode": {
+    "id": "capture",
+    "when": "when he tells about a customer appointment",
+    "default": true
+  },
+  "steps": [
+    {
+      "primitive": "capture",
+      "instructions": [
+        "- Let him talk. He is driving and thinks out loud; pauses are normal.",
+        "- When he finishes a thought, react like a colleague taking notes: one to three words, sometimes",
+        "  followed by ONE short question. Do NOT repeat, rephrase or confirm what he just said. Every reply",
+        "  must add something (a question, a {{q ex.anythingElse}}) or be a short acknowledgement.",
+        "- Required details are only: customer or place, the work to be done, and the next step with its",
+        "  date (e.g. quote by Friday). Ask only for missing ones, one per turn, at most two questions for",
+        "  the note in the whole call, phrased the way a colleague would ({{q ex.askDeadline}}, {{q ex.askPlace}})",
+        "  (NEXT: ask). Never use words like {{qs ex.avoidWords}}. Don't ask about materials, sizes, budget or",
+        "  schedule; if he didn't mention them, they don't matter right now.",
+        "- When nothing required is missing, acknowledge and ask if there's more ({{q ex.anythingElse}}).",
+        "- WRAP-UP: when he signals he's done ({{qs ex.doneSignals}}), give ONE summary, the only one in the",
+        "  whole call: at most three short sentences with who/where, the essentials of the job (numbers exactly",
+        "  as he said them) and the next step with its date. Then ask {{q ex.confirm}} (NEXT: confirm). If he",
+        "  corrects something: acknowledge, and confirm only the corrected detail. If he says yes: go on to",
+        "  YOUR OWN AGENDA if it has an item for this call, otherwise a very short goodbye (NEXT: hangup)."
+      ],
+      "fields": {
+        "customer_name": {
+          "type": "STRING"
+        },
+        "customer_phone": {
+          "type": "STRING"
+        },
+        "address": {
+          "type": "STRING"
+        },
+        "place": {
+          "type": "STRING"
+        },
+        "appointment_date": {
+          "type": "STRING"
+        },
+        "work": {
+          "type": "ARRAY",
+          "items": {
+            "type": "OBJECT",
+            "properties": {
+              "area": {
+                "type": "STRING"
+              },
+              "description": {
+                "type": "STRING"
+              },
+              "quantity": {
+                "type": "STRING"
+              },
+              "material": {
+                "type": "STRING"
+              }
+            }
+          }
+        },
+        "special_requests": {
+          "type": "ARRAY",
+          "items": {
+            "type": "STRING"
+          }
+        },
+        "timeframe": {
+          "type": "STRING"
+        },
+        "budget": {
+          "type": "STRING"
+        },
+        "next_steps": {
+          "type": "ARRAY",
+          "items": {
+            "type": "OBJECT",
+            "properties": {
+              "what": {
+                "type": "STRING"
+              },
+              "due": {
+                "type": "STRING"
+              }
+            }
+          }
+        },
+        "open_questions": {
+          "type": "ARRAY",
+          "items": {
+            "type": "STRING"
+          }
+        },
+        "summary": {
+          "type": "STRING"
+        },
+        "confirmed": {
+          "type": "BOOLEAN"
+        }
+      },
+      "required": [
+        "customer_name",
+        "place",
+        "work",
+        "next_steps",
+        "summary",
+        "confirmed"
+      ],
+      "rules": [
+        "- work: per room or area: what's to be done (description), the quantity with its unit as he said it",
+        "  (\"8 m²\", \"12 metres\", \"3 pieces\"), the material as he said it.",
+        "- appointment_date: the date of the appointment he talks about, YYYY-MM-DD; today unless he said otherwise.",
+        "- summary: one short sentence (who, where, what, next step).",
+        "- confirmed: true only once he confirmed the summary read back to him."
+      ],
+      "missing": [
+        {
+          "label": "customer or place",
+          "anyOf": [
+            "customer_name",
+            "place",
+            "address"
+          ]
+        },
+        {
+          "label": "the work to be done",
+          "anyOf": [
+            "work"
+          ]
+        },
+        {
+          "label": "next step",
+          "anyOf": [
+            "next_steps"
+          ]
+        }
+      ],
+      "save": {
+        "anyOf": [
+          "customer_name",
+          "place",
+          "address",
+          "work"
+        ]
+      }
+    }
+  ],
+  "tools": []
+}

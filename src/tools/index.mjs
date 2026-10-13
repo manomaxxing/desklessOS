@@ -57,11 +57,15 @@ export const endCall = defineTool({
   run: (_args, ctx) => { ctx.hangup(); return { ok: true }; },
 });
 
-/** The tools for one call. `engine`: "cascade" | "live". */
-export function callTools({ engine, office = null, memory = null, store = null }) {
+/**
+ * The tools for one call. `engine`: "cascade" | "live". `allow`: the tool names the
+ * call's templates may use (agenda.tools()); end_call is the Live engine's own.
+ */
+export function callTools({ engine, office = null, memory = null, store = null, allow = null }) {
+  const ok = name => !allow || allow.includes(name);
   return [
-    ...(office ? [orderExecute(office)] : []),
-    ...(memory?.search && store ? [memorySearch({ memory, store })] : []),
+    ...(office && ok("order_execute") ? [orderExecute(office)] : []),
+    ...(memory?.search && store && ok("memory_search") ? [memorySearch({ memory, store })] : []),
     ...(engine === "live" ? [endCall] : []),
   ];
 }

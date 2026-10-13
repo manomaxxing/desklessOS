@@ -1,0 +1,21 @@
+{
+  "id": "office.brief",
+  "version": 1,
+  "kind": "capability",
+  "title": "A CUSTOMER",
+  "mode": {
+    "id": "brief",
+    "when": "for questions about a customer"
+  },
+  "steps": [
+    {
+      "primitive": "inform",
+      "instructions": [
+        "- \"What about the Millers?\": brief him from MEMORY in at most 30 seconds."
+      ]
+    }
+  ],
+  "tools": [
+    "memory_search"
+  ]
+}

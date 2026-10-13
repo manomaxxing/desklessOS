@@ -7,6 +7,8 @@
 // sentence → audio out. The slow path (structured note) runs beside it.
 // Tools (Gemini function calling, src/tools/): at most two model calls per turn,
 // the answer with the tool call, then the follow-up with its result.
+// What the call is about (prompt, note schema, Max's questions) comes from its
+// agenda (src/agenda/agenda.mjs), built from the persona and templates.
 // `config` (from the mode selector): { model, tts: "fish"|"gemini", mask: "typing"|"filler"|"none" }.
 
 import { createVad } from "./vad.mjs";
@@ -51,14 +53,13 @@ const pick = (arr, i) => (Array.isArray(arr) ? arr[i % arr.length] : arr);
 
 // `onEvent` feeds the monitor (every call); dev callers also get the events inline.
 // `recordDir(callId)` → directory for per-turn audio, or null to not record.
-export function createCallSession({ send, dev = false, skill, endpoint, model, extractModel, fish, geminiTts, store, memory, office = null, assets, config = {}, initialTurns = [], initialLang = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null }) {
+export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, geminiTts, store, memory, office = null, assets, config = {}, initialTurns = [], initialLang = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null }) {
   const cfg = { model, tts: "fish", mask: "typing", ...Object.fromEntries(Object.entries(config).filter(([, v]) => v)) };
   const fastModel = cfg.model;
   const slowModel = extractModel || model; // notes and memory stay on one model so modes compare fairly
   const fallbackModel = process.env.FALLBACK_MODEL || (fastModel === "gemini-2.5-flash" ? "gemini-3.5-flash" : "gemini-2.5-flash");
-  // Native tool calls; TOOLS=header keeps the old "DO: execute" header line (A/B until templates replace it).
-  const toolMode = process.env.TOOLS === "header" ? "header" : "native";
-  const runner = createToolRunner({ tools: toolMode === "native" ? callTools({ engine: "cascade", office, memory, store }) : [] });
+  // The tools this call's templates may use (src/tools/).
+  const runner = createToolRunner({ tools: callTools({ engine: "cascade", office, memory, store, allow: agenda.tools() }) });
   let toolDecls = null;
   const declarations = () => (toolDecls ??= runner.declarations());
   const meter = createMeter();
@@ -80,7 +81,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
   const call = { id: null, from: null, to: null, startedAt: Date.now() };
   const turns = [...initialTurns]; // non-empty when taking over a call from the Live engine
   let note = {};
-  let missing = skill.missingFields(note);
+  let missing = agenda.missing(note);
   let pendingUser = []; // caller audio not yet answered
   let current = null; // the turn being answered
   let turnSeq = 0;
@@ -434,10 +435,9 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
 
     const parser = createReplyParser({
       langs: locales().enabled(),
-      onHeader: ({ heard, lang: l, next: n, act }) => {
+      onHeader: ({ heard, lang: l, next: n }) => {
         if (n === "wait" && (force || text || lastNext === "confirm")) n = "listen"; // he's been quiet, or answered a yes/no question: answer now
         else if (n !== "wait" && !force && !text && lastNext !== "confirm" && dangling(heard, lex(l || lang))) { n = "wait"; debug("dangling", { turn: turn.id, text: heard }); } // "…die will": he isn't done
-        if (act === "execute" && office && toolMode === "header") turn.execute = true;
         next = n;
         if (l) lang = l;
         turn.hold = !text && holdOn(heard, lex(l || lang));
@@ -546,7 +546,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
 
     try {
       const tools = declarations();
-      const system = skill.systemPrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang, tools: toolMode === "native" ? tools.map(t => t.name) : null });
+      const system = agenda.prompt({ engine: "cascade", note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang, tools: tools.map(t => t.name) });
       const extra = force ? "(The caller is speaking in the audio above. He has now been silent for a few seconds: his thought is complete, so respond. Do not answer wait.)" : undefined;
       const request = { system, history: turns.slice(-16), audio, text, extra, tools };
       const calls = [];
@@ -592,7 +592,6 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     const said = turn.toolNotes.length ? [reply.slice(0, turn.prefaceLength), ...turn.toolNotes, reply.slice(turn.prefaceLength)].map(s => s.trim()).filter(Boolean).join(" ") : reply;
     if (said) turns.push({ role: "model", text: said });
     if (current === turn) current = null;
-    if (turn.execute) { runWorkflow().catch(err => fail("workflow", err)); return; }
     lastNext = next;
     lastHold = turn.hold;
     lastWasBackchannel = next === "listen" && lex().agentBackchannel.test(reply);
@@ -610,26 +609,6 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
     }
   }
 
-  // ---------- the office: book, add to-dos, quote and send ----------
-  // Runs after he confirmed (DO: execute). Typing plays while it works; the agent
-  // then gets "(System: done …)" and tells him what was created.
-  async function runWorkflow() {
-    typist?.start();
-    debug("workflow_start");
-    try {
-      await extracting;
-      await refreshNote(); // the draft from the full transcript, including his "yes"
-      const result = office.execute({ draft: note, lang, callId: call.id });
-      debug("workflow", { result });
-      log(`workflow: ${result.summary}`);
-      await runTurn({ text: `(System: done. ${result.summary}. Tell him in one or two sentences what was done, in his language, then ask if there's anything else.)` });
-    } catch (err) {
-      typist?.stop();
-      fail("workflow", err);
-      await runTurn({ text: `(System: the office could not complete it: ${err.message}. Apologize in one short sentence and offer to try again.)` });
-    }
-  }
-
   // ---------- slow path ----------
   // Each extraction reads the transcript as it is when it starts; a result is
   // applied only if no newer one already was, so an older one never overwrites it.
@@ -638,13 +617,15 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
   function extractNote({ hedgeMs }) {
     const seq = ++noteSeq;
     const snapshot = turns.slice();
-    return extractJsonResilient({ endpoint, models: [slowModel, fallbackModel], hedgeMs, system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note, lang }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u) })
+    return extractJsonResilient({ endpoint, models: [slowModel, fallbackModel], hedgeMs, system: agenda.extractSystem(lang), prompt: agenda.extractPrompt({ turns: snapshot, lang }), schema: agenda.schema(), onUsage: u => record("note", u) })
       .then(updated => {
         if (seq < noteApplied) return note;
         noteApplied = seq;
-        note = updated;
-        missing = skill.missingFields(note);
+        const u = agenda.update(updated); // his note, and which of the agent's own items got done (checked in code)
+        note = u.note;
+        missing = u.missing;
         debug("note", { note, missing });
+        for (const c of u.changes) debug("objective", c);
         return note;
       });
   }
@@ -671,7 +652,7 @@ export function createCallSession({ send, dev = false, skill, endpoint, model, e
       const spoke = turns.some(t => t.role === "user" && !locales().unclear.test(t.text));
       if (spoke) await refreshNote();
       let saved = null;
-      if (skill.worthSaving(note)) {
+      if (agenda.worthSaving(note)) {
         saved = store.save({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, transcript: turns });
         log("saved note", saved.id);
         debug("saved", { id: saved.id });

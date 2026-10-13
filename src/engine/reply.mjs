@@ -30,7 +30,6 @@ export function createReplyParser({ onHeader, onSentence, langs = null }) {
   let heard = "";
   let lang = "";
   let next = "listen";
-  let act = "none"; // DO: execute → the office runs the order workflow after this turn
   let pending = "";
 
   let emitted = 0;
@@ -62,7 +61,7 @@ export function createReplyParser({ onHeader, onSentence, langs = null }) {
       // No header (skipped, or a follow-up that doesn't repeat it): it's all reply, never silence.
       pending = buf.replace(/^\s*(HEARD|LANG|NEXT|DO):.*\n?/gim, "");
       headerDone = true;
-      onHeader({ heard, lang, next, act, present: false });
+      onHeader({ heard, lang, next, present: false });
       return;
     }
     const lines = buf.split("\n");
@@ -94,9 +93,8 @@ export function createReplyParser({ onHeader, onSentence, langs = null }) {
     lang = tag && (!langs || langs.includes(tag)) ? tag : "";
     const n = (fields.NEXT ?? "").toLowerCase().match(/[a-z]+/)?.[0];
     next = NEXT_VALUES.has(n) ? n : "listen";
-    act = /^execute/i.test(fields.DO ?? "") ? "execute" : "none";
     headerDone = true;
-    onHeader({ heard, lang, next, act, present: true });
+    onHeader({ heard, lang, next, present: true });
   };
 
   return {
@@ -118,7 +116,7 @@ export function createReplyParser({ onHeader, onSentence, langs = null }) {
     end() {
       if (!headerDone) readHeader(true);
       emitSentences(true);
-      return { heard, lang, next, act };
+      return { heard, lang, next };
     },
   };
 }

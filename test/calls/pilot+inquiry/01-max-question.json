@@ -1,0 +1,15 @@
+{
+  "lang": "de",
+  "before": [{
+    "post": "/api/objectives",
+    "body": { "template": "inquiry", "params": { "purpose": "wie lange Angebote dauern", "questions": [{ "ask": "Wie lange hast du an deinem letzten Angebot gesessen?", "probe": "Ungefähr reicht." }] } }
+  }],
+  "says": [
+    "Ich komm grad vom Herrn Huber in Allensbach. Küche, Fliesenspiegel neu, so vier Meter. Angebot bis Freitag. Das war's.",
+    "Ja, passt.",
+    "Puh, so zwei Stunden, am Sonntagabend halt.",
+    "Keine Zeit mehr, tschüss."
+  ],
+  "must": [{ "saved": true }, { "api": { "path": "/api/objectives", "match": "\"status\":\"answered\"" } }],
+  "should": [{ "event": "objective" }, { "api": { "path": "/api/objectives", "match": "zwei Stunden|2 Stunden|two hours" } }, { "said": "Angebot" }, { "noEvent": "error" }]
+}

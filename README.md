@@ -35,7 +35,7 @@ names a language (a test enforces it).
   without `--dry-run` (backs up first; `DATA_DIR=/data` on Fly). Readers still
   understand the old keys meanwhile.
 
-## Skills
+## Skills, personas and templates
 
 `SKILL` picks what the agent does:
 
@@ -47,6 +47,33 @@ names a language (a test enforces it).
   Method and rules: `PLAN.md` section 14.
 - **`office`**: the hackathon demo. Calendar, to-dos and quotes by voice, for a tile
   contractor in San Francisco; the phone page's tabs are built for it.
+
+A skill is a persona plus templates, no code of its own (`src/skills/from-templates.mjs`):
+
+- **Persona** (`personas/notebook.md`, `personas/office.md`): who the agent is and
+  how it sounds, in English, with `{{ex.*}}` slots filled from the locale pack.
+- **Templates** (`templates/*.json`): *capabilities* are what he can start (take a
+  note, a briefing, the agenda, an order); *objectives* are what the agent brings
+  (the pilot's research, "find out X"). Each lists steps made of primitives
+  (`src/agenda/primitives.mjs`: capture, order, inform, ask, research), its tools and
+  for capabilities the note fields.
+- **Agenda** (`src/agenda/agenda.mjs`): per call, the persona's capabilities plus at
+  most two of the agent's own items, always after his business. It writes the prompt
+  (static first, so the prefix caches), one extraction schema for his note and the
+  objectives' answers, and checks in code after every turn which objective is done.
+
+**Find out X:** post an objective and the next inbound call asks it at the end:
+
+```
+curl -X POST "localhost:8787/api/objectives?token=$DEV_TOKEN" -d '{"template": "inquiry",
+  "params": {"purpose": "how long quotes take", "questions": [{"ask": "Wie lange hast du an deinem
+  letzten Angebot gesessen?", "probe": "Ungefähr reicht."}]}}'
+curl "localhost:8787/api/objectives?token=$DEV_TOKEN"      # status, answers, his words, calls
+```
+
+1 to 5 questions; a vague answer gets one follow-up. Answers add up across calls; after
+three calls without getting to it the objective expires. `POST /api/objectives/<id>/cancel`
+withdraws one. Stored in `data/agenda/objectives.json`.
 
 ## Tools
 
@@ -63,8 +90,8 @@ follow-up with the result. He hears something first: the model's own "On it."
 (the prompt asks for header and preface before the call), or a cached `working` /
 `looking` line from the locale pack, then typing until the result is spoken.
 Writes wait until the false-start window has passed, run at most once per call and
-order (idempotency key), and are never aborted once started. `TOOLS=header` brings
-back the old `DO: execute` header line, for A/B comparison.
+order (idempotency key), and are never aborted once started. A template lists the
+tools it may use; a call offers only those.
 
 ## Regression calls
 
@@ -73,7 +100,8 @@ scripted calls in `test/calls/<skill>/*.json` (German capture with a thinking
 pause, briefing, agenda, false start; English office order, and a false start
 on "yes, go ahead"), checking what each must and should produce, and printing
 first-audio latency. A folder named `<skill>+<variant>` starts from a copy of its
-`_seed/` data (`pilot+memory`: 30 customers, a briefing that needs `memory_search`).
+`_seed/` data (`pilot+memory`: 30 customers, a briefing that needs `memory_search`;
+`pilot+inquiry`: Max's question posted before the call, its answer checked after).
 Run it before every merge; `npm test` stays offline.
 
 ## One protocol, three ways to call
@@ -250,8 +278,11 @@ src/engine/gemini*.mjs     fast path (stream) + slow path (JSON schema); Vertex 
 src/engine/fish.mjs        streamed TTS as 16 kHz PCM
 src/engine/reply.mjs       HEARD/NEXT header + sentence streaming
 src/tools/                 tool registry (idempotent writes, confirm gate) and the call's tools
-src/skills/pilot.mjs       pilot week: notes, briefings, one research question per call
-src/skills/office.mjs      order demo: calendar, to-dos, quotes
+personas/<id>.md           who the agent is, how it sounds (English, locale slots)
+templates/<id>.json        capabilities (note, briefing, agenda, order) and objectives (research, inquiry)
+src/agenda/                primitives, per-call agenda, prompt and extraction assembly
+src/skills/from-templates.mjs  a skill from a persona and its templates
+src/store/objectives.mjs   data/agenda/objectives.json: what the agent should find out
 config/discovery.json      the research framework: key question, hypotheses, areas, questions
 locales/<id>.json          everything language-specific (see Languages)
 src/locale/                loads packs, picks the call's language, checks completeness

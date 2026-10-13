@@ -1,7 +1,8 @@
 // The pilot week's research log: what we've learned about how he works, and
 // which framework questions (config/discovery.json) were asked. Filled by the
-// consolidation step after every call; read every turn to pick at most one
-// question for the end of this call.
+// consolidation step after every call; the state store of the research
+// primitive (src/agenda/primitives.mjs), which puts context() into the agenda
+// to pick at most one question for the end of this call.
 //   data/discovery/findings.json   [ finding ]
 //   data/discovery/questions.json  { [questionId]: { asked, lastAsked, answered, declined } }
 //   data/discovery/calls.json      [ { callId, date, asked, answered, declined, findings } ]
@@ -90,10 +91,10 @@ export function createDiscovery({ framework = loadFramework(), dir = dataDir("di
         `WHAT WE'VE LEARNED ABOUT HIM AND HIS BUSINESS (pilot week, day ${pilotDay} of ${framework.pilotDays}):`,
         ...known,
         "",
-        intro ? "FIRST CALL: yes, this is his first call to the notebook (see D)." : "FIRST CALL: no. He knows the notebook already; don't introduce yourself again.",
+        intro ? "FIRST CALL: yes, this is his first call to the notebook (see RESEARCH above)." : "FIRST CALL: no. He knows the notebook already; don't introduce yourself again.",
         capped || !picks.length
           ? "DISCOVERY QUESTION FOR THIS CALL: none. Don't ask any research question in this call."
-          : `DISCOVERY QUESTION FOR THIS CALL (ask at most one, at the end, see D; take the first unless another one links directly to what he said):\n${ask.join("\n")}`,
+          : `DISCOVERY QUESTION FOR THIS CALL (ask at most one, at the end; take the first unless another one links directly to what he said):\n${ask.join("\n")}`,
       ].filter(Boolean).join("\n");
     },
 
@@ -113,8 +114,9 @@ export function createDiscovery({ framework = loadFramework(), dir = dataDir("di
 
 /**
  * Long-term memory plus the research log, behind the memory interface the
- * sessions already use: apply() also files the call's findings, context() adds
- * what we've learned and this call's question, snapshot() adds the framework.
+ * sessions and the post-call step use: apply() also files the call's findings,
+ * snapshot() adds the framework. The question for this call is the research
+ * objective's business (its agenda item), not memory's.
  */
 export function withDiscovery(memory, discovery) {
   return {
@@ -124,9 +126,6 @@ export function withDiscovery(memory, discovery) {
       const changed = memory.apply(result, meta);
       changed.discovery = discovery.apply(result.discovery, meta);
       return changed;
-    },
-    context(args = {}) {
-      return `${memory.context(args)}\n\n${discovery.context(args)}`;
     },
     snapshot() {
       return { ...memory.snapshot(), discovery: discovery.snapshot() };

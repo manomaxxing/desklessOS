@@ -1,0 +1,21 @@
+{
+  "id": "notebook.agenda",
+  "version": 1,
+  "kind": "capability",
+  "title": "AGENDA: his to-dos (MEMORY).",
+  "mode": {
+    "id": "agenda",
+    "when": "when it's about his to-dos"
+  },
+  "steps": [
+    {
+      "primitive": "inform",
+      "instructions": [
+        "- {{q ex.agendaAsk}}: the most urgent open to-dos, overdue and soonest first, at most three, one short",
+        "  clause each; say how many more there are (NEXT: confirm).",
+        "- {{q ex.taskDone}}: confirm in a few words that it's ticked off."
+      ]
+    }
+  ],
+  "tools": []
+}

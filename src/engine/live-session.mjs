@@ -25,14 +25,14 @@ import { callTools } from "../tools/index.mjs";
 
 const MARK_EVERY_MS = 800; // playback checkpoints, to know how much the caller actually heard
 
-export function createLiveSession({ send, dev = false, skill, endpoint, extractModel, store, memory, office = null, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null }) {
+export function createLiveSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, extractModel, store, memory, office = null, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null }) {
   const cfg = { liveModel: "vertex-eu:gemini-3.8-live", liveVoice: "Kore", mask: "typing", ...config };
   // Live answers fast, but thinks before longer replies (the wrap-up summary): type meanwhile.
   const typist = assets.typing && cfg.mask === "typing" ? createTypist(assets.typing, chunk => send({ type: "media", payload: chunk.toString("base64") })) : null;
   let typingTimer = null;
   const stopTyping = () => { clearTimeout(typingTimer); typist?.stop(); };
   const target = liveTarget(cfg.liveModel);
-  const runner = createToolRunner({ tools: callTools({ engine: "live", office, memory, store }) });
+  const runner = createToolRunner({ tools: callTools({ engine: "live", office, memory, store, allow: agenda.tools() }) });
   const meter = createMeter();
   const debug = (event, data = {}) => { onEvent({ event, ...data }); if (dev) send({ type: "debug", event, ...data, t: Date.now() }); };
   const fail = (where, err) => { log(`${where} error`, err.message); debug("error", { where, message: err.message }); };
@@ -50,7 +50,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
   const call = { id: null, from: null, to: null, startedAt: Date.now() };
   const turns = [];
   let note = {};
-  let missing = skill.missingFields(note);
+  let missing = agenda.missing(note);
   let lang = locales().defaultId;
   let gem = null; // WebSocket to Gemini
   let ready = false;
@@ -106,7 +106,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
             responseModalities: ["AUDIO"],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.liveVoice } }, ...(target.vertex ? { languageCode: locales().bcp47(lang) } : {}) },
           },
-          systemInstruction: { parts: [{ text: skill.livePrompt({ note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang }) }] },
+          systemInstruction: { parts: [{ text: agenda.prompt({ engine: "live", note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang }) }] },
           realtimeInputConfig: {
             automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: "START_SENSITIVITY_LOW", endOfSpeechSensitivity: "END_SENSITIVITY_LOW", prefixPaddingMs: 100, silenceDurationMs: Number(process.env.LIVE_SILENCE_MS || 800) },
             activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
@@ -258,13 +258,15 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
   function extractNote({ hedgeMs }) {
     const seq = ++noteSeq;
     const snapshot = turns.slice();
-    return extractJsonResilient({ endpoint, models: [extractModel, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], hedgeMs, system: skill.EXTRACT_SYSTEM, prompt: skill.extractPrompt({ turns: snapshot, note, lang }), schema: skill.NOTE_SCHEMA, onUsage: u => record("note", u, null, extractModel) })
+    return extractJsonResilient({ endpoint, models: [extractModel, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], hedgeMs, system: agenda.extractSystem(lang), prompt: agenda.extractPrompt({ turns: snapshot, lang }), schema: agenda.schema(), onUsage: u => record("note", u, null, extractModel) })
       .then(updated => {
         if (seq < noteApplied) return note;
         noteApplied = seq;
-        note = updated;
-        missing = skill.missingFields(note);
+        const u = agenda.update(updated);
+        note = u.note;
+        missing = u.missing;
         debug("note", { note, missing });
+        for (const c of u.changes) debug("objective", c);
         return note;
       });
   }
@@ -300,7 +302,7 @@ export function createLiveSession({ send, dev = false, skill, endpoint, extractM
       const spoke = turns.some(t => t.role === "user");
       if (spoke) await refreshNote();
       let saved = null;
-      if (skill.worthSaving(note)) {
+      if (agenda.worthSaving(note)) {
         saved = store.save({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, engine: "live", transcript: turns });
         debug("saved", { id: saved.id });
       }

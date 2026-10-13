@@ -1,7 +1,8 @@
 # DesklessOS v2: templates, primitives, pluggable languages, real memory
 
 > **Status (2026-10-12):** P1 (locale packs, English data keys, regression calls) done on branch `v2`.
-> P2 (native tool calls, tool registry, `memory_search`) done on `v2`. P3–P7 not started. Each phase
+> P2 (native tool calls, tool registry, `memory_search`) done on `v2`. P3 (personas, templates,
+> primitives, agenda, objectives, "find out X" by API) done on `v2`. P4–P7 not started. Each phase
 > ships on its own; the pilot keeps working throughout.
 
 ## Context
@@ -154,6 +155,14 @@ DesklessOS grew from a hackathon demo into a pilot (Niko, Konstanz). Its shape n
 - `store/discovery.mjs` becomes the state store of the `research` primitive; reuse `next()`, `apply()`, `context()`.
 
 **Done when:** the pilot and office regressions pass on templates, and an `inquiry` objective posted by hand is asked at the end of the next inbound call and its structured result stored. "Find out X" then works manually.
+
+**As built (2026-10-12):**
+- No shim: `src/skills/pilot.mjs` and `office.mjs` are gone. A skill is `loadSkillFromTemplates(name)`; each call gets `skill.createAgenda({ objectives, discovery })`, which both engines use for prompt, extraction schema, missing fields, saving and tools. `DO: execute` / `TOOLS=header` is removed (a stray `DO:` line is still dropped, never spoken).
+- Templates: `notebook.{capture,brief,agenda}`, `office.{order,calendar,brief}`, `research.discovery`, `inquiry`. Primitives: `capture`, `order` (per-item missing logic in code), `inform`, `ask`, `research`. `inform`, `confirm`, `act`, `consent_check`, `close` as separate primitives weren't needed yet; confirm and act live in the order template's text and its `order_execute` tool.
+- The prompts were ported, not rewritten: the pilot's note and memory schemas are byte-identical to P1/P2; the office's differ only in enum order. The text changes are the reorder (static → per call → per turn), research moving from MEMORY into a "YOUR OWN AGENDA" section shared by all objectives, and the jobs listed as A), B), C).
+- An inquiry's answers are extracted every turn under `agenda.<objective id>` (asked, probed, status, answer, quote); done is checked in code. A vague answer counts only after the one follow-up was asked (the first live run took a bare "ja, passt" as the answer).
+- Objectives live in `data/agenda/objectives.json` (`src/store/objectives.mjs`): pending → done | expired (3 calls) | cancelled; answers merge across calls. API: `GET/POST /api/objectives`, `POST /api/objectives/:id/cancel`, behind `DEV_TOKEN`.
+- At most two of the agent's own items per call, Max's questions before the research question.
 
 ### P4: Memory v2 on Supabase Postgres (EU) with tenancy (L)
 **Infrastructure:**

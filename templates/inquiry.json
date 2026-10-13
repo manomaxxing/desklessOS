@@ -1,0 +1,25 @@
+{
+  "id": "inquiry",
+  "version": 1,
+  "kind": "objective",
+  "title": "MAX'S QUESTION",
+  "description": "Find out something specific: 1 to 5 questions, asked at the end of his next call after his own business. The answers and his words come back as the result.",
+  "priority": 1,
+  "modes": [
+    "next_inbound"
+  ],
+  "params": {
+    "purpose": "why Max wants to know (optional, one line)",
+    "questions": "1 to 5 of { ask, probe?, required? }"
+  },
+  "limits": {
+    "attempts": 3
+  },
+  "steps": [
+    {
+      "primitive": "ask",
+      "title": "MAX'S QUESTION"
+    }
+  ],
+  "tools": []
+}

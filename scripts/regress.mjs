@@ -16,6 +16,8 @@
 //   {"heard": "regex"} {"heardNext": "wait"} {"said": "regex"} {"note": "regex"}
 //   {"falseStart": true} {"maxFirstAudioMs": 4000}
 //   {"tool": "order_execute"}  the tool ran (status ok)    {"count": {"workflow": 1}}  exactly n such events
+//   {"api": {"path": "/api/objectives", "match": "regex"}}  what the server says after the call
+// "before": [{ "post": "/api/objectives", "body": {…} }] runs before the call (e.g. Max's question).
 
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync, mkdtempSync, rmSync, existsSync, cpSync } from "node:fs";
@@ -36,7 +38,7 @@ const re = s => new RegExp(s, "i");
 
 // `saved` is the note the server stored for this call (fetched after the post-call step):
 // the call's socket is closed by then, so its "saved" event never reaches the caller.
-function check(spec, events, saved) {
+function check(spec, events, saved, api = {}) {
   const of = name => events.filter(e => e.event === name);
   const said = of("say").filter(e => !e.note?.startsWith("stage")).map(e => e.text).join(" ");
   const lastNote = saved ?? of("note").at(-1)?.note;
@@ -54,6 +56,7 @@ function check(spec, events, saved) {
     case "maxFirstAudioMs": { const p50 = median(of("latency").map(e => e.firstAudioMs)); return p50 != null && p50 <= value; }
     case "tool": return of("tool").some(e => e.name === value && e.status === "ok");
     case "count": return Object.entries(value).every(([name, n]) => of(name).length === n);
+    case "api": return re(value.match).test(api[value.path] ?? "");
     default: throw new Error(`unknown check ${kind}`);
   }
 }
@@ -105,16 +108,24 @@ for (const folder of folders) {
       let events = [];
       let saved = null;
       let error = null;
+      const api = {};
       try {
+        for (const b of sc.before ?? []) {
+          const res = await fetch(`http://localhost:${port}${b.post}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b.body ?? {}) });
+          if (!res.ok) throw new Error(`before: POST ${b.post} → ${res.status} ${await res.text()}`);
+        }
         let callId;
         ({ events, callId } = await runCall({ url: `ws://localhost:${port}/dial`, lang: sc.lang, says: sc.says, config: sc.config ?? {}, from: sc.from }));
         // Later scenarios build on this call's memory: wait for the post-call step.
         await server.waitFor(new RegExp(`\\[${callId.slice(-6)}\\] (memory:|memory error|finalize error)`), 45000).catch(() => {});
         const notes = await fetch(`http://localhost:${port}/api/notes`).then(r => r.json());
         saved = notes.find(n => n.call_id === callId) ?? null;
+        for (const spec of [...(sc.must ?? []), ...(sc.should ?? [])].filter(c => c.api)) {
+          api[spec.api.path] ??= await fetch(`http://localhost:${port}${spec.api.path}`).then(r => r.text());
+        }
       } catch (err) { error = err; }
-      const must = (sc.must ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved) }));
-      const should = (sc.should ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved) }));
+      const must = (sc.must ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved, api) }));
+      const should = (sc.should ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved, api) }));
       const p50 = median(events.filter(e => e.event === "latency").map(e => e.firstAudioMs));
       const failed = Boolean(error) || must.some(m => !m.ok);
       results.push({ name, failed, must, should, p50, error });
@@ -124,7 +135,7 @@ for (const folder of folders) {
       for (const s of should.filter(s => !s.ok)) console.log(`   should ~ ${JSON.stringify(s.spec)}`);
       if (failed || show) {
         // The conversation, so a failure can be read without rerunning it.
-        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "workflow", "retry", "end_call", "barge_in", "nudge"].includes(e.event))) {
+        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "workflow", "objective", "retry", "end_call", "barge_in", "nudge"].includes(e.event))) {
           console.log(`   ${e.at.toFixed(1).padStart(5)}s ${describeEvent(e) ?? e.event}`);
         }
       }

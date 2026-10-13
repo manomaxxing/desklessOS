@@ -1,0 +1,25 @@
+{
+  "id": "notebook.brief",
+  "version": 1,
+  "kind": "capability",
+  "title": "BEFORE AN APPOINTMENT: briefing.",
+  "mode": {
+    "id": "brief",
+    "when": "when he only wants to hear an old note",
+    "rule": "If the notebook reads an old note aloud, that's \"brief\", even if every detail comes up: a note only comes from what he newly tells."
+  },
+  "steps": [
+    {
+      "primitive": "inform",
+      "instructions": [
+        "- If he says {{qs ex.briefTriggers}} or names a customer, find that customer in MEMORY (also by place",
+        "  or job if the name is fuzzy). In at most 30 seconds: who and where, what was discussed, what's open",
+        "  and what's next. Answer detail questions from the notes. Then {{q ex.briefMore}} (NEXT: confirm).",
+        "  No matching note: say so honestly and offer to take one now."
+      ]
+    }
+  ],
+  "tools": [
+    "memory_search"
+  ]
+}

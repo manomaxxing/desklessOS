@@ -28,6 +28,7 @@ import { createNotesStore } from "./src/store/notes.mjs";
 import { createMonitor } from "./src/monitor.mjs";
 import { createMemory } from "./src/store/memory.mjs";
 import { createDiscovery, withDiscovery } from "./src/store/discovery.mjs";
+import { createObjectives } from "./src/store/objectives.mjs";
 import { loadSkill } from "./src/skills/index.mjs";
 import { createCalendar } from "./src/store/calendar.mjs";
 import { createQuotes } from "./src/store/quotes.mjs";
@@ -52,6 +53,8 @@ const monitor = createMonitor();
 // The pilot skill brings a research framework; its findings live beside long-term memory.
 const discovery = skill.framework ? createDiscovery({ framework: skill.framework }) : null;
 const memory = discovery ? withDiscovery(createMemory(), discovery) : createMemory();
+// What the agent should bring into calls ("find out X"), from objective templates.
+const objectives = createObjectives({ skill });
 const calendar = createCalendar();
 const quotes = createQuotes();
 const company = JSON.parse(readFileSync(path.join(here, "config", "company.json"), "utf8"));
@@ -63,10 +66,10 @@ function resetDemo() {
   const root = process.env.DATA_DIR || "data";
   const backup = path.join(root, "backups", new Date().toISOString().replace(/[:.]/g, "-"));
   mkdirSync(backup, { recursive: true });
-  for (const sub of ["notes", "memory", "discovery", "calls", "calendar", "quotes"]) {
+  for (const sub of ["notes", "memory", "discovery", "calls", "calendar", "quotes", "agenda"]) {
     try { renameSync(path.join(root, sub), path.join(backup, sub)); } catch {}
   }
-  for (const s of [store, memory, calendar, quotes, monitor]) s.reset();
+  for (const s of [store, memory, calendar, quotes, monitor, objectives]) s.reset();
   return backup;
 }
 const geminiTts = endpoint ? createGeminiTts({ endpoint }) : null;
@@ -163,6 +166,25 @@ const server = http.createServer((req, res) => {
     const backup = resetDemo();
     monitor.system(`demo reset; previous data moved to ${backup}`, "warn");
     return json(res, { ok: true, backup });
+  }
+  // Objectives: GET lists them; POST { template: "inquiry", params: { questions: [{ ask, probe? }], purpose? }, mode?, priority?, lang? }.
+  if (url.pathname === "/api/objectives") {
+    if (req.method !== "POST") return json(res, { objectives: objectives.list(), templates: [...skill.templates.values()].filter(t => t.kind === "objective" && t.params).map(({ id, version, description, params, modes }) => ({ id, version, description, params, modes })) });
+    let body = "";
+    req.on("data", c => (body += c));
+    req.on("end", () => {
+      try {
+        const o = objectives.create({ ...JSON.parse(body || "{}"), createdBy: "api" });
+        monitor.system(`objective ${o.id} (${o.template}): ${o.params.questions?.map(q => q.ask).join(" / ") ?? ""}`);
+        json(res, { objective: o }, 201);
+      } catch (err) { json(res, { error: err.message }, 400); }
+    });
+    return;
+  }
+  const objectiveMatch = url.pathname.match(/^\/api\/objectives\/([^/]+)\/cancel$/);
+  if (objectiveMatch && req.method === "POST") {
+    const o = objectives.cancel(decodeURIComponent(objectiveMatch[1]));
+    return o ? json(res, { objective: o }) : json(res, { error: "unknown objective" }, 404);
   }
   const quoteMatch = url.pathname.match(/^\/quote\/([^/]+)$/);
   if (quoteMatch) {
@@ -274,11 +296,19 @@ function attach(ws, { callId, dev }) {
         await assetsReady;
         const config = { ...phoneConfig, ...(dev && msg.config ? msg.config : {}) };
         monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describe(config), source: dev ? (/-browser$/.test(msg.from ?? "") ? "browser" : "script") : "dial" });
+        // This call's agenda: his capabilities, plus what the agent brings (pending objectives, research).
+        const agenda = skill.createAgenda({ objectives: objectives.forCall({ direction: msg.direction === "outbound" ? "outbound" : "inbound" }), discovery });
+        if (agenda.objectives.length) monitor.system(`call ${id}: agenda ${agenda.objectives.map(o => o.stored ? `${o.template.id} ${o.id}` : o.template.id).join(", ")}`);
         const common = {
-          send, dev, skill, endpoint, extractModel: MODEL, store, memory, office, config,
+          send, dev, skill, agenda, endpoint, extractModel: MODEL, store, memory, office, config,
           log: (...a) => log(`[${id.slice(-6)}]`, ...a),
           onEvent: ev => monitor.event(id, ev),
-          onEnd: reason => monitor.end(id, reason),
+          onEnd: reason => {
+            for (const o of objectives.record(id, agenda.results())) {
+              monitor.system(`objective ${o.id}: ${o.status}${o.result?.questions ? ` · ${o.result.questions.map(q => `${q.id} ${q.status}${q.answer ? `: ${q.answer}` : ""}`).join("; ")}` : ""}`);
+            }
+            monitor.end(id, reason);
+          },
           recordDir: monitor.record ? callId => monitor.audioDir(callId) : null,
         };
         const cascade = (extra = {}) => createCallSession({ ...common, model: MODEL, fish, geminiTts, assets, ...extra, config: { ...config, engine: "cascade" } });
