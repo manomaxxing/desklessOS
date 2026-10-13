@@ -4,7 +4,8 @@
 > P2 (native tool calls, tool registry, `memory_search`) done on `v2`. P3 (personas, templates,
 > primitives, agenda, objectives, "find out X" by API) done on `v2`. P4 (memory on Postgres behind
 > MEMORY_BACKEND, budgeted context, search, migration) done on `v2`, tested on PGlite; not yet run
-> against Supabase. P5–P7 not started. Each phase ships on its own; the pilot keeps working throughout.
+> against Supabase. P5 (admin page: instruction → plan → card → approve → result) done on `v2`.
+> P6–P7 not started. Each phase ships on its own; the pilot keeps working throughout.
 
 ## Context
 
@@ -227,6 +228,14 @@ DesklessOS grew from a hackathon demo into a pilot (Niko, Konstanz). Its shape n
 - Unknown or ambiguous users → clarifications; no user without consent can be targeted.
 
 **Done when:** Max types "Frag Niko, wie lange sein letztes Angebot gedauert hat", approves the card, and in Niko's next inbound call the question comes after his own business. Within a minute of hangup the admin page shows the answer, his quote and a call link. The flow needs no carrier.
+
+**As built (2026-10-13):**
+- `src/admin/auth.mjs` ports mano-app's TOTP and signed tokens; the TOTP secret is an env var (`ADMIN_TOTP_SECRET`, `npm run admin:totp`) rather than enrolled in-app. Without `ADMIN_CODE` the admin routes use the old dev rule; with it, `DEV_TOKEN` no longer opens them (sessions do, and also open the monitor).
+- Not a free chat: one instruction → a card. Max can answer the planner's clarifications or say what to change ("Plan again", the model re-plans with its earlier plan) or edit the questions on the card (no model). Either way a new card and a new confirm token; the old token fails because the plan hash changed.
+- The planner (`gemini-3.5-flash` with thinking, `PLANNER_MODEL` overrides) fills only the `inquiry` params and picks the user; code checks the user exists, the params pass the template's validation, and the mode is available (only `next_inbound` until P6). Low confidence or alternatives show a warning; no user or invalid questions block approval.
+- Requests are stored with the memory backend (`data/admin/requests.json` or the `requests` table, migration 002). A request follows its objective: partial answers show up after each call, `done`/`expired` close it. Its `notify_status` is the outbox (one flush at a time, retried up to five times).
+- `/monitor?call=<id>` opens one call (the card's call links).
+- Regression `pilot+admin`: the real planner on Max's sentence, approval through the API, Niko's scripted call, the request `done` with "zwei Stunden". Passed on JSON and on Postgres memory.
 
 ### P6: Telephony adapters and outbound scheduler (L)
 **Create:**

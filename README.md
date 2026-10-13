@@ -62,7 +62,26 @@ A skill is a persona plus templates, no code of its own (`src/skills/from-templa
   (static first, so the prefix caches), one extraction schema for his note and the
   objectives' answers, and checks in code after every turn which objective is done.
 
-**Find out X:** post an objective and the next inbound call asks it at the end:
+**Find out X, from the admin page:** `/admin`. Type what you want to know ("Frag Niko,
+wie lange sein letztes Angebot gedauert hat"). A planner (`src/admin/planner.mjs`, Gemini
+with thinking, a few seconds) picks the user and writes 1 to 5 questions in their language
+into an `inquiry` objective; it never writes rules for the agent. You get a card: who, when,
+the questions (editable), anything it needs to ask you back. **Approve** binds to exactly that
+card (a token signed over the request and the plan's hash, 30 minutes); editing or re-planning
+makes a new card. The question is asked at the end of their next call, after their own
+business; the card then shows the answer, their words and a link to the call in the monitor.
+Results also go out by webhook (`NOTIFY_WEBHOOK_URL`) and/or email (`RESEND_API_KEY`,
+`NOTIFY_EMAIL_TO`), with `PUBLIC_URL` for the link back.
+
+- **Login:** `ADMIN_CODE` plus, if `ADMIN_TOTP_SECRET` is set, a code from an authenticator
+  app (`npm run admin:totp` makes a secret); 12-hour sessions signed with `SESSION_SECRET`;
+  five wrong tries lock an address for 15 minutes. Without `ADMIN_CODE` the admin routes fall
+  back to the dev rule (`DEV_TOKEN`), so set it on any public deploy.
+- **API** (admin session): `POST /api/requests {instruction}` → `{request, confirmToken}`;
+  `POST /api/requests/:id/revise {answer | edits}`; `POST /api/requests/:id/approve
+  {confirmToken}`; `POST /api/requests/:id/cancel`; `GET /api/requests[/:id]`; `GET /api/users`.
+
+**Objectives directly:** post an objective and the next inbound call asks it at the end:
 
 ```
 curl -X POST "localhost:8787/api/objectives?token=$DEV_TOKEN" -d '{"template": "inquiry",
@@ -305,6 +324,9 @@ templates/<id>.json        capabilities (note, briefing, agenda, order) and obje
 src/agenda/                primitives, per-call agenda, prompt and extraction assembly
 src/skills/from-templates.mjs  a skill from a persona and its templates
 src/store/objectives.mjs   data/agenda/objectives.json: what the agent should find out
+src/admin/                 admin login (code + TOTP), planner, requests (plan → card → approve → result)
+src/notify.mjs             results to Max: webhook, email (Resend)
+web/admin.html             the admin page (/admin)
 src/memory/                memory v2: per-call scope, JSON or Postgres backend, budgeted context
 src/db/                    Postgres client (Supabase or PGlite) and migrations
 config/discovery.json      the research framework: key question, hypotheses, areas, questions

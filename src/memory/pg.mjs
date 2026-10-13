@@ -34,6 +34,16 @@ const tag = (f, name) => f.tags?.find(t => t.startsWith(`${name}:`))?.slice(name
 const customerOut = c => c && ({ id: c.id, name: c.name, company: c.company, email: c.email, phone: c.phone, address: c.address, place: c.place, summary: c.summary, lastContact: c.last_contact ? day(c.last_contact) : "", history: c.history ?? [] });
 const taskOut = t => t && ({ id: t.id, text: t.text, due: t.due ? day(t.due) : "", status: t.status, customerId: t.contact_id, customerName: t.contact_name, createdAt: t.created_at, doneAt: t.done_at, sourceCallId: t.source_call_id });
 const noteOut = n => ({ ...n.data, id: n.id, lang: n.lang || n.data?.lang || "", call_id: n.call_id, created_at: new Date(n.created_at).toISOString(), customerId: n.contact_id ?? undefined, ...(n.transcript ? { transcript: n.transcript } : {}) });
+const requestOut = r => r && ({
+  id: r.id, userId: r.user_id, instruction: r.instruction, plan: r.plan, planHash: r.plan_hash, card: r.card, turns: r.turns, status: r.status,
+  objectiveId: r.objective_id, result: r.result, createdBy: r.created_by, createdAt: new Date(r.created_at).toISOString(),
+  approvedAt: r.approved_at && new Date(r.approved_at).toISOString(), closedAt: r.closed_at && new Date(r.closed_at).toISOString(),
+  notifyStatus: r.notify_status, notifyAttempts: r.notify_attempts, notifyError: r.notify_error, notifiedAt: r.notified_at && new Date(r.notified_at).toISOString(),
+  updatedAt: new Date(r.updated_at).toISOString(),
+});
+// request fields (camelCase) → columns
+const REQUEST_COLUMNS = { userId: "user_id", instruction: "instruction", plan: "plan", planHash: "plan_hash", card: "card", turns: "turns", status: "status", objectiveId: "objective_id", result: "result", approvedAt: "approved_at", closedAt: "closed_at", notifyStatus: "notify_status", notifyAttempts: "notify_attempts", notifyError: "notify_error", notifiedAt: "notified_at" };
+const JSON_COLUMNS = new Set(["plan", "card", "turns", "result"]);
 const objectiveOut = o => o && ({
   id: o.id, template: o.template, version: o.version, params: o.params, mode: o.mode, status: o.status, priority: o.priority, lang: o.lang,
   createdAt: new Date(o.created_at).toISOString(), createdBy: o.created_by, notBefore: o.not_before, deadline: o.deadline,
@@ -265,6 +275,7 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
   // ---------- objectives ----------
   const objectives = {
     async list() { return (await db.query("select * from objectives order by created_at desc")).map(objectiveOut); },
+    async get(id) { return objectiveOut((await db.query("select * from objectives where id = $1", [id]))[0]) ?? null; },
     async create({ template, params, mode = "next_inbound", priority, lang = null, notBefore = null, deadline = null, createdBy = "admin", userId = null } = {}) {
       const t = skill.templates.get(template);
       if (!t || t.kind !== "objective") throw new Error(`unknown objective template "${template}" (${[...skill.templates.values()].filter(x => x.kind === "objective" && x.params).map(x => x.id).join(", ")})`);
@@ -421,10 +432,43 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
       const d = research.discovery;
       return { framework, findings: d.findings(), questions: d.questions(), calls: d.calls(), next: d.next() };
     },
-    objectives: { list: objectives.list, create: objectives.create, cancel: objectives.cancel },
+    objectives: { list: objectives.list, get: objectives.get, create: objectives.create, cancel: objectives.cancel },
+
+    /** Who can be asked something. */
+    async listUsers() {
+      return (await db.query("select id, name, phone_e164, lang, role, consent_outbound_at from users order by created_at")).map(u => ({ id: u.id, name: u.name, phone: u.phone_e164 ?? "", lang: u.lang, role: u.role, consentOutboundAt: u.consent_outbound_at }));
+    },
+
+    // Admin requests (src/admin/requests.mjs).
+    requests: {
+      async create(r) {
+        const [user] = isUuid(r.userId) ? await db.query("select org_id from users where id = $1", [r.userId]) : [];
+        const [row] = await db.query(`insert into requests (id, org_id, user_id, instruction, plan, plan_hash, card, turns, status, created_by)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning *`,
+          [r.id, user?.org_id ?? null, isUuid(r.userId) ? r.userId : null, r.instruction, json(r.plan), r.planHash, json(r.card), json(r.turns ?? []), r.status ?? "draft", r.createdBy ?? "admin"]);
+        return requestOut(row);
+      },
+      get: async id => requestOut((await db.query("select * from requests where id = $1", [id]))[0]) ?? null,
+      list: async ({ limit = 100 } = {}) => (await db.query("select * from requests order by created_at desc limit $1", [limit])).map(requestOut),
+      async update(id, patch) {
+        const sets = [];
+        const values = [id];
+        for (const [k, v] of Object.entries(patch)) {
+          const col = REQUEST_COLUMNS[k];
+          if (!col) continue;
+          values.push(JSON_COLUMNS.has(col) ? json(v) : col === "user_id" && !isUuid(v) ? null : v);
+          sets.push(`${col} = $${values.length}`);
+        }
+        if (!sets.length) return this.get(id);
+        const [row] = await db.query(`update requests set ${sets.join(", ")}, updated_at = now() where id = $1 returning *`, values);
+        return requestOut(row) ?? null;
+      },
+      byObjective: async objectiveId => requestOut((await db.query("select * from requests where objective_id = $1", [objectiveId]))[0]) ?? null,
+      pendingNotifications: async () => (await db.query("select * from requests where notify_status in ('pending', 'failed') and notify_attempts < 5 order by closed_at")).map(requestOut),
+    },
     embedPending,
     async reset() {
-      for (const t of ["tool_runs", "objectives", "research_state", "facts", "tasks", "notes", "call_contacts", "calls", "contacts"]) await db.query(`delete from ${t}`);
+      for (const t of ["requests", "tool_runs", "objectives", "research_state", "facts", "tasks", "notes", "call_contacts", "calls", "contacts"]) await db.query(`delete from ${t}`);
     },
     close: () => db.close(),
   };

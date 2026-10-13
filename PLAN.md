@@ -538,7 +538,8 @@ English data keys, regression calls), phase 2 (native tool calls: `order_execute
 `memory_search`, one tool registry for both engines) and phase 3 (personas, templates,
 primitives, a per-call agenda; "find out X" via `POST /api/objectives`) are done. Phase 4
 (memory on Postgres: per user, budgeted context, search, `MEMORY_BACKEND=json|pg`) is built
-and tested on PGlite; Supabase itself is still to be connected.
+and tested on PGlite; Supabase itself is still to be connected. Phase 5 (the admin page at
+`/admin`: "Frag Niko, …" → plan → card → approve → his answer) is done.
 
 ## 16. Status (2026-10-11)
 

@@ -293,7 +293,10 @@ async function load() {
   calls = body.calls; systemEntries = body.system;
   $("rec").textContent = body.recording ? "Recording on" : "Recording off";
   renderCalls(); renderSystem();
-  if (calls.length && !selected) select(calls[0].id);
+  // /monitor?call=<id> (the admin page links a request's call): open that call.
+  const wanted = new URLSearchParams(location.search).get("call");
+  if (wanted && !selected) { $("follow").checked = false; select(wanted); }
+  else if (calls.length && !selected) select(calls[0].id);
 }
 function connect() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/monitor-ws${q}`);

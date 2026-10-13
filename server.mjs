@@ -18,7 +18,10 @@ import { geminiEndpoint } from "./src/engine/gemini-endpoint.mjs";
 import { createFish } from "./src/engine/fish.mjs";
 import { createCallSession } from "./src/engine/session.mjs";
 import { createLiveSession } from "./src/engine/live-session.mjs";
-import { warmModel } from "./src/engine/gemini.mjs";
+import { warmModel, extractJsonResilient } from "./src/engine/gemini.mjs";
+import { createAuth } from "./src/admin/auth.mjs";
+import { createRequests } from "./src/admin/requests.mjs";
+import { createNotifier } from "./src/notify.mjs";
 import { createGeminiTts } from "./src/engine/gemini-tts.mjs";
 import { typingLoop } from "./src/engine/ambience.mjs";
 import { gain } from "./src/engine/audio.mjs";
@@ -49,6 +52,14 @@ const monitor = createMonitor();
 // Notes, customers, to-dos, the pilot's research, objectives ("find out X"):
 // MEMORY_BACKEND=json (DATA_DIR files) or pg (DATABASE_URL). Calendar and quotes stay JSON.
 const memory = await openMemory({ skill, endpoint, log });
+// Admin: login (ADMIN_CODE + TOTP), and requests: "find out X" → plan → card → approve → result.
+const auth = createAuth();
+const notifier = createNotifier();
+const plannerModels = [process.env.PLANNER_MODEL, MODEL, "gemini-2.5-flash"];
+const requests = createRequests({
+  memory, skill, auth, notifier, publicUrl: process.env.PUBLIC_URL ?? "", log,
+  llm: args => extractJsonResilient({ endpoint, models: plannerModels, think: true, timeoutMs: 45000, ...args }),
+});
 const calendar = createCalendar();
 const quotes = createQuotes();
 const company = JSON.parse(readFileSync(path.join(here, "config", "company.json"), "utf8"));
@@ -123,6 +134,8 @@ async function retryPending() {
   }
 }
 setTimeout(retryPending, 10000);
+// The admin's outbox: results he hasn't been told about yet (webhook / email).
+setInterval(() => requests.flushNotifications().catch(err => log("notify error", err.message)), 60 * 1000).unref();
 setInterval(retryPending, 5 * 60 * 1000).unref();
 
 const describe = c => (c.engine === "live" ? `Gemini Live · ${c.liveModel} · ${c.liveVoice}` : `${c.model} + ${c.tts === "gemini" ? "Gemini TTS" : "Fish"} · ${c.mask}`);
@@ -131,7 +144,18 @@ const describe = c => (c.engine === "live" ? `Gemini Live · ${c.liveModel} · $
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
 
 // With DEV_TOKEN set (do that on a public deploy), the API, monitor and test phone need ?token=.
-const authorized = url => !DEV_TOKEN || url.searchParams.get("token") === DEV_TOKEN;
+// An admin session (Authorization: Bearer …, or ?token= for the monitor's links) opens it too.
+const adminToken = (req, url) => req?.headers.authorization?.replace(/^Bearer\s+/i, "") || url.searchParams.get("token");
+const authorized = (url, req = null) => !DEV_TOKEN || url.searchParams.get("token") === DEV_TOKEN || Boolean(auth.session(adminToken(req, url)));
+// Admin routes: an admin session once ADMIN_CODE is set; before that, the dev rule above.
+const isAdmin = (req, url) => (auth.enabled ? Boolean(auth.session(adminToken(req, url))) : authorized(url, req));
+const readBody = req => new Promise((resolve, reject) => {
+  let body = "";
+  req.on("data", c => { body += c; if (body.length > 1e6) req.destroy(); });
+  req.on("end", () => { try { resolve(JSON.parse(body || "{}")); } catch { reject(Object.assign(new Error("not JSON"), { status: 400 })); } });
+  req.on("error", reject);
+});
+const clientIp = req => req.headers["fly-client-ip"] || req.socket.remoteAddress || "?";
 const json = (res, body, status = 200) => { res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };
 
 const server = http.createServer((req, res) => {
@@ -139,7 +163,37 @@ const server = http.createServer((req, res) => {
 });
 async function route(req, res) {
   const url = new URL(req.url, "http://x");
-  if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" && !authorized(url)) return json(res, { error: "token required" }, 401);
+  if (url.pathname === "/api/admin/login" && req.method === "POST") {
+    const { code, totp } = await readBody(req);
+    const out = auth.login({ code, totp, ip: clientIp(req) });
+    if (out.error) log(`admin login refused (${out.status})`);
+    return json(res, out.error ? { error: out.error } : out, out.status ?? 200);
+  }
+  if (url.pathname === "/admin") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    return res.end(readFileSync(path.join(here, "web", "admin.html")));
+  }
+  if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" && !authorized(url, req)) return json(res, { error: "token required" }, 401);
+  if (url.pathname === "/api/admin/me") return json(res, { admin: isAdmin(req, url), login: auth.enabled, twoFactor: auth.twoFactor, notify: notifier.channels });
+  if (/^\/api\/(requests|users|objectives)/.test(url.pathname) && !isAdmin(req, url)) return json(res, { error: "admin login required" }, 401);
+  if (url.pathname === "/api/users") return json(res, { users: await memory.listUsers() });
+  if (url.pathname === "/api/requests") {
+    if (req.method !== "POST") return json(res, { requests: (await requests.list()).map(r => requests.view(r)) });
+    try { return json(res, await requests.plan({ instruction: (await readBody(req)).instruction, by: "admin" }), 201); }
+    catch (err) { return json(res, { error: err.message }, err.status ?? 502); }
+  }
+  const requestMatch = url.pathname.match(/^\/api\/requests\/(req_[\w-]+)(?:\/(revise|approve|cancel))?$/);
+  if (requestMatch) {
+    const [, id, action] = requestMatch;
+    try {
+      if (!action) { const r = await requests.get(id); return r ? json(res, requests.view(r)) : json(res, { error: "no such request" }, 404); }
+      if (req.method !== "POST") return json(res, { error: "POST" }, 405);
+      const body = await readBody(req);
+      if (action === "revise") return json(res, await requests.revise(id, body));
+      if (action === "approve") { const r = await requests.approve(id, body); monitor.system(`request ${id} approved: ${r.card.summary || r.instruction}`); return json(res, { request: r }); }
+      return json(res, { request: await requests.cancel(id) });
+    } catch (err) { return json(res, { error: err.message }, err.status ?? 500); }
+  }
   if (url.pathname === "/api/calls") return json(res, { calls: monitor.list(), system: monitor.systemLog(), recording: monitor.record });
   if (url.pathname === "/api/config") {
     if (req.method === "POST") {
@@ -218,7 +272,7 @@ async function route(req, res) {
     return call ? json(res, call) : json(res, { error: "unknown call" }, 404);
   }
   if (url.pathname === "/monitor") {
-    if (!authorized(url)) return json(res, { error: "token required" }, 401);
+    if (!authorized(url, req)) return json(res, { error: "token required" }, 401);
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
     return res.end(readFileSync(path.join(here, "web", "monitor.html")));
   }
@@ -252,7 +306,7 @@ function verifySignature(header, callId) {
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url, "http://x");
   if (url.pathname === "/monitor-ws") {
-    if (!authorized(url)) return socket.destroy();
+    if (!authorized(url, req)) return socket.destroy();
     return wss.handleUpgrade(req, socket, head, ws => {
       const unsubscribe = monitor.subscribe(msg => ws.readyState === 1 && ws.send(JSON.stringify(msg)));
       ws.on("close", unsubscribe);
@@ -309,8 +363,9 @@ function attach(ws, { callId, dev }) {
           log: (...a) => log(`[${id.slice(-6)}]`, ...a),
           onEvent: ev => monitor.event(id, ev),
           onEnd: reason => {
-            scope.recordObjectives(agenda.results()).then(changed => {
+            scope.recordObjectives(agenda.results()).then(async changed => {
               for (const o of changed) monitor.system(`objective ${o.id}: ${o.status}${o.result?.questions ? ` · ${o.result.questions.map(q => `${q.id} ${q.status}${q.answer ? `: ${q.answer}` : ""}`).join("; ")}` : ""}`);
+              for (const r of await requests.objectivesChanged(changed)) if (r.status !== "approved") monitor.system(`request ${r.id}: ${r.status}`);
             }).catch(err => log("objectives error", err.message));
             monitor.end(id, reason);
           },

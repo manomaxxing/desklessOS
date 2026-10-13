@@ -1,0 +1,12 @@
+{
+  "lang": "de",
+  "before": [{ "adminRequest": "Frag Niko, wie lange sein letztes Angebot gedauert hat" }],
+  "says": [
+    "Ich komm grad vom Herrn Huber in Allensbach. Küche, Fliesenspiegel neu, so vier Meter. Angebot bis Freitag. Das war's.",
+    "Ja, passt.",
+    "Puh, so zwei Stunden, am Sonntagabend halt.",
+    "Keine Zeit mehr, tschüss."
+  ],
+  "must": [{ "saved": true }, { "api": { "path": "/api/requests", "match": "\"status\":\"done\"" } }],
+  "should": [{ "api": { "path": "/api/requests", "match": "zwei Stunden|2 Stunden|two hours" } }, { "event": "objective" }, { "noEvent": "error" }]
+}

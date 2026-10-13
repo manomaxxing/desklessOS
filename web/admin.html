@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DesklessOS Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #f5f5f7; --bg2: #ffffff; --glass: rgba(255,255,255,.72);
+    --ink: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6; --sep: rgba(0,0,0,.08); --fill: rgba(118,118,128,.12);
+    --blue: #0a84ff; --green: #1f9e46; --red: #d70015; --orange: #c93400; --sel: rgba(10,132,255,.09);
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06);
+    --g1: #4285f4; --g2: #9b72cb; --g3: #d96570; --g4: #f6b26b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
+      --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
+      --green: #30d158; --red: #ff453a; --orange: #ff9f0a; --sel: rgba(10,132,255,.18);
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
+    --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
+    --green: #30d158; --red: #ff453a; --orange: #ff9f0a; --sel: rgba(10,132,255,.18);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+  button, input, textarea { font: inherit; color: inherit; }
+  a { color: var(--blue); text-decoration: none; }
+  .bar { position: sticky; top: 0; z-index: 10; height: 56px; display: flex; align-items: center; gap: 16px; padding: 0 20px;
+    background: var(--glass); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--sep); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; letter-spacing: -0.02em; }
+  .brand i { width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(from 200deg, var(--g1), var(--g2), var(--g3), var(--g4), var(--g1)); }
+  .right { margin-left: auto; display: flex; gap: 12px; align-items: center; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .pill { background: var(--fill); padding: 3px 10px; border-radius: 99px; font-size: 12px; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 80px; }
+  h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 28px 4px 10px; }
+  .card { background: var(--bg2); border-radius: 16px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 12px; }
+  .card.hl { outline: 2px solid var(--blue); }
+  textarea, input[type=text], input[type=password], input[inputmode] { width: 100%; border: 1px solid var(--sep); background: var(--bg); border-radius: 10px; padding: 10px 12px; outline: none; }
+  textarea:focus, input:focus { border-color: var(--blue); }
+  textarea { resize: vertical; min-height: 72px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .btn { border: 0; border-radius: 10px; padding: 8px 16px; font-weight: 600; cursor: pointer; background: var(--fill); }
+  .btn.primary { background: var(--blue); color: #fff; }
+  .btn.danger { color: var(--red); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .muted { color: var(--muted); } .small { font-size: 13px; }
+  .title { font-weight: 600; font-size: 17px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .chip { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: var(--fill); color: var(--muted); }
+  .chip.draft { color: var(--blue); } .chip.approved { color: var(--orange); } .chip.done { color: var(--green); } .chip.expired, .chip.cancelled { color: var(--faint); }
+  dl { display: grid; grid-template-columns: 90px 1fr; gap: 4px 12px; margin: 12px 0 0; font-size: 14px; }
+  dt { color: var(--muted); } dd { margin: 0; }
+  .q { border-top: 1px solid var(--sep); padding: 10px 0 2px; margin-top: 10px; }
+  .q input { margin-top: 4px; }
+  .q .lab { font-size: 12px; color: var(--muted); }
+  .note { border-radius: 10px; padding: 8px 12px; margin-top: 10px; font-size: 14px; background: var(--fill); }
+  .note.warn { color: var(--orange); } .note.block { color: var(--red); }
+  .answer { margin-top: 6px; } .quote { color: var(--muted); font-style: italic; }
+  .empty { color: var(--muted); text-align: center; padding: 24px; }
+  .err { color: var(--red); font-size: 14px; margin-top: 8px; min-height: 1em; }
+  @media (max-width: 520px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } .bar { padding: 0 16px; } }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="brand"><i></i>DesklessOS Admin</div>
+  <div class="right"><span id="notify" class="pill hide-s"></span><a id="monitorLink" href="/monitor">Monitor</a><button id="logout" class="btn" style="padding:4px 10px;display:none">Log out</button></div>
+</div>
+<main>
+  <section id="login" class="card" style="display:none">
+    <div class="title">Log in</div>
+    <p class="muted small" id="loginHint">Your admin code.</p>
+    <input id="code" type="password" autocomplete="current-password" placeholder="Admin code">
+    <input id="totp" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code from your authenticator" style="display:none;margin-top:8px">
+    <div class="row"><button id="loginBtn" class="btn primary">Log in</button></div>
+    <div id="loginErr" class="err"></div>
+  </section>
+
+  <section id="app" style="display:none">
+    <div id="devNote" class="note warn" style="display:none;margin-bottom:12px">Dev mode: no ADMIN_CODE is set, so this page is open to anyone who can reach the server.</div>
+    <div class="card">
+      <div class="title">Find something out</div>
+      <p class="muted small">Say what you want to know and from whom. You'll see the questions before anything happens; they're asked at the end of that person's next call, after their own business.</p>
+      <textarea id="instruction" placeholder="Frag Niko, wie lange sein letztes Angebot gedauert hat"></textarea>
+      <div class="row"><button id="planBtn" class="btn primary">Plan it</button><span id="planBusy" class="muted small"></span></div>
+      <div id="planErr" class="err"></div>
+    </div>
+    <h2>Requests</h2>
+    <div id="list"><div class="empty">Nothing yet.</div></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+let token = "";
+try { token = sessionStorage.getItem("deskless-admin") || ""; } catch {}
+const devToken = new URLSearchParams(location.search).get("token") || "";
+let requests = [];
+const editing = new Map(); // request id → edited questions not yet saved
+
+async function api(path, body) {
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(devToken && !token ? `${path}${sep}token=${encodeURIComponent(devToken)}` : path, {
+    method: body ? "POST" : "GET",
+    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { showLogin(); throw new Error(data.error || "log in"); }
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+// ---------- login ----------
+function showLogin() { $("login").style.display = ""; $("app").style.display = "none"; $("logout").style.display = "none"; }
+async function login() {
+  $("loginErr").textContent = "";
+  try {
+    const res = await fetch("/api/admin/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: $("code").value, totp: $("totp").value }) });
+    const data = await res.json();
+    if (data.needTotp) { $("totp").style.display = ""; $("loginHint").textContent = "And the code from your authenticator app."; $("totp").focus(); return; }
+    if (!res.ok) throw new Error(data.error || "didn't work");
+    token = data.token;
+    try { sessionStorage.setItem("deskless-admin", token); } catch {}
+    $("code").value = ""; $("totp").value = "";
+    start();
+  } catch (err) { $("loginErr").textContent = err.message; }
+}
+$("loginBtn").onclick = login;
+for (const id of ["code", "totp"]) $(id).onkeydown = e => { if (e.key === "Enter") login(); };
+$("logout").onclick = () => { token = ""; try { sessionStorage.removeItem("deskless-admin"); } catch {} showLogin(); };
+
+// ---------- requests ----------
+const callLink = id => `/monitor?call=${encodeURIComponent(id)}${token ? `&token=${encodeURIComponent(token)}` : devToken ? `&token=${encodeURIComponent(devToken)}` : ""}`;
+const STATUS = { draft: "waiting for your OK", approved: "asked in his next call", done: "answered", expired: "expired", cancelled: "cancelled" };
+
+function questionsBlock(view) {
+  const r = view.request;
+  if (r.status === "draft") {
+    const qs = editing.get(r.id) ?? r.card.questions;
+    return qs.map((q, i) => `<div class="q"><div class="lab">Question ${i + 1}${q.required === false ? " · only if he has time" : ""}</div>
+      <input type="text" data-req="${r.id}" data-i="${i}" data-k="ask" value="${esc(q.ask)}">
+      <div class="lab" style="margin-top:6px">If his answer is vague, one follow-up</div>
+      <input type="text" data-req="${r.id}" data-i="${i}" data-k="probe" value="${esc(q.probe)}" placeholder="(none)"></div>`).join("");
+  }
+  const answers = r.result?.questions ?? r.card.questions.map(q => ({ ask: q.ask, status: "not_asked" }));
+  return answers.map(q => `<div class="q"><div>${esc(q.ask)}</div>
+    <div class="answer">${q.status === "answered" || q.status === "vague" ? `<b>${esc(q.answer)}</b>${q.quote ? ` <span class="quote">“${esc(q.quote)}”</span>` : ""}${q.status === "vague" ? ' <span class="chip">vague</span>' : ""}` : `<span class="muted">${esc((q.status || "not asked").replace("_", " "))}</span>`}</div></div>`).join("");
+}
+
+function render() {
+  if (!requests.length) { $("list").innerHTML = '<div class="empty">Nothing yet.</div>'; return; }
+  $("list").innerHTML = requests.map(view => {
+    const r = view.request, c = r.card;
+    const calls = r.result?.calls ?? [];
+    return `<div class="card${location.hash === `#${r.id}` ? " hl" : ""}" id="${r.id}">
+      <div class="title">${esc(c.title)} <span class="chip ${r.status}">${esc(STATUS[r.status] ?? r.status)}</span></div>
+      <div class="muted small" style="margin-top:2px">${esc(r.instruction)}</div>
+      ${c.summary ? `<p style="margin:10px 0 0">${esc(c.summary)}</p>` : ""}
+      <dl><dt>Who</dt><dd>${esc(c.who)}</dd><dt>When</dt><dd>${esc(c.when)}</dd>${c.purpose ? `<dt>Why</dt><dd>${esc(c.purpose)}</dd>` : ""}
+      ${calls.length ? `<dt>Calls</dt><dd>${calls.map((id, i) => `<a href="${callLink(id)}" target="_blank">call ${i + 1}</a>`).join(", ")}</dd>` : ""}</dl>
+      ${questionsBlock(view)}
+      ${r.status === "draft" ? [
+        ...c.blocked.map(b => `<div class="note block">Can't approve: ${esc(b)}</div>`),
+        ...c.warnings.map(w => `<div class="note warn">${esc(w)}</div>`),
+        ...c.clarifications.map(q => `<div class="note">${esc(q)}</div>`),
+      ].join("") : ""}
+      ${r.status === "draft" ? `
+        <div class="row"><input type="text" id="answer-${r.id}" placeholder="${c.clarifications.length ? "Answer, and it plans again" : "Change something? Say it, and it plans again"}"></div>
+        <div class="row">
+          <button class="btn primary" data-act="approve" data-id="${r.id}" ${view.confirmToken && !editing.has(r.id) ? "" : "disabled"}>Approve</button>
+          <button class="btn" data-act="save" data-id="${r.id}" ${editing.has(r.id) ? "" : "disabled"}>Save my edits</button>
+          <button class="btn" data-act="replan" data-id="${r.id}">Plan again</button>
+          <button class="btn danger" data-act="cancel" data-id="${r.id}">Discard</button>
+        </div><div class="err" id="err-${r.id}"></div>` : r.status === "approved" ? `<div class="row"><button class="btn danger" data-act="cancel" data-id="${r.id}">Withdraw</button></div><div class="err" id="err-${r.id}"></div>` : ""}
+    </div>`;
+  }).join("");
+  for (const input of document.querySelectorAll("input[data-req]")) input.oninput = () => {
+    const id = input.dataset.req;
+    const view = requests.find(v => v.request.id === id);
+    const qs = structuredClone(editing.get(id) ?? view.request.card.questions);
+    qs[Number(input.dataset.i)][input.dataset.k] = input.value;
+    editing.set(id, qs);
+    for (const b of document.querySelectorAll(`button[data-id="${id}"]`)) {
+      if (b.dataset.act === "save") b.disabled = false;
+      if (b.dataset.act === "approve") b.disabled = true; // approve exactly what's saved
+    }
+  };
+  for (const b of document.querySelectorAll("button[data-act]")) b.onclick = () => act(b.dataset.act, b.dataset.id, b);
+  if (location.hash) document.querySelector(location.hash)?.scrollIntoView({ block: "center" });
+}
+
+async function act(what, id, button) {
+  const view = requests.find(v => v.request.id === id);
+  const err = $(`err-${id}`);
+  if (err) err.textContent = "";
+  button.disabled = true;
+  try {
+    if (what === "approve") await api(`/api/requests/${id}/approve`, { confirmToken: view.confirmToken });
+    if (what === "save") { await api(`/api/requests/${id}/revise`, { edits: { questions: editing.get(id) } }); editing.delete(id); }
+    if (what === "replan") {
+      const answer = $(`answer-${id}`)?.value.trim();
+      if (!answer) throw new Error("say what should change");
+      button.textContent = "Planning…";
+      await api(`/api/requests/${id}/revise`, { answer });
+      editing.delete(id);
+    }
+    if (what === "cancel") await api(`/api/requests/${id}/cancel`, {});
+    await refresh();
+  } catch (e) { if (err) err.textContent = e.message; button.disabled = false; button.textContent = { approve: "Approve", save: "Save my edits", replan: "Plan again", cancel: "Discard" }[what] ?? button.textContent; }
+}
+
+$("planBtn").onclick = async () => {
+  const instruction = $("instruction").value.trim();
+  if (!instruction) return;
+  $("planErr").textContent = "";
+  $("planBtn").disabled = true;
+  $("planBusy").textContent = "Planning… (a few seconds)";
+  try {
+    const view = await api("/api/requests", { instruction });
+    $("instruction").value = "";
+    location.hash = view.request.id;
+    await refresh();
+  } catch (e) { $("planErr").textContent = e.message; }
+  $("planBtn").disabled = false;
+  $("planBusy").textContent = "";
+};
+
+async function refresh() {
+  const data = await api("/api/requests");
+  requests = data.requests;
+  // Don't re-render under someone typing into a card.
+  if (document.activeElement?.matches?.("input[data-req], input[id^=answer-]")) return;
+  render();
+}
+
+async function start() {
+  try {
+    const me = await (await fetch(`/api/admin/me${devToken ? `?token=${encodeURIComponent(devToken)}` : ""}`, { headers: token ? { authorization: `Bearer ${token}` } : {} })).json();
+    if (!me.admin) return showLogin();
+    $("login").style.display = "none"; $("app").style.display = "";
+    $("logout").style.display = me.login ? "" : "none";
+    $("devNote").style.display = me.login ? "none" : "";
+    $("notify").textContent = me.notify?.length ? `results by ${me.notify.join(" + ")}` : "results here only";
+    if (token) $("monitorLink").href = `/monitor?token=${encodeURIComponent(token)}`;
+    else if (devToken) $("monitorLink").href = `/monitor?token=${encodeURIComponent(devToken)}`;
+    await refresh();
+  } catch (e) { showLogin(); }
+}
+start();
+setInterval(() => { if ($("app").style.display !== "none") refresh().catch(() => {}); }, 10000);
+</script>
+</body>
+</html>

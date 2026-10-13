@@ -19,7 +19,8 @@
 //   {"falseStart": true} {"maxFirstAudioMs": 4000}
 //   {"tool": "order_execute"}  the tool ran (status ok)    {"count": {"workflow": 1}}  exactly n such events
 //   {"api": {"path": "/api/objectives", "match": "regex"}}  what the server says after the call
-// "before": [{ "post": "/api/objectives", "body": {…} }] runs before the call (e.g. Max's question).
+// "before": [{ "post": "/api/objectives", "body": {…} }] runs before the call (e.g. Max's question);
+//   [{ "adminRequest": "Frag Niko, …" }] plans it like the admin page and approves the card.
 
 import { spawn, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, mkdtempSync, rmSync, existsSync, cpSync } from "node:fs";
@@ -119,9 +120,19 @@ for (const folder of folders) {
       let error = null;
       const api = {};
       try {
+        const post = async (p, body) => {
+          const res = await fetch(`http://localhost:${port}${p}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+          if (!res.ok) throw new Error(`before: POST ${p} → ${res.status} ${await res.text()}`);
+          return res.json();
+        };
         for (const b of sc.before ?? []) {
-          const res = await fetch(`http://localhost:${port}${b.post}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b.body ?? {}) });
-          if (!res.ok) throw new Error(`before: POST ${b.post} → ${res.status} ${await res.text()}`);
+          if (b.post) await post(b.post, b.body);
+          if (b.adminRequest) {
+            const { request, confirmToken } = await post("/api/requests", { instruction: b.adminRequest });
+            if (!confirmToken) throw new Error(`before: the card can't be approved: ${JSON.stringify(request.card)}`);
+            console.log(`\n   card: ${request.card.summary} · ${request.card.questions.map(q => `"${q.ask}"`).join(" ")}`);
+            await post(`/api/requests/${request.id}/approve`, { confirmToken });
+          }
         }
         let callId;
         ({ events, callId } = await runCall({ url: `ws://localhost:${port}/dial`, lang: sc.lang, says: sc.says, config: sc.config ?? {}, from: sc.from }));

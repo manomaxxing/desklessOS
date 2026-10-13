@@ -118,7 +118,8 @@ export async function extractJsonResilient({ models, timeoutMs = 15000, hedgeMs 
   });
 }
 
-export async function extractJson({ endpoint, model, system, prompt, schema, signal, timeoutMs = 30000, onUsage = () => {} }) {
+// `think`: let the model think first (offline work like the admin's planner, where seconds don't matter).
+export async function extractJson({ endpoint, model, system, prompt, schema, signal, timeoutMs = 30000, think = false, onUsage = () => {} }) {
   const response = await fetch(endpoint.url(model, "generateContent"), {
     method: "POST",
     headers: await endpoint.headers(),
@@ -128,10 +129,10 @@ export async function extractJson({ endpoint, model, system, prompt, schema, sig
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 2000,
+        maxOutputTokens: think ? 6000 : 2000, // thinking counts against it
         responseMimeType: "application/json",
         responseSchema: schema,
-        thinkingConfig: thinkingConfig(model),
+        thinkingConfig: thinkingConfig(model, think ? 2048 : 0),
       },
     }),
   });
