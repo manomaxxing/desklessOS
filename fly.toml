@@ -5,6 +5,8 @@
 #     GOOGLE_CLOUD_PROJECT=… GOOGLE_SERVICE_ACCOUNT_JSON="$(base64 -w0 sa.json)" \
 #     DIAL_SIGNING_SECRET=… DEV_TOKEN=…
 #   (or GEMINI_BACKEND=studio GEMINI_API_KEY=… instead of the Vertex pair)
+#   memory on Postgres (Supabase, eu-central-1, session pooler or direct connection):
+#     fly secrets set MEMORY_BACKEND=pg DATABASE_URL=postgres://…   (move the JSON first: scripts/migrate-json-to-pg.mjs)
 #   fly deploy
 #   npm run dial -- activate wss://deskless-os.fly.dev/dial
 

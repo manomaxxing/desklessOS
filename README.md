@@ -102,7 +102,8 @@ on "yes, go ahead"), checking what each must and should produce, and printing
 first-audio latency. A folder named `<skill>+<variant>` starts from a copy of its
 `_seed/` data (`pilot+memory`: 30 customers, a briefing that needs `memory_search`;
 `pilot+inquiry`: Max's question posted before the call, its answer checked after).
-Run it before every merge; `npm test` stays offline.
+`-- --backend pg` runs the same calls with memory on Postgres (PGlite per folder; seeds
+go through `scripts/migrate-json-to-pg.mjs`). Run it before every merge; `npm test` stays offline.
 
 ## One protocol, three ways to call
 
@@ -190,10 +191,31 @@ Realtime and Google's Live best practices.
   with the full specs from their latest 3 notes (area, tile, wishes, next steps).
   So a briefing can answer "what format did she want?" for any of them, not
   just the last few calls.
-- **Storage** is JSON on disk under `DATA_DIR` (default `data/`: `notes/`,
-  `memory/`, `calls/`). Writes are atomic. A corrupt file stops the write
-  instead of being replaced with an empty one; a `.corrupt-<ts>` copy is kept.
-  On Fly, `DATA_DIR=/data` is the volume.
+- **Storage** (`MEMORY_BACKEND`): `json` (default) keeps everything as JSON on
+  disk under `DATA_DIR` (default `data/`: `notes/`, `memory/`, `calls/`). Writes
+  are atomic. A corrupt file stops the write instead of being replaced with an
+  empty one; a `.corrupt-<ts>` copy is kept. On Fly, `DATA_DIR=/data` is the volume.
+  Calendar, quotes and call recordings stay there in either mode.
+- **Memory on Postgres** (`MEMORY_BACKEND=pg`, `DATABASE_URL`: Supabase EU, or
+  `pglite:<dir>` locally; `src/memory/pg.mjs`, schema in `src/db/migrations/`,
+  applied on start):
+  - **Per user.** The caller ID picks the user (`users.phone_e164`); with one user
+    every call is theirs (the pilot); an unknown caller among several users gets an
+    empty memory and nothing is saved. The first start creates the org and user from
+    the persona's profile.
+  - **Budgeted context.** When the call connects, the MEMORY block is built once
+    (`src/memory/context.mjs`, 2,500 tokens): what we know about him, up to 10 open
+    to-dos, the 8 most relevant customers (recent, open to-dos, due soon) with their
+    latest notes, then the next 40 by name. Everything else is for `memory_search`:
+    sound-alike names (trigram) and notes and facts by meaning (embeddings,
+    `text-multilingual-embedding-002`).
+  - **The post-call step** turns the memory model's answer into typed changes in one
+    transaction, claimed per call (`calls.consolidated_at`), so a retry never doubles
+    anything. Failed ones are retried from the `calls` table. Research findings are
+    facts tagged `area:` / `hyp:` / `stance:`, with his words and the call they came from.
+  - **Moving over:** `node scripts/migrate-json-to-pg.mjs --dry-run`, then with
+    `DATABASE_URL` set (re-runnable; `--embed` fills in the embeddings), then
+    `MEMORY_BACKEND=pg`. `MEMORY_BACKEND=json` is the way back.
 - **Cost per call** (`src/engine/cost.mjs`): Gemini tokens (text, audio,
   output) for the conversation, note extraction and memory step; Fish bytes
   (with what the paid tier would cost); call minutes (set `DIAL_USD_PER_MIN`).
@@ -283,6 +305,8 @@ templates/<id>.json        capabilities (note, briefing, agenda, order) and obje
 src/agenda/                primitives, per-call agenda, prompt and extraction assembly
 src/skills/from-templates.mjs  a skill from a persona and its templates
 src/store/objectives.mjs   data/agenda/objectives.json: what the agent should find out
+src/memory/                memory v2: per-call scope, JSON or Postgres backend, budgeted context
+src/db/                    Postgres client (Supabase or PGlite) and migrations
 config/discovery.json      the research framework: key question, hypotheses, areas, questions
 locales/<id>.json          everything language-specific (see Languages)
 src/locale/                loads packs, picks the call's language, checks completeness

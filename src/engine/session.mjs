@@ -8,7 +8,9 @@
 // Tools (Gemini function calling, src/tools/): at most two model calls per turn,
 // the answer with the tool call, then the follow-up with its result.
 // What the call is about (prompt, note schema, Max's questions) comes from its
-// agenda (src/agenda/agenda.mjs), built from the persona and templates.
+// agenda (src/agenda/agenda.mjs), built from the persona and templates; what we
+// know about him from `memory`, the call's memory scope (src/memory/), read once
+// when the call connected.
 // `config` (from the mode selector): { model, tts: "fish"|"gemini", mask: "typing"|"filler"|"none" }.
 
 import { createVad } from "./vad.mjs";
@@ -53,13 +55,13 @@ const pick = (arr, i) => (Array.isArray(arr) ? arr[i % arr.length] : arr);
 
 // `onEvent` feeds the monitor (every call); dev callers also get the events inline.
 // `recordDir(callId)` → directory for per-turn audio, or null to not record.
-export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, geminiTts, store, memory, office = null, assets, config = {}, initialTurns = [], initialLang = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null }) {
+export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, geminiTts, memory = null, office = null, assets, config = {}, initialTurns = [], initialLang = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null }) {
   const cfg = { model, tts: "fish", mask: "typing", ...Object.fromEntries(Object.entries(config).filter(([, v]) => v)) };
   const fastModel = cfg.model;
   const slowModel = extractModel || model; // notes and memory stay on one model so modes compare fairly
   const fallbackModel = process.env.FALLBACK_MODEL || (fastModel === "gemini-2.5-flash" ? "gemini-3.5-flash" : "gemini-2.5-flash");
   // The tools this call's templates may use (src/tools/).
-  const runner = createToolRunner({ tools: callTools({ engine: "cascade", office, memory, store, allow: agenda.tools() }) });
+  const runner = createToolRunner({ tools: callTools({ engine: "cascade", office, memory, allow: agenda.tools() }) });
   let toolDecls = null;
   const declarations = () => (toolDecls ??= runner.declarations());
   const meter = createMeter();
@@ -477,6 +479,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       // calls the tool in the same breath would ride on an earlier yes, e.g. to the email read-back).
       confirmed: turn.prevNext === "confirm" && next !== "confirm" && next !== "ask",
       latestNote: freshNote, // the draft, his latest words included
+      memory,
       emit: (event, data) => debug(event, { turn: turn.id, ...data }),
       log,
       mayWrite: writeWindow,
@@ -546,7 +549,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
 
     try {
       const tools = declarations();
-      const system = agenda.prompt({ engine: "cascade", note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang, tools: tools.map(t => t.name) });
+      const system = agenda.prompt({ engine: "cascade", note, missing, memory: memory?.context ?? "", office: office?.context(lang) ?? "", lang, tools: tools.map(t => t.name) });
       const extra = force ? "(The caller is speaking in the audio above. He has now been silent for a few seconds: his thought is complete, so respond. Do not answer wait.)" : undefined;
       const request = { system, history: turns.slice(-16), audio, text, extra, tools };
       const calls = [];
@@ -652,11 +655,11 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       const spoke = turns.some(t => t.role === "user" && !locales().unclear.test(t.text));
       if (spoke) await refreshNote();
       let saved = null;
-      if (agenda.worthSaving(note)) {
-        saved = store.save({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, transcript: turns });
-        log("saved note", saved.id);
-        debug("saved", { id: saved.id });
+      if (memory && agenda.worthSaving(note)) {
+        saved = await memory.saveNote({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, transcript: turns });
+        if (saved) { log("saved note", saved.id); debug("saved", { id: saved.id }); }
       }
+      await memory?.endCall({ turns, reason, lang, consolidate: spoke, note, noteId: saved?.id ?? null });
       if (spoke && memory) await consolidate(saved?.id);
     })()
       .catch(err => fail("finalize", err))
@@ -673,13 +676,13 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     const job = { turns, note, callId: call.id, noteId, lang, date: new Date().toISOString().slice(0, 10) };
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const { result, changed } = await consolidateCall({ endpoint, model: slowModel, skill, memory, store, ...job, onUsage: u => record("memory", u) });
+        const { result, changed } = await consolidateCall({ endpoint, model: slowModel, skill, memory, ...job, onUsage: u => record("memory", u) });
         log(`memory: ${result.call_type}, +${changed.added.length} to-dos, ${changed.completed.length} done`);
         debug("memory", { callType: result.call_type, summary: result.call_summary, customer: changed.customer, added: changed.added, completed: changed.completed, updated: changed.updated });
         return;
       } catch (err) {
         if (attempt === 0) { await sleep(1500); continue; }
-        memory.savePending(job); // retried by the server later, so nothing from the call is lost
+        await memory.consolidationFailed(job, err); // retried by the server later, so nothing from the call is lost
         fail("memory", new Error(`${err.message} (queued for retry)`));
       }
     }

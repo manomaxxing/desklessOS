@@ -10,7 +10,7 @@ const fill = (tpl, vars) => tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "");
 const isoDay = d => d.toISOString().slice(0, 10);
 const addDays = (iso, n) => isoDay(new Date(new Date(`${iso}T12:00:00`).getTime() + n * 86400000));
 
-export function createOffice({ company, catalog, calendar, quotes, memory }) {
+export function createOffice({ company, catalog, calendar, quotes }) {
   const cur = company.currency ?? catalog.currency ?? "USD";
   const fmt = (n, lang) => money(n, lang, cur);
   const catalogLines = lang => catalog.items.map(i => `- ${i.id} | ${i.name[lang] ?? i.name[company.lang]} | ${i.price.toFixed(2)} ${cur} / ${i.unit}${i.taxable === false ? " (labor/service, not taxed)" : ""}`).join("\n");
@@ -32,12 +32,16 @@ export function createOffice({ company, catalog, calendar, quotes, memory }) {
       ].join("\n\n");
     },
 
-    /** Executes the confirmed order draft. Returns what was created plus a one-line summary for the agent. */
-    execute({ draft, lang = company.lang, callId = null }) {
+    /**
+     * Executes the confirmed order draft. Customer and to-dos go to `memory` (the call's
+     * memory scope); calendar and quote stay in their JSON stores. Returns what was created
+     * plus a one-line summary for the agent.
+     */
+    async execute({ draft, lang = company.lang, callId = null, memory }) {
       const text = locales().document(lang, "order");
       const done = { customer: null, event: null, todos: [], quote: null, email: null };
       const name = draft.customer_name?.trim();
-      done.customer = memory.upsertCustomer(
+      done.customer = await memory.upsertCustomer(
         { name, company: draft.customer_company, email: draft.customer_email, phone: draft.customer_phone, address: draft.address, place: draft.place },
         { callId, summary: draft.summary || "" },
       );
@@ -72,7 +76,7 @@ export function createOffice({ company, catalog, calendar, quotes, memory }) {
 
       if (draft.add_todo !== false) {
         const todos = draft.todos?.length ? draft.todos : [{ text: fill(text.followUpTodo, { name }), due: addDays(isoDay(new Date()), 3) }];
-        for (const t of todos) if (t.text) done.todos.push(memory.addAction({ text: t.text, due: t.due || "", customerId: done.customer?.id ?? null, customerName: name, sourceCallId: callId }));
+        for (const t of todos) if (t.text) done.todos.push(await memory.addAction({ text: t.text, due: t.due || "", customerId: done.customer?.id ?? null, customerName: name, sourceCallId: callId }));
       }
 
       if (draft.send_quote !== false && lines.length) {

@@ -61,8 +61,9 @@ export function createToolRunner({ tools, onRun = () => {} }) {
   async function run(call, ctx) {
     const started = performance.now();
     const tool = byName.get(call.name);
+    let key = null;
     const finish = (status, result) => {
-      const outcome = { id: call.id ?? null, name: call.name, args: call.args ?? {}, status, result, summary: String(result?.summary ?? result?.error ?? "").slice(0, 300), ms: Math.round(performance.now() - started) };
+      const outcome = { id: call.id ?? null, name: call.name, args: call.args ?? {}, status, result, summary: String(result?.summary ?? result?.error ?? "").slice(0, 300), ms: Math.round(performance.now() - started), key };
       onRun(outcome);
       return outcome;
     };
@@ -76,7 +77,7 @@ export function createToolRunner({ tools, onRun = () => {} }) {
         const result = await unlessAborted(withTimeout(Promise.resolve(tool.run(input, ctx)), tool.timeoutMs), ctx.signal);
         return finish("ok", asObject(result));
       }
-      const key = `${ctx.callId}:${tool.name}:${hashValue(tool.key ? tool.key(input) : input)}`;
+      key = `${ctx.callId}:${tool.name}:${hashValue(tool.key ? tool.key(input) : input)}`;
       if (writes.has(key)) return finish("repeated", { ...asObject(await writes.get(key)), already_done: true });
       if (ctx.mayWrite && !(await ctx.mayWrite(tool))) return finish("skipped", { error: "the turn was taken back before this ran" });
       if (writes.has(key)) return finish("repeated", { ...asObject(await writes.get(key)), already_done: true });

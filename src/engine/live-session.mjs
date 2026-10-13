@@ -25,14 +25,14 @@ import { callTools } from "../tools/index.mjs";
 
 const MARK_EVERY_MS = 800; // playback checkpoints, to know how much the caller actually heard
 
-export function createLiveSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, extractModel, store, memory, office = null, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null }) {
+export function createLiveSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, extractModel, memory = null, office = null, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null }) {
   const cfg = { liveModel: "vertex-eu:gemini-3.8-live", liveVoice: "Kore", mask: "typing", ...config };
   // Live answers fast, but thinks before longer replies (the wrap-up summary): type meanwhile.
   const typist = assets.typing && cfg.mask === "typing" ? createTypist(assets.typing, chunk => send({ type: "media", payload: chunk.toString("base64") })) : null;
   let typingTimer = null;
   const stopTyping = () => { clearTimeout(typingTimer); typist?.stop(); };
   const target = liveTarget(cfg.liveModel);
-  const runner = createToolRunner({ tools: callTools({ engine: "live", office, memory, store, allow: agenda.tools() }) });
+  const runner = createToolRunner({ tools: callTools({ engine: "live", office, memory, allow: agenda.tools() }) });
   const meter = createMeter();
   const debug = (event, data = {}) => { onEvent({ event, ...data }); if (dev) send({ type: "debug", event, ...data, t: Date.now() }); };
   const fail = (where, err) => { log(`${where} error`, err.message); debug("error", { where, message: err.message }); };
@@ -106,7 +106,7 @@ export function createLiveSession({ send, dev = false, skill, agenda = skill.cre
             responseModalities: ["AUDIO"],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.liveVoice } }, ...(target.vertex ? { languageCode: locales().bcp47(lang) } : {}) },
           },
-          systemInstruction: { parts: [{ text: agenda.prompt({ engine: "live", note, missing, memory: memory?.context({ notes: store.list() }) ?? "", office: office?.context(lang) ?? "", lang }) }] },
+          systemInstruction: { parts: [{ text: agenda.prompt({ engine: "live", note, missing, memory: memory?.context ?? "", office: office?.context(lang) ?? "", lang }) }] },
           realtimeInputConfig: {
             automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: "START_SENSITIVITY_LOW", endOfSpeechSensitivity: "END_SENSITIVITY_LOW", prefixPaddingMs: 100, silenceDurationMs: Number(process.env.LIVE_SILENCE_MS || 800) },
             activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
@@ -239,6 +239,7 @@ export function createLiveSession({ send, dev = false, skill, agenda = skill.cre
       get lang() { return lang; },
       confirmed: true,
       latestNote: () => { commitUser(); return extractNote({ hedgeMs: 3500 }); },
+      memory,
       emit: (event, data) => debug(event, { turn: turnSeq, ...data }),
       log,
       hangup: () => {
@@ -279,12 +280,12 @@ export function createLiveSession({ send, dev = false, skill, agenda = skill.cre
     const job = { turns, note, callId: call.id, noteId, lang, date: new Date().toISOString().slice(0, 10) };
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const { result, changed } = await consolidateCall({ endpoint, model: extractModel, skill, memory, store, ...job, onUsage: u => record("memory", u, null, extractModel) });
+        const { result, changed } = await consolidateCall({ endpoint, model: extractModel, skill, memory, ...job, onUsage: u => record("memory", u, null, extractModel) });
         debug("memory", { callType: result.call_type, summary: result.call_summary, customer: changed.customer, added: changed.added, completed: changed.completed, updated: changed.updated });
         return;
       } catch (err) {
         if (attempt === 0) { await new Promise(r => setTimeout(r, 1500)); continue; }
-        memory.savePending(job);
+        await memory.consolidationFailed(job, err);
         fail("memory", new Error(`${err.message} (queued for retry)`));
       }
     }
@@ -302,10 +303,11 @@ export function createLiveSession({ send, dev = false, skill, agenda = skill.cre
       const spoke = turns.some(t => t.role === "user");
       if (spoke) await refreshNote();
       let saved = null;
-      if (agenda.worthSaving(note)) {
-        saved = store.save({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, engine: "live", transcript: turns });
-        debug("saved", { id: saved.id });
+      if (memory && agenda.worthSaving(note)) {
+        saved = await memory.saveNote({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, engine: "live", transcript: turns });
+        if (saved) debug("saved", { id: saved.id });
       }
+      await memory?.endCall({ turns, reason, lang, consolidate: spoke, note, noteId: saved?.id ?? null });
       if (spoke && memory) await consolidate(saved?.id);
     })()
       .catch(err => fail("finalize", err))

@@ -6,5 +6,10 @@ RUN npm ci --omit=dev || npm install --omit=dev
 COPY server.mjs ./
 COPY src ./src
 COPY web ./web
+# read at startup: company and research config, languages, personas, templates
+COPY config ./config
+COPY locales ./locales
+COPY personas ./personas
+COPY templates ./templates
 EXPOSE 8787
 CMD ["node", "server.mjs"]

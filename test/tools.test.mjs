@@ -110,28 +110,29 @@ test("order_execute: the same order is the same write, however it's worded", () 
 });
 
 test("callTools: what each engine gets", () => {
-  const memory = createMemory(mkdtempSync(path.join(tmpdir(), "tools-mem-")));
-  const store = { list: () => [] };
-  assert.deepEqual(callTools({ engine: "cascade", office: { execute() {} }, memory, store }).map(t => t.name), ["order_execute", "memory_search"]);
-  assert.deepEqual(callTools({ engine: "live", memory, store }).map(t => t.name), ["memory_search", "end_call"]);
+  const memory = { hidden: 0, search: async () => [] };
+  assert.deepEqual(callTools({ engine: "cascade", office: { execute() {} }, memory }).map(t => t.name), ["order_execute", "memory_search"]);
+  assert.deepEqual(callTools({ engine: "live", memory }).map(t => t.name), ["memory_search", "end_call"]);
+  assert.deepEqual(callTools({ engine: "cascade", office: { execute() {} }, memory, allow: ["memory_search"] }).map(t => t.name), ["memory_search"], "only what the call's templates allow");
 });
 
 test("memory_search: offered only when the prompt can't show everyone; finds by sound-alike name", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "tools-mem-"));
   try {
-    const memory = createMemory(dir);
-    const store = { list: () => [] };
-    const runner = () => createToolRunner({ tools: callTools({ engine: "cascade", memory, store }) });
-    memory.upsertCustomer({ name: "Familie Kowalski", place: "Radolfzell", summary: "Bad im OG, 12 m² Feinsteinzeug 60x60 anthrazit." }, { date: "2026-01-05" });
+    const store = createMemory(dir);
+    // the call's memory scope, as the JSON backend builds it
+    const scope = () => ({ hidden: store.hidden({ notes: [] }), search: async q => store.search(q, { notes: [] }) });
+    const runner = () => createToolRunner({ tools: callTools({ engine: "cascade", memory: scope() }) });
+    store.upsertCustomer({ name: "Familie Kowalski", place: "Radolfzell", summary: "Bad im OG, 12 m² Feinsteinzeug 60x60 anthrazit." }, { date: "2026-01-05" });
     assert.deepEqual(runner().declarations(), [], "everyone fits in the prompt");
-    for (let i = 0; i < 25; i++) memory.upsertCustomer({ name: `Kunde ${i}`, place: "Konstanz", summary: `Job ${i}` }, { date: `2026-09-${String(i + 1).padStart(2, "0")}` });
-    assert.equal(memory.hidden({ notes: [] }), 1);
+    for (let i = 0; i < 25; i++) store.upsertCustomer({ name: `Kunde ${i}`, place: "Konstanz", summary: `Job ${i}` }, { date: `2026-09-${String(i + 1).padStart(2, "0")}` });
+    assert.equal(store.hidden({ notes: [] }), 1);
     assert.deepEqual(runner().declarations().map(d => d.name), ["memory_search"]);
     const found = await runner().run({ name: "memory_search", args: { query: "Kowalsky in Radolfzell" } }, ctx());
     assert.equal(found.status, "ok");
     assert.equal(found.result.results[0].name, "Familie Kowalski");
     assert.match(found.result.results[0].summary, /anthrazit/);
-    assert.equal(memory.search("anthrazit", { notes: [] })[0].name, "Familie Kowalski", "other words are found in what we know");
-    assert.deepEqual(memory.search("und die", { notes: [] }), [], "stopwords alone find nothing");
+    assert.equal(store.search("anthrazit", { notes: [] })[0].name, "Familie Kowalski", "other words are found in what we know");
+    assert.deepEqual(store.search("und die", { notes: [] }), [], "stopwords alone find nothing");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

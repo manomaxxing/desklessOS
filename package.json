@@ -22,6 +22,11 @@
     "locale:check": "node scripts/locale-check.mjs"
   },
   "dependencies": {
+    "postgres": "3.4.9",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-pgvector": "0.0.9"
   }
 }

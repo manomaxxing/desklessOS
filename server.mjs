@@ -24,11 +24,8 @@ import { typingLoop } from "./src/engine/ambience.mjs";
 import { gain } from "./src/engine/audio.mjs";
 import { locales } from "./src/locale/index.mjs";
 import { consolidateCall } from "./src/engine/consolidate.mjs";
-import { createNotesStore } from "./src/store/notes.mjs";
 import { createMonitor } from "./src/monitor.mjs";
-import { createMemory } from "./src/store/memory.mjs";
-import { createDiscovery, withDiscovery } from "./src/store/discovery.mjs";
-import { createObjectives } from "./src/store/objectives.mjs";
+import { openMemory } from "./src/memory/index.mjs";
 import { loadSkill } from "./src/skills/index.mjs";
 import { createCalendar } from "./src/store/calendar.mjs";
 import { createQuotes } from "./src/store/quotes.mjs";
@@ -48,28 +45,27 @@ const skill = await loadSkill(SKILL);
 const log = (...args) => console.log(new Date().toISOString().slice(11, 19), ...args);
 const endpoint = geminiEndpoint();
 const fish = createFish();
-const store = createNotesStore();
 const monitor = createMonitor();
-// The pilot skill brings a research framework; its findings live beside long-term memory.
-const discovery = skill.framework ? createDiscovery({ framework: skill.framework }) : null;
-const memory = discovery ? withDiscovery(createMemory(), discovery) : createMemory();
-// What the agent should bring into calls ("find out X"), from objective templates.
-const objectives = createObjectives({ skill });
+// Notes, customers, to-dos, the pilot's research, objectives ("find out X"):
+// MEMORY_BACKEND=json (DATA_DIR files) or pg (DATABASE_URL). Calendar and quotes stay JSON.
+const memory = await openMemory({ skill, endpoint, log });
 const calendar = createCalendar();
 const quotes = createQuotes();
 const company = JSON.parse(readFileSync(path.join(here, "config", "company.json"), "utf8"));
 const catalog = JSON.parse(readFileSync(path.join(here, "config", "catalog.json"), "utf8"));
-const office = SKILL === "office" ? createOffice({ company, catalog, calendar, quotes, memory }) : null;
+const office = SKILL === "office" ? createOffice({ company, catalog, calendar, quotes }) : null;
 
-// Demo reset: move all data aside (data/backups/<time>/) and start clean.
-function resetDemo() {
+// Demo reset: move all data aside (data/backups/<time>/) and start clean
+// (on Postgres, memory's rows are deleted: the demo's database only).
+async function resetDemo() {
   const root = process.env.DATA_DIR || "data";
   const backup = path.join(root, "backups", new Date().toISOString().replace(/[:.]/g, "-"));
   mkdirSync(backup, { recursive: true });
   for (const sub of ["notes", "memory", "discovery", "calls", "calendar", "quotes", "agenda"]) {
     try { renameSync(path.join(root, sub), path.join(backup, sub)); } catch {}
   }
-  for (const s of [store, memory, calendar, quotes, monitor, objectives]) s.reset();
+  for (const s of [calendar, quotes, monitor]) s.reset();
+  await memory.reset();
   return backup;
 }
 const geminiTts = endpoint ? createGeminiTts({ endpoint }) : null;
@@ -111,14 +107,19 @@ assets.typing = typingLoop();
 
 // Memory updates that failed during a call (API down) are retried here.
 async function retryPending() {
-  for (const job of memory.listPending()) {
-    try {
-      const { changed } = await consolidateCall({ endpoint, model: MODEL, skill, memory, store, ...job });
-      memory.removePending(job);
-      monitor.system(`memory retry ok for ${job.callId}: +${changed.added.length} to-dos, ${changed.completed.length} done`);
-    } catch (err) {
-      log("memory retry failed", job.callId, err.message);
+  try {
+    for (const { job, scope, done, failed } of await memory.pendingConsolidations()) {
+      try {
+        const { changed } = await consolidateCall({ endpoint, model: MODEL, skill, memory: scope, ...job });
+        await done();
+        monitor.system(`memory retry ok for ${job.callId}: +${changed.added.length} to-dos, ${changed.completed.length} done`);
+      } catch (err) {
+        await failed(err);
+        log("memory retry failed", job.callId, err.message);
+      }
     }
+  } catch (err) {
+    log("memory retry error", err.message);
   }
 }
 setTimeout(retryPending, 10000);
@@ -134,6 +135,9 @@ const authorized = url => !DEV_TOKEN || url.searchParams.get("token") === DEV_TO
 const json = (res, body, status = 200) => { res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }); res.end(JSON.stringify(body)); };
 
 const server = http.createServer((req, res) => {
+  route(req, res).catch(err => { log("http error", req.url, err.message); if (!res.headersSent) json(res, { error: err.message }, 500); });
+});
+async function route(req, res) {
   const url = new URL(req.url, "http://x");
   if (url.pathname.startsWith("/api/") && url.pathname !== "/api/health" && !authorized(url)) return json(res, { error: "token required" }, 401);
   if (url.pathname === "/api/calls") return json(res, { calls: monitor.list(), system: monitor.systemLog(), recording: monitor.record });
@@ -154,27 +158,27 @@ const server = http.createServer((req, res) => {
     }
     return json(res, { phone: phoneConfig, modes: MODES });
   }
-  if (url.pathname === "/api/memory") return json(res, { actions: memory.actions(), customers: Object.values(memory.customers()) });
+  if (url.pathname === "/api/memory") return json(res, await memory.memoryOverview());
   if (url.pathname === "/api/discovery") {
-    if (!discovery) return json(res, { error: `no research framework in skill ${SKILL}` }, 404);
-    return json(res, { framework: discovery.framework, findings: discovery.findings(), questions: discovery.questions(), calls: discovery.calls(), next: discovery.next() });
+    const overview = await memory.discoveryOverview();
+    return overview ? json(res, overview) : json(res, { error: `no research framework in skill ${SKILL}` }, 404);
   }
   if (url.pathname === "/api/catalog") return json(res, { company: { name: company.name, vatRate: company.vatRate }, catalog });
   if (url.pathname === "/api/calendar") return json(res, { events: calendar.list({ from: url.searchParams.get("from") ?? undefined, to: url.searchParams.get("to") ?? undefined }) });
   if (url.pathname === "/api/quotes") return json(res, { quotes: quotes.list(), outbox: quotes.outbox(), company: { name: company.name } });
   if (url.pathname === "/api/demo/reset" && req.method === "POST") {
-    const backup = resetDemo();
+    const backup = await resetDemo();
     monitor.system(`demo reset; previous data moved to ${backup}`, "warn");
     return json(res, { ok: true, backup });
   }
   // Objectives: GET lists them; POST { template: "inquiry", params: { questions: [{ ask, probe? }], purpose? }, mode?, priority?, lang? }.
   if (url.pathname === "/api/objectives") {
-    if (req.method !== "POST") return json(res, { objectives: objectives.list(), templates: [...skill.templates.values()].filter(t => t.kind === "objective" && t.params).map(({ id, version, description, params, modes }) => ({ id, version, description, params, modes })) });
+    if (req.method !== "POST") return json(res, { objectives: await memory.objectives.list(), templates: [...skill.templates.values()].filter(t => t.kind === "objective" && t.params).map(({ id, version, description, params, modes }) => ({ id, version, description, params, modes })) });
     let body = "";
     req.on("data", c => (body += c));
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
-        const o = objectives.create({ ...JSON.parse(body || "{}"), createdBy: "api" });
+        const o = await memory.objectives.create({ ...JSON.parse(body || "{}"), createdBy: "api" });
         monitor.system(`objective ${o.id} (${o.template}): ${o.params.questions?.map(q => q.ask).join(" / ") ?? ""}`);
         json(res, { objective: o }, 201);
       } catch (err) { json(res, { error: err.message }, 400); }
@@ -183,7 +187,7 @@ const server = http.createServer((req, res) => {
   }
   const objectiveMatch = url.pathname.match(/^\/api\/objectives\/([^/]+)\/cancel$/);
   if (objectiveMatch && req.method === "POST") {
-    const o = objectives.cancel(decodeURIComponent(objectiveMatch[1]));
+    const o = await memory.objectives.cancel(decodeURIComponent(objectiveMatch[1]));
     return o ? json(res, { objective: o }) : json(res, { error: "unknown objective" }, 404);
   }
   const quoteMatch = url.pathname.match(/^\/quote\/([^/]+)$/);
@@ -197,7 +201,7 @@ const server = http.createServer((req, res) => {
   const actionMatch = url.pathname.match(/^\/api\/actions\/([^/]+)$/);
   if (actionMatch && req.method === "POST") {
     const status = url.searchParams.get("status");
-    const a = memory.setActionStatus(decodeURIComponent(actionMatch[1]), status);
+    const a = await memory.setTaskStatus(decodeURIComponent(actionMatch[1]), status);
     if (a) monitor.system(`to-do ${status === "done" ? "ticked off" : "reopened"} in the UI: ${a.customerName}: ${a.text}`);
     return a ? json(res, a) : json(res, { error: "unknown action" }, 404);
   }
@@ -222,10 +226,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify({ ok: true, gemini: endpoint.door, model: MODEL, fishModel: fish.model, dialSigned: Boolean(SECRET), sessions: sessions.size }));
   }
-  if (url.pathname === "/api/notes") {
-    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-    return res.end(JSON.stringify(store.list().map(({ transcript, ...n }) => ({ ...n, turns: transcript?.length ?? 0 }))));
-  }
+  if (url.pathname === "/api/notes") return json(res, (await memory.listNotes()).map(({ transcript, ...n }) => ({ ...n, turns: transcript?.length ?? 0 })));
   const file = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
   const full = path.join(here, "web", path.normalize(file).replace(/^(\.\.[/\\])+/, ""));
   if (full.startsWith(path.join(here, "web")) && existsSync(full)) {
@@ -233,7 +234,7 @@ const server = http.createServer((req, res) => {
     return res.end(readFileSync(full));
   }
   res.writeHead(404).end("not found");
-});
+}
 
 // ---------- WebSocket (Dial protocol) ----------
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
@@ -296,17 +297,21 @@ function attach(ws, { callId, dev }) {
         await assetsReady;
         const config = { ...phoneConfig, ...(dev && msg.config ? msg.config : {}) };
         monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describe(config), source: dev ? (/-browser$/.test(msg.from ?? "") ? "browser" : "script") : "dial" });
-        // This call's agenda: his capabilities, plus what the agent brings (pending objectives, research).
-        const agenda = skill.createAgenda({ objectives: objectives.forCall({ direction: msg.direction === "outbound" ? "outbound" : "inbound" }), discovery });
+        // What we know about the caller (read once, within a budget), and this call's agenda:
+        // his capabilities plus what the agent brings (pending objectives, research).
+        const scope = await memory.openCall({ callId: id, from: msg.from, to: msg.to, direction: msg.direction === "outbound" ? "outbound" : "inbound" });
+        if (scope.stats) monitor.event(id, { event: "context", ...scope.stats });
+        if (!scope.user) monitor.system(`call ${id}: unknown caller ${msg.from ?? "?"}: empty memory, nothing saved`, "warn");
+        const agenda = skill.createAgenda({ objectives: scope.objectives, discovery: scope.discovery });
         if (agenda.objectives.length) monitor.system(`call ${id}: agenda ${agenda.objectives.map(o => o.stored ? `${o.template.id} ${o.id}` : o.template.id).join(", ")}`);
         const common = {
-          send, dev, skill, agenda, endpoint, extractModel: MODEL, store, memory, office, config,
+          send, dev, skill, agenda, endpoint, extractModel: MODEL, memory: scope, office, config,
           log: (...a) => log(`[${id.slice(-6)}]`, ...a),
           onEvent: ev => monitor.event(id, ev),
           onEnd: reason => {
-            for (const o of objectives.record(id, agenda.results())) {
-              monitor.system(`objective ${o.id}: ${o.status}${o.result?.questions ? ` · ${o.result.questions.map(q => `${q.id} ${q.status}${q.answer ? `: ${q.answer}` : ""}`).join("; ")}` : ""}`);
-            }
+            scope.recordObjectives(agenda.results()).then(changed => {
+              for (const o of changed) monitor.system(`objective ${o.id}: ${o.status}${o.result?.questions ? ` · ${o.result.questions.map(q => `${q.id} ${q.status}${q.answer ? `: ${q.answer}` : ""}`).join("; ")}` : ""}`);
+            }).catch(err => log("objectives error", err.message));
             monitor.end(id, reason);
           },
           recordDir: monitor.record ? callId => monitor.audioDir(callId) : null,

@@ -11,10 +11,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir, readJson, writeJson } from "./files.mjs";
 
-const MODES_FOR = { inbound: ["next_inbound", "either"], outbound: ["outbound", "either"] };
+export const MODES_FOR = { inbound: ["next_inbound", "either"], outbound: ["outbound", "either"] };
 
 // Answers from this call replace older ones per question, unless this call didn't get to it.
-function mergeResult(old, now) {
+export function mergeResult(old, now) {
   if (!old?.questions || !now?.questions) return now ?? old ?? null;
   const before = new Map(old.questions.map(q => [q.id, q]));
   return { ...old, ...now, questions: now.questions.map(q => (q.status === "not_asked" && before.has(q.id) ? before.get(q.id) : q)) };

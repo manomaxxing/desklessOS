@@ -3,24 +3,28 @@
 //   npm run report                   → data/discovery/report.md
 //   npm run report -- --synthesize   adds an executive summary written by Gemini
 //   npm run report -- --from +49170… only calls from his number (skips test calls)
+// Reads the research log from memory (MEMORY_BACKEND=json or pg); call records from DATA_DIR/calls.
 
 import { readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createDiscovery } from "../src/store/discovery.mjs";
 import { dataDir, readJson } from "../src/store/files.mjs";
+import { loadSkill } from "../src/skills/index.mjs";
+import { openMemory } from "../src/memory/index.mjs";
 import { normalizeFinding } from "../src/store/note-keys.mjs";
 import { locales } from "../src/locale/index.mjs";
 
 const arg = name => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : null; };
-const discovery = createDiscovery();
-const fw = discovery.framework;
+const memory = await openMemory({ skill: await loadSkill("pilot") });
+const research = await memory.discoveryOverview();
+await memory.close();
+const fw = research.framework;
 const callsDir = dataDir("calls", "CALLS_DIR");
 const records = Object.fromEntries(readdirSync(callsDir).filter(f => f.endsWith(".json")).map(f => { const c = readJson(path.join(callsDir, f), {}); return [c.id, c]; }));
 const from = arg("--from");
-const log = discovery.calls().filter(c => !from || records[c.callId]?.from === from);
+const log = research.calls.filter(c => !from || records[c.callId]?.from === from);
 const ids = new Set(log.map(c => c.callId));
-const findings = discovery.findings().filter(f => ids.has(f.callId));
-const state = discovery.questions();
+const findings = research.findings.filter(f => ids.has(f.callId));
+const state = research.questions;
 
 const tz = { timeZone: fw.participant.timezone ?? "UTC" };
 const hour = ms => Number(new Date(ms).toLocaleString("en-GB", { ...tz, hour: "2-digit", hour12: false }));

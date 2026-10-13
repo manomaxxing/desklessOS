@@ -5,6 +5,8 @@
 //                                        because later calls build on earlier memory)
 //   npm run regress -- --keep            keep the scratch data dirs
 //   npm run regress -- --show            print every conversation, not only failed ones
+//   npm run regress -- --backend pg      memory on Postgres (PGlite in each scratch dir; seeds go
+//                                        through scripts/migrate-json-to-pg.mjs first)
 //
 // Each folder gets its own server (SKILL=<dir name>) on a scratch DATA_DIR, so
 // scenarios in a folder share memory in file order. "pilot+memory" runs SKILL=pilot
@@ -19,7 +21,7 @@
 //   {"api": {"path": "/api/objectives", "match": "regex"}}  what the server says after the call
 // "before": [{ "post": "/api/objectives", "body": {…} }] runs before the call (e.g. Max's question).
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, mkdtempSync, rmSync, existsSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -31,7 +33,8 @@ const callsDir = path.join(root, "test", "calls");
 const args = process.argv.slice(2);
 const keep = args.includes("--keep");
 const show = args.includes("--show");
-const only = args.filter(a => !a.startsWith("--"));
+const backend = args.includes("--backend") ? args[args.indexOf("--backend") + 1] : "json";
+const only = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--backend");
 
 const median = xs => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
 const re = s => new RegExp(s, "i");
@@ -61,8 +64,10 @@ function check(spec, events, saved, api = {}) {
   }
 }
 
+const backendEnv = dataDir => (backend === "pg" ? { MEMORY_BACKEND: "pg", DATABASE_URL: `pglite:${path.join(dataDir, "pg")}` } : { MEMORY_BACKEND: "json" });
+
 function startServer(skill, dataDir, port) {
-  const env = { ...process.env, SKILL: skill, DATA_DIR: dataDir, PORT: String(port), DEV_TOKEN: "", RECORD_CALLS: "0" };
+  const env = { ...process.env, SKILL: skill, DATA_DIR: dataDir, PORT: String(port), DEV_TOKEN: "", RECORD_CALLS: "0", ...backendEnv(dataDir) };
   const child = spawn(process.execPath, ["--env-file-if-exists=.env", "server.mjs"], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   const log = [];
   const waiters = [];
@@ -95,6 +100,10 @@ for (const folder of folders) {
   const dataDir = mkdtempSync(path.join(tmpdir(), `regress-${folder}-`));
   const seed = path.join(callsDir, folder, "_seed");
   if (existsSync(seed)) cpSync(seed, dataDir, { recursive: true });
+  if (existsSync(seed) && backend === "pg") {
+    const r = spawnSync(process.execPath, ["--env-file-if-exists=.env", "scripts/migrate-json-to-pg.mjs"], { cwd: root, env: { ...process.env, SKILL: skill, DATA_DIR: dataDir, ...backendEnv(dataDir) }, encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`seed migration failed: ${r.stdout}${r.stderr}`);
+  }
   const server = startServer(skill, dataDir, ++port);
   try {
     await server.waitFor(/voice assets ready/, 60000).catch(err => {
@@ -151,5 +160,5 @@ for (const folder of folders) {
 
 const failed = results.filter(r => r.failed);
 const warned = results.filter(r => r.should.some(s => !s.ok));
-console.log(`\n${results.length - failed.length}/${results.length} passed${warned.length ? `, ${warned.length} with warnings` : ""}`);
+console.log(`\n${results.length - failed.length}/${results.length} passed${warned.length ? `, ${warned.length} with warnings` : ""} (memory: ${backend})`);
 process.exit(failed.length ? 1 : 0);

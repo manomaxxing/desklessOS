@@ -20,12 +20,30 @@ export const loadFramework = (file = new URL("../../config/discovery.json", impo
 const day = d => (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10);
 const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 
-export function createDiscovery({ framework = loadFramework(), dir = dataDir("discovery", "DISCOVERY_DIR") } = {}) {
+// Where the log lives: JSON files in a directory, or `memoryStorage(state)` (the
+// Postgres backend loads it at call start and saves what apply() wrote).
+export function fileStorage(dir) {
   mkdirSync(dir, { recursive: true });
   const file = name => path.join(dir, name);
   const cache = {};
-  const read = (name, fallback) => (cache[name] ??= readJson(file(name), fallback));
-  const write = (name, data) => { writeJson(file(name), data); cache[name] = data; };
+  return {
+    read: (name, fallback) => (cache[name] ??= readJson(file(name), fallback)),
+    write: (name, data) => { writeJson(file(name), data); cache[name] = data; },
+    reset: () => { for (const k of Object.keys(cache)) delete cache[k]; mkdirSync(dir, { recursive: true }); },
+  };
+}
+export function memoryStorage(state = {}) {
+  const data = { ...state };
+  return {
+    read: (name, fallback) => (data[name] ??= structuredClone(fallback)),
+    write: (name, value) => { data[name] = value; },
+    reset: () => { for (const k of Object.keys(data)) delete data[k]; },
+    data,
+  };
+}
+
+export function createDiscovery({ framework = loadFramework(), dir = null, storage = fileStorage(dir ?? dataDir("discovery", "DISCOVERY_DIR")) } = {}) {
+  const { read, write } = storage;
   const findings = () => read("findings.json", []);
   const questions = () => read("questions.json", {});
   const calls = () => read("calls.json", []);
@@ -108,7 +126,7 @@ export function createDiscovery({ framework = loadFramework(), dir = dataDir("di
       };
     },
 
-    reset() { for (const k of Object.keys(cache)) delete cache[k]; mkdirSync(dir, { recursive: true }); },
+    reset() { storage.reset(); },
   };
 }
 

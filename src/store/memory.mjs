@@ -263,7 +263,7 @@ export function noteLine(note) {
 
 // ---------- search ----------
 // Lowercase words without accents ("Müller" → "muller"), 3+ letters, no stopwords of any enabled language.
-function searchWords(text) {
+export function searchWords(text) {
   const stop = stopwords();
   return String(text ?? "").toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 3 && !stop.has(w));
 }

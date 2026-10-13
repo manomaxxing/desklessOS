@@ -2,8 +2,9 @@
 
 > **Status (2026-10-12):** P1 (locale packs, English data keys, regression calls) done on branch `v2`.
 > P2 (native tool calls, tool registry, `memory_search`) done on `v2`. P3 (personas, templates,
-> primitives, agenda, objectives, "find out X" by API) done on `v2`. P4–P7 not started. Each phase
-> ships on its own; the pilot keeps working throughout.
+> primitives, agenda, objectives, "find out X" by API) done on `v2`. P4 (memory on Postgres behind
+> MEMORY_BACKEND, budgeted context, search, migration) done on `v2`, tested on PGlite; not yet run
+> against Supabase. P5–P7 not started. Each phase ships on its own; the pilot keeps working throughout.
 
 ## Context
 
@@ -197,6 +198,16 @@ DesklessOS grew from a hackathon demo into a pilot (Niko, Konstanz). Its shape n
 - "Was war bei <contact outside the top 8>?" is answered through `memory_search`;
 - the snapshot takes under 20 ms at p95;
 - the context test with 500 contacts stays in budget.
+
+**As built (2026-10-13):**
+- One interface, two backends (`src/memory/`): a backend opens a **scope per call** (who, the MEMORY text, search, saving the note, the office's writes, the post-call step, objectives). `MEMORY_BACKEND=json` wraps the old stores unchanged; `pg` is new. Sessions no longer touch stores directly.
+- `src/db/client.mjs` gives `postgres` (Supabase) and PGlite one `query/tx` interface; PGlite (+ `@electric-sql/pglite-pgvector`, pg_trgm, unaccent) is a devDependency, used by tests and `DATABASE_URL=pglite:<dir>`. Versions pinned ≥ 6 weeks old (0.5.8 / 0.0.9; 0.5.9 came out the day this was built).
+- Tables as planned except: no `projects` and `requests` yet (nothing uses them; P5 adds `requests`); the pilot's question state is a `research_state` row per user rather than objective state; `calls.job` holds what a retry needs. `consolidation-worker.mjs` became `pendingConsolidations()` (claims with `FOR UPDATE SKIP LOCKED`, increments attempts) driven by the server's existing retry timer.
+- The memory model's prompt and schema are unchanged; `apply()` turns its answer into typed changes inside one transaction guarded by `consolidated_at`. Its snapshot is the likely customers (trigram on the note's name) plus the 15 most recent, not all of them.
+- Embeddings: `text-multilingual-embedding-002` (768-d, ~200 ms) rather than `gemini-embedding-001` (11 s cold). Filled in the background after writes; search works without them (trigram on names, word similarity on notes). A search waits at most 1.2 s for the query's vector; after a late one it searches by name only for 5 minutes (Vertex embeddings timed out for a stretch during testing; the Postgres regression failed on that before this cap).
+- Unknown callers: with one user every call is theirs (pilot); among several, an unknown caller gets an empty memory and nothing is saved. `DEFAULT_USER_ID` pins one.
+- Measured in PGlite (in process): opening a call with 500 customers and 500 notes takes tens of ms and stays within 2,500 tokens. The 20 ms p95 target has to be measured on Supabase from Fly (fra → eu-central-1); the monitor logs it per call as a `context` event.
+- Found on the way: the Docker image never had `config/` (since the office demo, so `main` can't start on Fly either), nor `locales/`, `personas/`, `templates/`. Fixed on `v2`.
 
 ### P5: Admin requests: instruction → plan → card → approve → result (M)
 **Create:**
