@@ -28,7 +28,7 @@ test("personas: frontmatter and every required section", () => {
   assert.deepEqual(loadPersona("admin").standing, []);
 });
 
-test("every persona renders in every language, the test-only 'xx' pack included", () => {
+test("every persona renders in every language and both engines, the test-only 'xx' pack included", () => {
   const dir = tmp();
   for (const f of readdirSync(LOCALES_DIR).filter(f => f.endsWith(".json"))) copyFileSync(path.join(LOCALES_DIR, f), path.join(dir, f));
   copyFileSync(new URL("./fixtures/locales/xx.json", import.meta.url), path.join(dir, "xx.json"));
@@ -38,8 +38,12 @@ test("every persona renders in every language, the test-only 'xx' pack included"
     const objectives = [{ id: "obj_1", ...question, params: skill.objectiveParams("inquiry", question.params) }];
     const agenda = skill.createAgenda({ objectives, discovery: skill.framework ? createDiscovery({ framework: skill.framework }) : null });
     for (const lang of ["de", "en", "xx"]) {
-      const prompt = agenda.prompt({ lang, tools: agenda.tools() });
-      assert.doesNotMatch(prompt, /\{\{|undefined|\[object Object\]/, `${name} ${lang}`);
+      for (const engine of ["cascade", "live"]) {
+        const prompt = agenda.prompt({ engine, lang, tools: agenda.tools() });
+        assert.doesNotMatch(prompt, /\{\{|undefined|\[object Object\]/, `${name} ${lang} ${engine}`);
+        if (engine === "live") assert.match(prompt, /call end_call/, "Live hangs up with its tool, not a header");
+        else assert.match(prompt, /NEXT: <listen/);
+      }
       assert.doesNotMatch(agenda.extractSystem(lang), /\{\{|undefined/);
     }
     if (name === "pilot") assert.match(agenda.prompt({ lang: "xx" }), /Then ask "xx:Sound right\?"/, "examples come from the xx pack");

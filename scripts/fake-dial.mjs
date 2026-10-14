@@ -6,7 +6,8 @@
 //   npm run fake-dial -- --wav caller.wav                                (your own 16 kHz recording)
 //   npm run fake-dial -- --say "Ich komm grad von … [pause 3] … und die will ein neues Bad."   (a thinking pause mid-line)
 //   npm run fake-dial -- --answer +4915100000000 --say "Hallo?" --say "Ja, klar."   (be called: OUTBOUND=fake)
-// Mode, like the test phone's selector: --model <gemini>  --mask typing|filler|none
+// Mode, like the test phone's selector: --engine cascade|live  --model <gemini>  --mask typing|filler|none
+//   --live-model <door:model>  --live-voice Kore
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { wav, wavData } from "../src/engine/audio.mjs";
@@ -17,7 +18,7 @@ const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const says = args.flatMap((a, i) => (a === "--say" ? [args[i + 1]] : []));
 const lang = opt("--lang", locales().defaultId);
-const config = Object.fromEntries(Object.entries({ model: opt("--model"), mask: opt("--mask") }).filter(([, v]) => v));
+const config = Object.fromEntries(Object.entries({ engine: opt("--engine"), model: opt("--model"), mask: opt("--mask"), liveModel: opt("--live-model"), liveVoice: opt("--live-voice") }).filter(([, v]) => v));
 const utterances = opt("--wav") ? [wavData(readFileSync(opt("--wav"))).pcm] : null;
 if (!utterances && !says.length) says.push("Hallo? Hörst du mich? Ich komm grad von einem Termin bei Herrn Huber in Pullach, Küche, Fliesenspiegel neu.");
 

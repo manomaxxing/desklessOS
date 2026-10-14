@@ -1,0 +1,364 @@
+// One phone call on Gemini Live (native audio): Gemini hears and speaks by itself.
+// Same outside as the cascade session (Dial's self-hosted audio protocol), so
+// the test phone, the fake caller and real Dial calls all work unchanged.
+//
+// Gemini's own VAD does turn-taking and barge-in; we forward 16 kHz caller
+// audio, resample its 24 kHz speech to 16 kHz, clear playback on `interrupted`,
+// and use both transcripts for the note and the monitor. It hangs up through an
+// `end_call` tool. If Live fails, `onFatal` lets the call go on with the cascade
+// engine (src/calls/start.mjs). Tools come from the same registry as the cascade's
+// (src/tools/): memory_search, end_call. Like the cascade, it saves the call as it
+// goes (memory.checkpoint) and hands its last state to onEnd(reason, final); the note
+// and memory are done after the call (src/calls/after-call.mjs).
+
+import WebSocket from "ws";
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { liveTarget } from "./live-endpoint.mjs";
+import { extractJsonResilient } from "./gemini.mjs";
+import { createTypist } from "./ambience.mjs";
+import { createMeter, geminiCost } from "./cost.mjs";
+import { createVad } from "./vad.mjs";
+import { resample, frames, wav, durationMs } from "./audio.mjs";
+import { locales, pickLanguage } from "../locale/index.mjs";
+import { createToolRunner } from "../tools/registry.mjs";
+import { callTools } from "../tools/index.mjs";
+
+const MARK_EVERY_MS = 800; // playback checkpoints, to know how much the caller actually heard
+
+/** `openSocket(url, options)`: the WebSocket to Gemini (tests pass a fake). */
+export function createLiveSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, extractModel, memory = null, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null, openSocket = (url, options) => new WebSocket(url, options) }) {
+  const cfg = { liveModel: "vertex-eu:gemini-3.8-live", liveVoice: "Kore", mask: "typing", ...config };
+  // Live answers fast, but thinks before longer replies (the wrap-up summary): type meanwhile.
+  const typist = assets.typing && cfg.mask === "typing" ? createTypist(assets.typing, chunk => send({ type: "media", payload: chunk.toString("base64") })) : null;
+  let typingTimer = null;
+  const stopTyping = () => { clearTimeout(typingTimer); typist?.stop(); };
+  const target = liveTarget(cfg.liveModel);
+  const runner = createToolRunner({ tools: callTools({ engine: "live", memory, allow: agenda.tools() }) });
+  const meter = createMeter();
+  const debug = (event, data = {}) => { onEvent({ event, ...data }); if (dev) send({ type: "debug", event, ...data, t: Date.now() }); };
+  const fail = (where, err) => { log(`${where} error`, err.message); debug("error", { where, message: err.message }); };
+  const record = (step, usage, turnId, m) => {
+    const entry = geminiCost(m, usage, step);
+    meter.add(entry);
+    debug("cost", { turn: turnId ?? null, step, usd: entry.usd, inputTokens: entry.inputTokens, audioTokens: entry.audioTokens, outputTokens: entry.outputTokens, totals: meter.totals() });
+  };
+  const saveAudio = (name, data) => {
+    const dir = recordDir?.(call.id);
+    if (!dir) return null;
+    try { writeFileSync(path.join(dir, name), data); return name; } catch { return null; }
+  };
+
+  const call = { id: null, from: null, to: null, startedAt: Date.now() };
+  const turns = [];
+  let note = {};
+  let missing = agenda.missing(note);
+  let lang = locales().defaultId;
+  let gem = null; // WebSocket to Gemini
+  let ready = false;
+  let ended = false;
+  let finalized = null;
+  let extracting = null;
+  let fatal = false;
+  const early = []; // caller audio before setupComplete
+  const marks = new Set();
+  let markSeq = 0;
+  let hangupWanted = false;
+  let hangupMark = null;
+  let turnSeq = 0;
+  let agent = null; // the model turn being spoken: { id, text, chunks, heardText, sinceMark, startedAt }
+  let userText = "";
+  let userAudio = [];
+  let lastSpeechEnd = 0;
+
+  // Our own VAD only measures (end of speech → first audio) and cuts caller recordings.
+  const vad = createVad({
+    endSilenceMs: 300,
+    onSpeechStart: () => { stopTyping(); debug("vad", { speaking: true }); },
+    onSpeechEnd: pcm => {
+      lastSpeechEnd = performance.now();
+      userAudio.push(pcm);
+      debug("vad", { speaking: false, ms: Math.round(durationMs(pcm)) });
+      if (typist && !agent && durationMs(pcm) > 400) {
+        clearTimeout(typingTimer);
+        typingTimer = setTimeout(() => { if (!agent && !ended) { typist.start(); debug("mask", { kind: "typing" }); } }, Number(process.env.LIVE_TYPING_AFTER_MS || 900));
+      }
+    },
+  });
+
+  function sendMark(prefix, info) {
+    const name = `${prefix}-${++markSeq}`;
+    marks.add(name);
+    send({ type: "mark", name });
+    if (info) markInfo.set(name, info);
+    return name;
+  }
+  const markInfo = new Map();
+
+  // ---------- Gemini Live connection ----------
+  async function connect() {
+    const headers = target.vertex ? { Authorization: (await endpoint.headers()).authorization } : {};
+    gem = openSocket(target.url, { headers });
+    const greeting = locales().persona(lang, skill.PERSONA)?.greeting ?? "";
+    gem.on("open", () => {
+      gem.send(JSON.stringify({
+        setup: {
+          model: target.modelPath,
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.liveVoice } }, ...(target.vertex ? { languageCode: locales().bcp47(lang) } : {}) },
+          },
+          systemInstruction: { parts: [{ text: agenda.prompt({ engine: "live", note, missing, memory: memory?.context ?? "", lang }) }] },
+          realtimeInputConfig: {
+            automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: "START_SENSITIVITY_LOW", endOfSpeechSensitivity: "END_SENSITIVITY_LOW", prefixPaddingMs: 100, silenceDurationMs: Number(process.env.LIVE_SILENCE_MS || 800) },
+            activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
+          },
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+          tools: [{ functionDeclarations: runner.declarations() }],
+        },
+      }));
+    });
+    gem.on("message", data => {
+      let msg;
+      try { msg = JSON.parse(data.toString()); } catch { return; }
+      try { onGemini(msg, greeting); } catch (err) { fail("live", err); }
+    });
+    gem.on("close", (code, reason) => {
+      const why = `Gemini Live closed ${code}${reason?.length ? ": " + reason.toString().slice(0, 160) : ""}`;
+      if (ended) return;
+      log(why);
+      goFatal(why);
+    });
+    gem.on("error", err => { if (!ended) goFatal(`Gemini Live error: ${err.message}`); });
+  }
+
+  function goFatal(reason) {
+    if (fatal || ended) return;
+    fatal = true;
+    debug("fallback", { what: "engine", from: "gemini-live", to: "cascade", reason });
+    try { gem?.close(); } catch {}
+    send({ type: "clear" });
+    onFatal({ reason, turns: turns.slice(), lang, greeted: turns.length > 0 || turnSeq > 0 });
+  }
+
+  function onGemini(msg, greeting) {
+    if (msg.setupComplete) {
+      ready = true;
+      debug("live", { text: `connected to ${target.id} · voice ${cfg.liveVoice}` });
+      for (const payload of early.splice(0)) gem.send(JSON.stringify({ realtimeInput: { audio: { data: payload, mimeType: "audio/pcm;rate=16000" } } }));
+      gem.send(JSON.stringify({ realtimeInput: { text: `(The call just connected. Greet him in one short sentence, in the spirit of: "${greeting}")` } }));
+      return;
+    }
+    const sc = msg.serverContent;
+    if (sc?.inputTranscription?.text) userText += sc.inputTranscription.text;
+    if (sc?.modelTurn?.parts) for (const part of sc.modelTurn.parts) if (part.inlineData?.data) onAgentAudio(part.inlineData);
+    if (sc?.outputTranscription?.text && agent) {
+      agent.text += sc.outputTranscription.text;
+      debug("say", { turn: agent.id, text: sc.outputTranscription.text, delta: true });
+    }
+    if (sc?.interrupted) onInterrupted();
+    if (sc?.turnComplete) onTurnComplete();
+    if (msg.toolCall?.functionCalls) for (const fc of msg.toolCall.functionCalls) runTool(fc).catch(err => fail("tool", err));
+    if (msg.usageMetadata) record("live", msg.usageMetadata, agent?.id ?? turnSeq, target.model);
+    if (msg.goAway) debug("live", { text: `server goAway, ${msg.goAway.timeLeft ?? "?"} left` });
+  }
+
+  function commitUser() {
+    const text = userText.trim();
+    userText = "";
+    const pcm = userAudio.length ? Buffer.concat(userAudio) : null;
+    userAudio = [];
+    if (!text) return;
+    turns.push({ role: "user", text });
+    checkpoint();
+    const file = pcm ? saveAudio(`turn-${turnSeq + 1}-in.wav`, wav(pcm)) : null;
+    lang = locales().guess(text) ?? lang; // Live has no LANG header: guess from his words
+    debug("heard", { turn: turnSeq + 1, text, lang, next: "live", audio: file });
+  }
+
+  function onAgentAudio(inline) {
+    const rate = Number(/rate=(\d+)/.exec(inline.mimeType ?? "")?.[1] ?? 24000);
+    const pcm = resample(Buffer.from(inline.data, "base64"), rate, 16000);
+    stopTyping();
+    if (!agent) {
+      commitUser();
+      agent = { id: ++turnSeq, text: "", chunks: [], heardText: 0, sinceMark: 0, startedAt: performance.now() };
+      if (lastSpeechEnd && performance.now() - lastSpeechEnd < 15000) {
+        debug("latency", { turn: agent.id, firstAudioMs: Math.round(performance.now() - lastSpeechEnd), firstTokenMs: Math.round(performance.now() - lastSpeechEnd), fishFirstByteMs: null });
+      }
+      lastSpeechEnd = 0;
+    }
+    agent.chunks.push(pcm);
+    for (const chunk of frames(pcm, 200)) send({ type: "media", payload: chunk.toString("base64") });
+    agent.sinceMark += durationMs(pcm);
+    if (agent.sinceMark >= MARK_EVERY_MS) {
+      agent.sinceMark = 0;
+      sendMark(`a${agent.id}`, { turn: agent.id, textLength: agent.text.length });
+    }
+  }
+
+  function closeAgentTurn({ interrupted }) {
+    if (!agent) return;
+    const a = agent;
+    agent = null;
+    if (a.chunks.length) {
+      const file = saveAudio(`turn-${a.id}-out.wav`, wav(Buffer.concat(a.chunks)));
+      if (file) debug("agent_audio", { turn: a.id, audio: file, interrupted });
+    }
+    const text = a.text.trim();
+    if (!text) return;
+    if (interrupted) {
+      const heard = a.text.slice(0, a.heardText).trim();
+      turns.push({ role: "model", text: `${heard}${heard ? " " : ""}[interrupted by the caller; not heard: "${a.text.slice(a.heardText).trim().slice(0, 160)}"]` });
+    } else {
+      turns.push({ role: "model", text });
+    }
+    checkpoint();
+  }
+
+  function onInterrupted() {
+    send({ type: "clear" });
+    marks.clear();
+    debug("barge_in");
+    closeAgentTurn({ interrupted: true });
+  }
+
+  function onTurnComplete() {
+    const hadAgent = Boolean(agent);
+    if (!agent) commitUser();
+    closeAgentTurn({ interrupted: false });
+    if (hadAgent) refreshNote();
+    if (hangupWanted && !hangupMark) hangupMark = sendMark("bye");
+  }
+
+  // ---------- tools ----------
+  // Live speaks its own preface and decides when to call; we run the tool and answer.
+  // No confirm gate or false-start window here: Live has no NEXT header to check against.
+  async function runTool(fc) {
+    const tool = runner.get(fc.name);
+    if (tool?.effect === "write") typist?.start(); // until Live speaks the result
+    const outcome = await runner.run({ id: fc.id, name: fc.name, args: fc.args }, {
+      callId: call.id,
+      get lang() { return lang; },
+      confirmed: true,
+      latestNote: () => { commitUser(); return extractNote({ hedgeMs: 3500 }); },
+      memory,
+      emit: (event, data) => debug(event, { turn: turnSeq, ...data }),
+      log,
+      hangup: () => {
+        hangupWanted = true;
+        debug("live", { text: "model called end_call" });
+        if (!agent && !marks.size) hangupMark = sendMark("bye");
+      },
+    });
+    debug("tool", { turn: turnSeq, name: outcome.name, args: outcome.args, status: outcome.status, ms: outcome.ms, summary: outcome.summary });
+    if (gem?.readyState === 1) gem.send(JSON.stringify({ toolResponse: { functionResponses: [{ id: fc.id, name: fc.name, response: outcome.result }] } }));
+  }
+
+  // ---------- slow path (same as the cascade engine) ----------
+  // A result is applied only if no newer extraction's already was (see session.mjs).
+  let noteSeq = 0;
+  let noteApplied = 0;
+  function extractNote({ hedgeMs }) {
+    const seq = ++noteSeq;
+    const snapshot = turns.slice();
+    return extractJsonResilient({ endpoint, models: [extractModel, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], hedgeMs, system: agenda.extractSystem(lang), prompt: agenda.extractPrompt({ turns: snapshot, lang }), schema: agenda.schema(), onUsage: u => record("note", u, null, extractModel) })
+      .then(updated => {
+        if (seq < noteApplied) return note;
+        noteApplied = seq;
+        noteCovers = snapshot.length;
+        lastExtraction = updated;
+        const u = agenda.update(updated);
+        note = u.note;
+        missing = u.missing;
+        debug("note", { note, missing });
+        for (const c of u.changes) debug("objective", c);
+        checkpoint();
+        return note;
+      });
+  }
+  function refreshNote() {
+    extracting = (extracting ?? Promise.resolve()).then(() => extractNote({ hedgeMs: 6000 })).catch(err => fail("extract", err));
+    return extracting;
+  }
+
+  // The call so far, saved after every turn and note: one write at a time, the latest state wins.
+  let noteCovers = 0;
+  let lastExtraction = null;
+  let saving = null;
+  let saveAgain = false;
+  function checkpoint() {
+    if (!memory?.checkpoint || ended) return;
+    if (saving) { saveAgain = true; return; }
+    saving = memory.checkpoint({ turns: turns.slice(), extraction: lastExtraction, extractionTurns: noteCovers, lang })
+      .catch(err => fail("checkpoint", err))
+      .finally(() => { saving = null; if (saveAgain) { saveAgain = false; checkpoint(); } });
+  }
+
+  // The call is over: its last state goes to onEnd; the after-call job does the note and memory.
+  function finalize(reason) {
+    if (finalized) return finalized;
+    commitUser();
+    closeAgentTurn({ interrupted: false });
+    ended = true;
+    stopTyping();
+    try { gem?.close(); } catch {}
+    meter.phone(Date.now() - call.startedAt);
+    debug("cost", { final: true, totals: meter.totals() });
+    finalized = (async () => {
+      await saving;
+      await onEnd(reason, { turns: turns.slice(), extraction: lastExtraction, extractionTurns: noteCovers, lang, usd: meter.totals().usd });
+    })().catch(err => fail("finalize", err));
+    return finalized;
+  }
+
+  // ---------- Dial protocol ----------
+  return {
+    get ended() { return ended; },
+    /** The server swaps engines on a fatal Live error: stop without finalizing. */
+    abandon() { ended = true; stopTyping(); try { gem?.close(); } catch {} },
+    handle(msg) {
+      switch (msg.type) {
+        case "call_connected":
+          Object.assign(call, { id: msg.call_id, from: msg.from, to: msg.to });
+          if (!msg.reconnect) {
+            call.startedAt = Date.now();
+            lang = pickLanguage({ locales: locales(), dialTag: msg.language, from: msg.from, fallback: skill.DEFAULT_LANG });
+            connect().catch(err => goFatal(err.message));
+          }
+          log(`call ${msg.call_id} from ${msg.from ?? "?"} (${lang}) on ${target.id}${msg.reconnect ? " (reconnect)" : ""}`);
+          debug("connected", { formats: msg.formats, lang, config: { engine: "live", ...cfg } });
+          break;
+        case "media":
+          if (ended || fatal) break;
+          vad.push(Buffer.from(msg.payload, "base64"));
+          if (ready) gem.send(JSON.stringify({ realtimeInput: { audio: { data: msg.payload, mimeType: "audio/pcm;rate=16000" } } }));
+          else if (early.length < 100) early.push(msg.payload);
+          break;
+        case "mark":
+          marks.delete(msg.name);
+          if (markInfo.has(msg.name) && agent && markInfo.get(msg.name).turn === agent.id) agent.heardText = markInfo.get(msg.name).textLength;
+          markInfo.delete(msg.name);
+          if (msg.name === hangupMark) {
+            send({ type: "end_call" });
+            debug("hangup", { by: "agent" });
+            finalize("agent_hangup");
+          }
+          break;
+        case "ping_pong":
+          send(msg);
+          break;
+        case "duration_warning":
+          debug("duration_warning");
+          if (ready) gem.send(JSON.stringify({ realtimeInput: { text: "(The call is about to hit its time limit. Say a one-sentence goodbye now, mention that the note is saved, then call end_call.)" } }));
+          break;
+        case "call_ended":
+          debug("ended", { reason: msg.reason ?? "ended" });
+          finalize(msg.reason ?? "ended");
+          break;
+      }
+    },
+    close(reason = "socket_closed") { return finalize(reason); },
+  };
+}

@@ -116,7 +116,18 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, notifier,
       monitor.system(`to-do ${status === "done" ? "ticked off" : "reopened"} in the UI: ${a.customerName}: ${a.text}`);
       return a;
     }],
-    ["GET", "/api/config", "user", () => ({ phone: { model: cfg.model, mask: cfg.mask }, modes: { models: ["gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"], masks: ["typing", "filler", "none"] } })],
+    // What phone calls use (ENGINE, GEMINI_MODEL, MASK, LIVE_MODEL, LIVE_VOICE), and what the test phone can pick.
+    ["GET", "/api/config", "user", () => ({
+      phone: { engine: cfg.engine, model: cfg.model, mask: cfg.mask, liveModel: cfg.liveModel, liveVoice: cfg.liveVoice },
+      modes: {
+        engines: ["cascade", "live"],
+        models: ["gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+        masks: ["typing", "filler", "none"],
+        // Probed 2026-10-11 (npm run live-probe): vertex-eu keeps audio in the EU and runs on the Vertex credits.
+        liveModels: [...new Set([cfg.liveModel, "vertex-eu:gemini-3.8-live", "vertex@us-central1:gemini-3.8-live", "vertex@europe-west4:gemini-live-2.5-flash-native-audio"])],
+        liveVoices: ["Kore", "Aoede", "Leda", "Zephyr", "Callirrhoe", "Puck", "Charon", "Fenrir", "Orus", "Achird"],
+      },
+    })],
     ["GET", "/api/calls", "user", async () => ({ calls: await monitor.list(), system: monitor.systemLog(), recording: monitor.record })],
     ["GET", /^\/api\/calls\/([^/]+)$/, "user", async ({ params: [id] }) => {
       const call = await monitor.get(id);

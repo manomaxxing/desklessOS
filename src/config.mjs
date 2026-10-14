@@ -19,6 +19,10 @@ export function loadConfig(env = process.env) {
     databaseUrl: env.DATABASE_URL?.trim() || `pglite:${path.join(dataDir, "pg")}`,
     model: env.GEMINI_MODEL || "gemini-2.5-flash",
     plannerModel: env.PLANNER_MODEL || "",
+    // Phone calls: "cascade" (Gemini hears, Fish speaks) or "live" (Gemini Live hears and speaks)
+    engine: env.ENGINE || "cascade",
+    liveModel: env.LIVE_MODEL || "vertex-eu:gemini-3.8-live", // <door>:<model>, src/engine/live-endpoint.mjs
+    liveVoice: env.LIVE_VOICE || "Kore",
     mask: env.MASK || "typing", // what the caller hears while Gemini thinks: typing | filler | none
     publicUrl: (env.PUBLIC_URL ?? "").trim().replace(/\/$/, ""),
     dialSecret: env.DIAL_SIGNING_SECRET?.trim() || "",
@@ -36,6 +40,7 @@ export function loadConfig(env = process.env) {
     ONE_OF("BACKGROUND", c.background, ["inline", "http"]),
     ONE_OF("OUTBOUND", c.outbound, ["twilio", "fake", "off"]),
     ONE_OF("MASK", c.mask, ["typing", "filler", "none"]),
+    ONE_OF("ENGINE", c.engine, ["cascade", "live"]),
     cloudRun && c.databaseUrl.startsWith("pglite:") ? "DATABASE_URL: Cloud Run has no disk; set a Postgres URL (Supabase)" : null,
     c.background === "http" && !c.tickToken ? "BACKGROUND=http needs TICK_TOKEN (Cloud Scheduler sends it to /internal/tick)" : null,
     cloudRun && !c.devToken && !env.ADMIN_CODE ? "a public server needs DEV_TOKEN or ADMIN_CODE (the API and monitor are open otherwise)" : null,

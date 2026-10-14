@@ -63,6 +63,7 @@
   .sheet .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
   .btn { border: 0; border-radius: 10px; padding: 8px 14px; font-weight: 600; font-size: 13px; cursor: pointer; background: var(--fill); }
   .btn.primary { background: var(--blue); color: #fff; }
+  [data-engine="live"] .cascade-only, [data-engine="cascade"] .live-only { display: none; }
 
   /* ---------- layout ---------- */
   .app { position: absolute; inset: 56px 0 0 0; display: grid; grid-template-columns: minmax(0, 1fr) 440px; }
@@ -254,11 +255,16 @@
   <div class="status"><button class="modebtn" id="modeBtn" title="Model and latency mask for this test phone"><i></i><span id="modeLabel">Mode</span></button></div>
 </header>
 <div class="sheet-bg" id="sheetBg"></div>
-<div class="sheet" id="sheet">
+<div class="sheet" id="sheet" data-engine="cascade">
   <h4>Mode</h4>
-  <div class="hint">Gemini listens and writes; Fish speaks. This test phone only: phone calls use the server's settings.</div>
-  <div class="field"><span>Gemini model</span><select id="modelSel"></select></div>
+  <div class="field"><span>Engine</span><div class="seg" id="engineSeg"><button data-v="cascade" class="on">Gemini + Fish</button><button data-v="live">Gemini Live</button></div></div>
+  <div class="hint cascade-only">Gemini listens and writes; Fish speaks. Our own turn-taking (waits when he pauses mid-sentence).</div>
+  <div class="hint live-only">Gemini's native audio model hears and speaks by itself. Fastest, least control over turn-taking.</div>
+  <div class="field cascade-only"><span>Gemini model</span><select id="modelSel"></select></div>
   <div class="field"><span>While thinking</span><div class="seg" id="maskSeg"><button data-v="typing" class="on">Typing</button><button data-v="filler">“Mhm”</button><button data-v="none">Silence</button></div></div>
+  <div class="field live-only"><span>Live model</span><select id="liveModelSel"></select></div>
+  <div class="field live-only"><span>Live voice</span><select id="liveVoiceSel"></select></div>
+  <div class="hint">This test phone only: phone calls use the server's settings (ENGINE, GEMINI_MODEL, …).</div>
   <div class="actions"><button class="btn primary" id="sheetDone">Done</button></div>
   <div class="hint" id="phoneMode" style="margin:10px 2px 0"></div>
 </div>
@@ -340,9 +346,9 @@ class Mic extends AudioWorkletProcessor {
 registerProcessor("mic", Mic);`;
 
 // ---------- mode (this test phone only) ----------
-let mode = { model: "gemini-3.5-flash", mask: "typing" };
+let mode = { engine: "cascade", model: "gemini-3.5-flash", mask: "typing", liveModel: "", liveVoice: "Kore" };
 try { Object.assign(mode, JSON.parse(localStorage.getItem("deskless-mode") || "{}")); } catch {}
-const modeLabel = m => `${String(m.model).replace("gemini-", "")} + Fish · ${m.mask}`;
+const modeLabel = m => (m.engine === "live" ? `Gemini Live · ${m.liveVoice}` : `${String(m.model).replace("gemini-", "")} + Fish · ${m.mask}`);
 function segBind(id, key) {
   const seg = document.getElementById(id);
   const paint = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === mode[key]));
@@ -350,17 +356,21 @@ function segBind(id, key) {
   paint();
 }
 function saveMode() {
-  try { localStorage.setItem("deskless-mode", JSON.stringify({ model: mode.model, mask: mode.mask })); } catch {}
+  try { localStorage.setItem("deskless-mode", JSON.stringify(mode)); } catch {}
+  document.getElementById("sheet").dataset.engine = mode.engine;
   document.getElementById("modeLabel").textContent = modeLabel(mode);
 }
 async function loadModes() {
   const r = await (await fetch("/api/config" + tq)).json();
-  const el = $("modelSel");
-  el.innerHTML = r.modes.models.map(v => `<option>${v}</option>`).join("");
-  if (!r.modes.models.includes(mode.model)) mode.model = r.modes.models[0];
-  el.value = mode.model;
-  el.onchange = () => { mode.model = el.value; saveMode(); };
-  segBind("maskSeg", "mask");
+  const fill = (id, list, key) => {
+    const el = $(id);
+    el.innerHTML = list.map(v => `<option>${v}</option>`).join("");
+    if (!list.includes(mode[key])) mode[key] = list[0];
+    el.value = mode[key];
+    el.onchange = () => { mode[key] = el.value; saveMode(); };
+  };
+  fill("modelSel", r.modes.models, "model"); fill("liveModelSel", r.modes.liveModels, "liveModel"); fill("liveVoiceSel", r.modes.liveVoices, "liveVoice");
+  segBind("engineSeg", "engine"); segBind("maskSeg", "mask");
   $("phoneMode").textContent = "Phone calls use: " + modeLabel(r.phone);
   saveMode();
 }

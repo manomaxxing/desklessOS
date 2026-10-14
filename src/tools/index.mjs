@@ -1,4 +1,5 @@
-// The tools the agent has on a call (the model hangs up through NEXT: hangup, not a tool).
+// The tools the agent has on a call. Both engines declare the same ones; the cascade hangs
+// up through its header (NEXT: hangup), so end_call is Gemini Live's own.
 // ctx (from the engine): { callId, lang, signal, confirmed, latestNote(), memory (the call's
 // memory scope), emit(event, data), log, hangup() }.
 
@@ -23,13 +24,22 @@ export function memorySearch({ memory }) {
   });
 }
 
+export const endCall = defineTool({
+  name: "end_call",
+  description: "Hang up the phone. Call this only right after you have said goodbye and the conversation is finished.",
+  effect: "call",
+  run: (_args, ctx) => { ctx.hangup(); return { ok: true }; },
+});
+
 /**
- * The tools for one call. `allow`: the tool names the call's templates may use (agenda.tools()).
+ * The tools for one call. `engine`: "cascade" | "live". `allow`: the tool names the call's
+ * templates may use (agenda.tools()); end_call is Live's own.
  */
-export function callTools({ memory = null, allow = null, extra = [] }) {
+export function callTools({ engine = "cascade", memory = null, allow = null, extra = [] }) {
   const ok = name => !allow || allow.includes(name);
   return [
     ...extra.filter(t => ok(t.name)), // e.g. the admin line's request tools (src/tools/admin.mjs)
     ...(memory?.search && ok("memory_search") ? [memorySearch({ memory })] : []),
+    ...(engine === "live" ? [endCall] : []),
   ];
 }

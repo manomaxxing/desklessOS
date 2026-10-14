@@ -169,11 +169,21 @@ day's window; after the fourth try the question moves to his next own call, and 
 
 ## Modes
 
-Phone calls use `GEMINI_MODEL` and `MASK` (what he hears while Gemini thinks: keyboard
-`typing`, a spoken "Mhm" (`filler`), or `none`). The browser test phone picks its own per
-call (top bar): Gemini 3.5 Flash, 3 Flash preview, 2.5 Flash or 2.5 Flash-Lite, and the mask.
-First audio measured on the cascade (Gemini hears and writes, Fish speaks sentence by
-sentence): ~2.2–3.4 s, masked by typing.
+Two engines; phone calls use `ENGINE` (default `cascade`), the browser test phone picks per call
+(top bar), and `npm run fake-dial -- --engine live …` scripts one:
+
+| Engine | What happens | First audio (measured) |
+|---|---|---|
+| **Gemini + Fish** (`cascade`, `src/engine/session.mjs`) | Gemini hears his audio and writes the reply (`GEMINI_MODEL`); Fish speaks it sentence by sentence. Our own turn-taking (below) | ~2.2–3.4 s, masked by typing (`MASK`: `typing`, `filler`, `none`) |
+| **Gemini Live** (`live`, `src/engine/live-session.mjs`) | Gemini's native audio model hears and speaks itself (`LIVE_MODEL`, `LIVE_VOICE`); its own silence detection and barge-in; hangs up with an `end_call` tool | ~1.2 s (2.4 s before a spoken summary) |
+
+- **Live connections** (`npm run live-probe`): `vertex-eu:gemini-3.8-live` (default: audio stays
+  in the EU, Vertex credits), `vertex@us-central1:…`, the 2.5 native-audio model in europe-west4.
+- **If Live fails** (setup refused, socket drop) the call goes on with Gemini + Fish mid-call.
+  Calls we make and Max's own line always run on Gemini + Fish.
+- **Trade-off:** Live is faster and more natural, but has none of the turn-taking checks below
+  (pausing mid-sentence, "Moment", false starts, Smart Turn): it cuts in after 0.8 s of silence.
+- Both save the call as it goes and hand the note and memory to the after-call job.
 
 ## Conversation design
 
@@ -183,7 +193,7 @@ Realtime and Google's Live best practices.
 - **Acknowledgements:** one to three words, varied; no parroting. At most one
   question per turn and two per call, only for missing essentials. One executive
   summary at the end, then "Passt das?", then goodbye.
-- **Turn-taking** (`src/engine/session.mjs`, `endpointing.mjs`):
+- **Turn-taking** (Gemini + Fish only; `src/engine/session.mjs`, `endpointing.mjs`):
   - A pause of 0.8 s ends his turn (0.6 s after a yes/no question, 1 s after an
     open one). The model answers `NEXT: wait` when he stopped mid-thought, and a
     word check overrides it when his words stop on "und", "die", "will" and the

@@ -1,0 +1,10 @@
+{
+  "lang": "de",
+  "config": { "engine": "live" },
+  "says": [
+    "Hallo, ich komm grad von der Frau Weber in Radolfzell. Die will ihr Bad komplett neu machen, so zwölf Quadratmeter. Angebot bis Freitag.",
+    "Nein, das war's, danke. Tschüss."
+  ],
+  "must": [{ "saved": true }, { "note": "Weber|Radolfzell" }],
+  "should": [{ "noEvent": "fallback" }, { "noEvent": "error" }, { "maxFirstAudioMs": 2500 }]
+}

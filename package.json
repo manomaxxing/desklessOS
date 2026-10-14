@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env server.mjs",
     "smoke": "node --env-file-if-exists=.env scripts/smoke.mjs",
+    "live-probe": "node --env-file-if-exists=.env scripts/live-probe.mjs",
     "fake-dial": "node --env-file-if-exists=.env scripts/fake-dial.mjs",
     "tunnel": "cloudflared tunnel --url http://localhost:8787",
     "dial": "node --env-file-if-exists=.env scripts/dial.mjs",

@@ -63,12 +63,21 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
     capabilities,
     objectives: items,
 
-    /** The system prompt: the model writes a header and its reply, which a TTS voice reads aloud. */
-    prompt({ lang = profile.lang, note = {}, missing: miss = missing(note), memory = "", tools = [], today = promptDate() }) {
+    /**
+     * The system prompt. engine "cascade": the model writes a header and its reply, which Fish
+     * reads aloud; "live": Gemini Live hears and speaks itself, and hangs up with end_call.
+     */
+    prompt({ engine = "cascade", lang = profile.lang, note = {}, missing: miss = missing(note), memory = "", tools = [], today = promptDate() }) {
       const r = renderer(lang, `personas/${persona.id}`);
       const section = name => r(persona.sections[name]);
       const jobs = capabilities.map((t, i) => `${LETTERS[i]}) ${r(t.title)}\n${stepsText(t, null, lang)}`);
-      const format = `OUTPUT FORMAT, always, exactly:
+      const live = engine === "live";
+      const intro = live
+        ? "You speak directly; keep it brief and natural.\nWhen he pauses mid-thought, stay silent and let him continue."
+        : "Everything you write is read aloud by a text-to-speech voice.";
+      const format = live
+        ? "When the call is over and you've said goodbye, call end_call."
+        : `OUTPUT FORMAT, always, exactly:
 HEARD: <word for word what he just said, in his language>
 LANG: <${locales.enabled().join(" | ")}>
 NEXT: <listen | wait | ask | confirm | hangup>
@@ -80,7 +89,7 @@ ${section("next")}`;
       const status = statusLines(lang);
       return [
         // static: the same on every turn of every call in this language
-        `${section("role")}\nEverything you write is read aloud by a text-to-speech voice.`,
+        `${section("role")}\n${intro}`,
         section("language"),
         `YOUR JOBS\n\n${jobs.join("\n\n")}`,
         section("closing"),
@@ -88,7 +97,7 @@ ${section("next")}`;
         section("interruptions"),
         section("silence"),
         format,
-        tools.length ? toolRules(tools, slotContext(lang).lines) : "",
+        !live && tools.length ? toolRules(tools, slotContext(lang).lines) : "",
         // per call
         `Today is ${today}.`,
         outbound ? section("outbound") : "",

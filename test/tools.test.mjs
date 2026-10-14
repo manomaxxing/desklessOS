@@ -101,6 +101,7 @@ test("callTools: only what the call's templates allow", () => {
   const extra = [defineTool({ name: "request_create", description: "d", effect: "write", run: () => ({}) })];
   assert.deepEqual(callTools({ memory, extra }).map(t => t.name), ["request_create", "memory_search"]);
   assert.deepEqual(callTools({ memory, extra, allow: ["memory_search"] }).map(t => t.name), ["memory_search"]);
+  assert.deepEqual(callTools({ engine: "live", memory }).map(t => t.name), ["memory_search", "end_call"], "Live hangs up with a tool");
 });
 
 test("memory_search: offered only when the prompt can't show everyone; passes his words on", async () => {

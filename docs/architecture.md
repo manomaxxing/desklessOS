@@ -80,7 +80,7 @@ flowchart LR
 | Composition root | `server.mjs`, `src/app.mjs`, `src/config.mjs` | builds every part once from validated config; start, drain on SIGTERM |
 | Telephony | `src/telephony/{dial,twilio,fake,host}.mjs` | carrier protocols → one frame protocol; signatures; calls on this instance |
 | Call wiring | `src/calls/start.mjs` | who's calling, the agenda, the engine, and the call's end |
-| Engine | `src/engine/session.mjs` (+ vad, reply, gemini, fish, audio) | the conversation: turn-taking, hedged Gemini stream, Fish, tools, checkpoints |
+| Engines | `src/engine/session.mjs` (+ vad, reply, gemini, fish, audio); `src/engine/live-session.mjs` | the conversation. Gemini + Fish: our turn-taking, hedged Gemini stream, Fish, tools. Gemini Live (`ENGINE=live`): native audio in and out, falls back to Gemini + Fish. Both checkpoint the call and end it the same way |
 | Agenda | `src/agenda/*`, `personas/`, `templates/`, `locales/` | what a call is about: persona, capabilities, objectives, prompts, note schema |
 | Memory | `src/memory/*` | the data layer: context per call, search, the call row, after-call writes |
 | After-call | `src/calls/after-call.mjs` | final note, note saved, objectives, requests, outbound outcome, memory |
@@ -342,7 +342,7 @@ Everything removed is at git tag `pre-cloud-run`.
 | Voice clips synthesised on every start | slow cold start, needs Fish to boot | cached in Postgres by content hash |
 | Deploys stopped the process with calls on it | calls cut and their notes lost | SIGTERM: calls end, are saved, and their jobs queued |
 | Unstructured logs | hard to search and alert on in Cloud Logging | JSON lines with severity on Cloud Run |
-| Features with no current user: office demo (orders, quotes, calendar, cockpit), Gemini Live engine, Gemini TTS | ~40% of the surface for demos | cut (tag `pre-cloud-run`); Dial kept: it's the live line until Twilio is set up |
+| Features with no current user: office demo (orders, quotes, calendar, cockpit), Gemini Live engine, Gemini TTS | ~40% of the surface for demos | cut (tag `pre-cloud-run`); Dial kept: it's the live line until Twilio is set up. Gemini Live came back on 2026-10-14 as an option (`ENGINE=live`), on the same checkpoint and after-call contract |
 
 **Decisions worth knowing:**
 - **Postgres as queue and bus** rather than Cloud Tasks, Pub/Sub or Redis: one dependency,
