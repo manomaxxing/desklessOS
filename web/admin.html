@@ -29,7 +29,7 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
-  button, input, textarea { font: inherit; color: inherit; }
+  button, input, textarea, select { font: inherit; color: inherit; }
   a { color: var(--blue); text-decoration: none; }
   .bar { position: sticky; top: 0; z-index: 10; height: 56px; display: flex; align-items: center; gap: 16px; padding: 0 20px;
     background: var(--glass); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--sep); }
@@ -44,6 +44,7 @@
   textarea, input[type=text], input[type=password], input[inputmode] { width: 100%; border: 1px solid var(--sep); background: var(--bg); border-radius: 10px; padding: 10px 12px; outline: none; }
   textarea:focus, input:focus { border-color: var(--blue); }
   textarea { resize: vertical; min-height: 72px; }
+  select { border: 1px solid var(--sep); background: var(--bg); border-radius: 10px; padding: 9px 10px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
   .btn { border: 0; border-radius: 10px; padding: 8px 16px; font-weight: 600; cursor: pointer; background: var(--fill); }
   .btn.primary { background: var(--blue); color: #fff; }
@@ -95,6 +96,16 @@
       <textarea id="instruction" placeholder="Frag Niko, wie lange sein letztes Angebot gedauert hat"></textarea>
       <div class="row"><button id="planBtn" class="btn primary">Plan it</button><span id="planBusy" class="muted small"></span></div>
       <div id="planErr" class="err"></div>
+    </div>
+    <div class="card">
+      <div class="title">Talk with him about his day</div>
+      <p class="muted small">A relaxed conversation for problem discovery: Toni asks how his day went (or what's on today), mostly listens, and only now and then asks lightly about what went wrong, or about the problem behind an idea he has. If his drive ends, the next call picks up where it stopped. What he tells comes back here.</p>
+      <div class="row"><input type="text" id="convFocus" placeholder="Anything you're especially curious about? (optional)"></div>
+      <div class="row">
+        <select id="convMode"><option value="outbound">Toni calls him</option><option value="next_inbound">In his next call</option><option value="either">Whichever comes first</option></select>
+        <button id="convBtn" class="btn primary">Plan it</button><span id="convBusy" class="muted small"></span>
+      </div>
+      <div id="convErr" class="err"></div>
     </div>
     <h2>Requests</h2>
     <div id="list"><div class="empty">Nothing yet.</div></div>
@@ -227,6 +238,18 @@ async function act(what, id, button) {
     await refresh();
   } catch (e) { if (err) err.textContent = e.message; button.disabled = false; button.textContent = { approve: "Approve", save: "Save my edits", replan: "Plan again", cancel: "Discard" }[what] ?? button.textContent; }
 }
+
+$("convBtn").onclick = async () => {
+  $("convErr").textContent = "";
+  $("convBtn").disabled = true;
+  try {
+    const view = await api("/api/requests/conversation", { focus: $("convFocus").value.trim(), mode: $("convMode").value });
+    $("convFocus").value = "";
+    location.hash = view.request.id;
+    await refresh();
+  } catch (e) { $("convErr").textContent = e.message; }
+  $("convBtn").disabled = false;
+};
 
 $("planBtn").onclick = async () => {
   const instruction = $("instruction").value.trim();

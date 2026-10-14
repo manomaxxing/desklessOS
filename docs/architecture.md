@@ -14,6 +14,8 @@ plans that got here are in `docs/v2-architecture.md`.
 - Max's requests: an instruction becomes a plan and a card; once he approves it, the question
   is asked in the user's next call or by an outbound call; the answer comes back to him
   (admin page, webhook, email).
+- A day conversation (`templates/discovery.day.json`): he walks Toni through his day, ideas get
+  light Mom-Test probes; spread over several calls, each picking up where the last one stopped.
 - Outbound calls, only to users who agreed, inside their call window, at most N a day.
 - Max's own line by phone (drafts requests; approving needs a PIN).
 - A monitor: every call's timeline, latency and cost.

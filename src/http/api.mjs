@@ -75,6 +75,8 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, notifier,
     }],
     ["GET", "/api/requests", "admin", async () => ({ requests: (await requests.list()).map(r => requests.view(r)) })],
     ["POST", "/api/requests", "admin", async ({ body }) => requests.plan({ instruction: body.instruction, by: "admin" })],
+    // A conversation about his day (problem discovery): { userId?, focus?, mode? } → a card to approve.
+    ["POST", "/api/requests/conversation", "admin", async ({ body }) => requests.planConversation({ userId: body.userId ?? null, focus: body.focus ?? "", mode: body.mode ?? "outbound", by: "admin" })],
     ["GET", /^\/api\/requests\/(req_[\w-]+)$/, "admin", async ({ params: [id] }) => {
       const r = await requests.get(id);
       if (!r) throw fail(404, "no such request");

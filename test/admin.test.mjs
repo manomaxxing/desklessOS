@@ -153,3 +153,21 @@ test("the flow: plan, approve, asked in his next call, answered, Max told once",
   const other = await requests.plan({ instruction: "Frag Niko noch was anderes" });
   assert.equal((await requests.cancel(other.request.id)).status, "cancelled");
 });
+
+test("a conversation about his day: a card without the planner, approved into an objective", async () => {
+  const queue = createQueue({ db });
+  const memory = openPgMemory({ db, skill, queue });
+  await memory.ensureUser();
+  const auth = createAuth({ ADMIN_CODE: "x", SESSION_SECRET: "s" });
+  const requests = createRequests({ memory, skill, auth, queue, llm: async () => { throw new Error("no planner for this"); }, outbound: () => false });
+  const { request, confirmToken } = await requests.planConversation({ focus: "wie Angebote entstehen", mode: "outbound" });
+  assert.equal(request.card.title, "Talk with Niko about his day");
+  assert.equal(request.plan.mode, "next_inbound", "no outbound calls on this server: his next call instead");
+  assert.match(request.card.warnings[0], /aren't set up on this server yet/);
+  await assert.rejects(() => requests.revise(request.id, { answer: "anders" }), /nothing to re-plan/);
+  const approved = await requests.approve(request.id, { confirmToken });
+  const o = await memory.objectives.get(approved.objectiveId);
+  assert.deepEqual([o.template, o.mode, o.params.focus], ["discovery.day", "next_inbound", "wie Angebote entstehen"]);
+  assert.equal(o.maxAttempts, 5, "it may take several drives");
+});
+

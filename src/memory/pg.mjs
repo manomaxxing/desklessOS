@@ -341,6 +341,17 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
     },
   };
 
+  /** An objective that was already on a call gets how that call ended: its last turns, so the next one can pick up. */
+  async function withLastCall(list) {
+    const ids = list.map(o => o.calls?.at(-1)).filter(Boolean);
+    if (!ids.length) return list;
+    const rows = await db.query("select id, ended_reason, transcript from calls where id = any($1::text[])", [ids]);
+    return list.map(o => {
+      const c = rows.find(r => r.id === o.calls?.at(-1));
+      return c ? { ...o, lastCall: { reason: c.ended_reason ?? "", turns: (c.transcript ?? []).slice(-6) } } : o;
+    });
+  }
+
   // ---------- one call: what it saves, and what the after-call steps do with it ----------
   const json3 = (turns, extraction, extractionTurns) => [json(turns), extraction ? json(extraction) : null, extractionTurns];
   function callScope(user, callId) {
@@ -372,7 +383,8 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       if (!user) return emptyScope();
       await db.query("insert into calls (id, org_id, user_id, direction, source, from_e164, to_e164, started_at) values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (id) do nothing",
         [callId, user.org_id, user.id, direction, source, e164(from), e164(to), at.toISOString()]);
-      const [data, research, pending] = await Promise.all([contextData(user, at), loadResearch(db, user), objectives.forCall(user, { direction, at })]);
+      const [data, research, found] = await Promise.all([contextData(user, at), loadResearch(db, user), objectives.forCall(user, { direction, at })]);
+      const pending = await withLastCall(found);
       const ctx = buildContext(data, { budget });
       return {
         user: { id: user.id, orgId: user.org_id, name: user.name, lang: user.lang, timezone: user.timezone, profile: user.profile },

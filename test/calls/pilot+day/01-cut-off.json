@@ -1,0 +1,34 @@
+{
+  "lang": "de",
+  "before": [
+    {
+      "conversation": {
+        "mode": "next_inbound"
+      }
+    }
+  ],
+  "says": [
+    "Hallo, nix Besonderes, ich bin grad auf dem Weg zur Baustelle.",
+    "Gestern war ein ziemliches Chaos. Der Händler hat die falschen Fliesen geliefert, anthrazit statt grau, und der Kunde stand schon daneben.",
+    "Ich musste dann nochmal zum Händler fahren und, oh, warte, ich bin da. Ich muss los, tschüss."
+  ],
+  "must": [
+    {
+      "noEvent": "fallback"
+    }
+  ],
+  "should": [
+    {
+      "api": {
+        "path": "/api/objectives",
+        "match": "\"open_thread\":\"[^\"]+\""
+      }
+    },
+    {
+      "said": "gestern|heute|läuft|steht.*an"
+    },
+    {
+      "noEvent": "error"
+    }
+  ]
+}

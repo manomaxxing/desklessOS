@@ -107,7 +107,7 @@ export function checkPlan(raw, { users, skill, template = "inquiry", outbound = 
 }
 
 export function cardFor(plan, { blocked = [], warnings = [] } = {}) {
-  const when = plan.mode === "next_inbound" ? "in his next call, after his own business" : plan.mode === "outbound" ? "the assistant calls him, within his call times" : "whichever comes first: his next call, or the assistant calls him";
+  const when = plan.mode === "next_inbound" ? "in his next call, after his own business" : plan.mode === "outbound" ? "Toni calls him, within his call times" : "whichever comes first: his next call, or Toni calls him";
   return {
     title: plan.target ? `Ask ${plan.target.name}` : "Ask …?",
     summary: plan.summary,

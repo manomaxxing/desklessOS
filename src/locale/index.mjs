@@ -116,6 +116,13 @@ const PROMPT_LOCALE = "en-GB";
 export const FORMAT_LOCALE = "en-GB";
 /** "Monday, 12 October 2026", for a prompt. */
 export const promptDate = (d = new Date()) => d.toLocaleDateString(PROMPT_LOCALE, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+/** "07:40, early morning" in his time zone: what part of his day it is. */
+export function promptTime(d = new Date(), timeZone = "Europe/Berlin") {
+  const hm = d.toLocaleTimeString("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false });
+  const h = Number(hm.slice(0, 2));
+  const part = h < 5 ? "night" : h < 9 ? "early morning, his day has barely started" : h < 12 ? "morning" : h < 14 ? "midday" : h < 18 ? "afternoon" : h < 22 ? "evening" : "night";
+  return `${hm}, ${part}`;
+}
 /** "Monday", for a prompt. */
 export const promptWeekday = (d = new Date()) => d.toLocaleDateString(PROMPT_LOCALE, { weekday: "long" });
 

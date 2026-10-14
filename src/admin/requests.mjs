@@ -7,7 +7,7 @@
 // request id and the plan's hash, so what gets approved is exactly what was shown.
 
 import { randomUUID } from "node:crypto";
-import { draftPlan, editPlan } from "./planner.mjs";
+import { draftPlan, editPlan, cardFor, callable } from "./planner.mjs";
 import { planHash } from "./auth.mjs";
 
 export function createRequests({ memory, skill, auth, llm, queue = null, notifier = null, publicUrl = "", log = () => {}, onCancel = async () => {}, outbound = () => false }) {
@@ -28,11 +28,42 @@ export function createRequests({ memory, skill, auth, llm, queue = null, notifie
     return withToken(r);
   }
 
+  /**
+   * A conversation about his day (template discovery.day): no questions to plan, so no model.
+   * mode: outbound (Toni calls him) | next_inbound | either; without outbound calls on this
+   * server, or without his consent, it becomes his next call, with a warning on the card.
+   */
+  async function planConversation({ userId = null, focus = "", mode = "outbound", by = "admin" } = {}) {
+    const users = await memory.listUsers();
+    const user = users.find(u => u.id === userId) ?? (users.length === 1 ? users[0] : null);
+    if (!user) throw Object.assign(new Error("who should Toni talk to? (userId)"), { status: 400 });
+    let params;
+    try { params = skill.objectiveParams("discovery.day", { focus }); } catch (err) { throw Object.assign(err, { status: 400 }); }
+    const warnings = [];
+    let m = ["outbound", "next_inbound", "either"].includes(mode) ? mode : "outbound";
+    if (m !== "next_inbound" && !outbound()) { warnings.push("Outbound calls aren't set up on this server yet (Twilio); it'll happen in his next call instead."); m = "next_inbound"; }
+    else if (m !== "next_inbound" && !callable(user)) { warnings.push(`${user.name} can't be called yet (${!user.phone ? "no phone number" : user.outboundPaused ? "calls to him are paused" : "he hasn't agreed to be called"}); it'll happen in his next call instead.`); m = "next_inbound"; }
+    const plan = {
+      template: "discovery.day", version: skill.templates.get("discovery.day")?.version ?? 1,
+      target: { userId: user.id, name: user.name, lang: user.lang, confidence: 1, alternatives: [] },
+      params, mode: m, lang: user.lang, notBefore: null, deadline: null, clarifications: [],
+      summary: `${user.name} tells Toni about his day; Toni listens, and only now and then asks lightly about what went wrong, or about the problem behind an idea. If the drive ends, the next call picks up where it stopped.`,
+    };
+    const card = { ...cardFor(plan, { warnings }), title: `Talk with ${user.name} about his day` };
+    const r = await memory.requests.create({
+      id: `req_${randomUUID().slice(0, 8)}`, userId: user.id, instruction: `Talk with ${user.name} about his day${params.focus ? ` (${params.focus})` : ""}`, plan, planHash: planHash(plan), card, turns: [],
+      status: "draft", createdBy: by, createdAt: new Date().toISOString(),
+    });
+    log(`request ${r.id} planned: ${card.title}`);
+    return withToken(r);
+  }
+
   /** Max answers a clarification (`answer`, the model plans again) or edits the card (`edits`, no model). */
   async function revise(id, { answer = "", edits = null } = {}) {
     const r = await memory.requests.get(id);
     if (!r) throw Object.assign(new Error("no such request"), { status: 404 });
     if (r.status !== "draft") throw Object.assign(new Error(`it's ${r.status} already`), { status: 409 });
+    if (r.plan?.template !== "inquiry") throw Object.assign(new Error("this one has nothing to re-plan: discard it and plan a new one"), { status: 409 });
     const users = await memory.listUsers();
     const next = edits
       ? editPlan(r.plan, edits, { users, skill, outbound: outbound() })
@@ -114,7 +145,7 @@ export function createRequests({ memory, skill, auth, llm, queue = null, notifie
   }
 
   return {
-    plan, revise, approve, cancel, objectivesChanged, note, sendNotification,
+    plan, planConversation, revise, approve, cancel, objectivesChanged, note, sendNotification,
     list: () => memory.requests.list(),
     get: id => memory.requests.get(id),
     /** A request as the admin page shows it (drafts with their confirm token). */

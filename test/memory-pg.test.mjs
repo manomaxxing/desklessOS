@@ -189,6 +189,20 @@ test("objectives: create for the user, pick for a call (best first), record answ
   assert.deepEqual((await mem.objectives.byIds([b.id, "nope", a.id])).map(o => o.id), [b.id, a.id]);
 });
 
+test("an objective that was on a call comes to the next one with how that call ended", async () => {
+  const o = await mem.objectives.create({ template: "discovery.day", params: {} });
+  const first = await mem.openCall({ callId: "d1" });
+  assert.equal(first.objectives.find(x => x.id === o.id).lastCall, undefined, "nothing before its first call");
+  await first.endCall({ turns: [{ role: "user", text: "Gestern war Chaos mit dem Händler, oh, ich bin da." }, { role: "model", text: "Klar, bis später!" }], reason: "caller_hangup" });
+  const { scope } = await mem.afterCall("d1");
+  await scope.recordObjectives([{ id: o.id, done: false, result: { stories: [], open_thread: "" } }]);
+  const next = await mem.openCall({ callId: "d2" });
+  const mine = next.objectives.find(x => x.id === o.id);
+  assert.equal(mine.lastCall.reason, "caller_hangup");
+  assert.equal(mine.lastCall.turns[0].text, "Gestern war Chaos mit dem Händler, oh, ich bin da.");
+  await mem.objectives.cancel(o.id);
+});
+
 test("a call whose instance died is ended by the sweep, and its after-call job queued", async () => {
   const scope = await mem.openCall({ callId: "c7", at: new Date(Date.now() - 45 * 60000) });
   await scope.checkpoint({ turns, lang: "de" });

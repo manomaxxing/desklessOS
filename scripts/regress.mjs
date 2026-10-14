@@ -19,6 +19,7 @@
 //   {"api": {"path": "/api/objectives", "match": "regex"}}  what the server says after the call
 // "before": [{ "post": "/api/objectives", "body": {…} }] runs before the call (e.g. Max's question);
 //   [{ "adminRequest": "Frag Niko, …" }] plans it like the admin page and approves the card;
+//   [{ "conversation": { "mode": "next_inbound", "focus": "…" } }] the same for a talk about his day;
 //   [{ "user": { phone, consentOutbound, callWindow } }] sets up the (first) user.
 // "answer": "+49…" instead of calling: be that phone and wait for the server to call (OUTBOUND=fake).
 // A folder's _config.json: { "env": { … } } for the server it needs ("{port}" is filled in).
@@ -133,6 +134,10 @@ for (const folder of folders) {
           if (b.user) {
             const { users } = await fetch(`http://localhost:${port}/api/users`).then(r => r.json());
             await post(`/api/users/${users[0].id}`, b.user);
+          }
+          if (b.conversation) {
+            const { request, confirmToken } = await post("/api/requests/conversation", b.conversation);
+            await post(`/api/requests/${request.id}/approve`, { confirmToken });
           }
           if (b.adminRequest) {
             const { request, confirmToken } = await post("/api/requests", { instruction: b.adminRequest });

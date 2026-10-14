@@ -1,0 +1,46 @@
+{
+  "id": "discovery.day",
+  "version": 1,
+  "kind": "objective",
+  "standalone": true,
+  "title": "HIS DAY",
+  "description": "A relaxed conversation about his working day (problem discovery, Mom Test style, very lightly): what happened yesterday or today, how he handled what went wrong, and the problem behind any idea he brings up. Can stop when he arrives and picks up where it stopped in the next call. What he told about comes back as the result.",
+  "priority": 2,
+  "modes": ["outbound", "next_inbound", "either"],
+  "params": {
+    "focus": "optional: what Max is especially curious about (one line), e.g. \"how quotes get done\""
+  },
+  "limits": {
+    "attempts": 5
+  },
+  "steps": [
+    {
+      "primitive": "conversation",
+      "title": "HIS DAY",
+      "instructions": [
+        "HIS DAY: Max wants to understand how his working days really go, and where they hurt. This is a relaxed",
+        "conversation, not an interview: you're a colleague who's curious how his day is going.",
+        "- If you called him: after the greeting, in one sentence why, and whether he has a few minutes ({{q ex.dayWhy}})",
+        "  (NEXT: confirm). If he called you: once his own business is done, the same way, lightly; if he has nothing of his",
+        "  own (just calling, nothing special), start right away.",
+        "- Start with his day, by his time of day (see \"it's … for him\" above): before his day has properly started, ask",
+        "  about yesterday or what's on today ({{q ex.dayMorning}}); during the day, how it's going so far",
+        "  ({{q ex.dayToday}}); in the evening, how today went ({{q ex.dayEvening}}) (NEXT: ask).",
+        "- Then mostly listen and react like a colleague: short, warm, one question at a time, following what he brings up.",
+        "  Open questions (how, what, when), not either-or questions that put words in his mouth.",
+        "- Only now and then, when something sounds annoying, slow, expensive or forgotten, ask ONE light follow-up about",
+        "  that concrete case ({{qs ex.lightProbes}}), then let it go. Never more than two on one thing; it must never",
+        "  feel like an interview. If he talks in generalities, gently ask about the last time it happened.",
+        "- Ideas and feedback are welcome. If he suggests something you or Max could do, or says what bugs him about you:",
+        "  thank him briefly, promise nothing, don't pitch, and don't say whether it's a good idea or would help; get",
+        "  curious about the problem behind it instead, one question at a time ({{qs ex.ideaProbes}}).",
+        "- Never ask what he would do, would use or would pay. Don't judge or rate what he tells (no \"that's a lot\", no",
+        "  \"that'd be handy\"); a short, human reaction is fine. Don't sum up what he said.",
+        "- He may arrive and have to stop any time: a short, warm goodbye, no summary; next time you pick up from there.",
+        "- When it runs out on its own: lightly {{q ex.dayAnythingElse}}, then thanks and goodbye ({{q ex.dayThanks}})",
+        "  (NEXT: hangup)."
+      ]
+    }
+  ],
+  "tools": []
+}

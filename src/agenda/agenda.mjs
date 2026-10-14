@@ -11,7 +11,7 @@
 import { render } from "./render.mjs";
 import { primitives } from "./primitives.mjs";
 import { toolRules } from "../tools/prompt.mjs";
-import { promptDate, promptWeekday } from "../locale/index.mjs";
+import { promptDate, promptWeekday, promptTime } from "../locale/index.mjs";
 
 const LETTERS = "ABCDEFGHIJ";
 const P = step => primitives[step.primitive];
@@ -43,6 +43,7 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
     r: renderer(lang, item ? `templates/${item.template.id}` : `personas/${persona.id}`),
     lang, locales, discovery, framework,
     params: item?.params ?? {}, key: item?.key, questionLang: item?.questionLang ?? null,
+    previous: item?.previous ?? null, // what this objective got in earlier calls (its stored result)
     agentLabel: persona.agentLabel ?? "Agent",
   });
   const stepsText = (t, item, lang) => t.steps.map(s => P(s).prompt?.(s, stepContext(item, lang)) ?? "").filter(Boolean).join("\n");
@@ -67,7 +68,7 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
      * The system prompt. engine "cascade": the model writes a header and its reply, which Fish
      * reads aloud; "live": Gemini Live hears and speaks itself, and hangs up with end_call.
      */
-    prompt({ engine = "cascade", lang = profile.lang, note = {}, missing: miss = missing(note), memory = "", tools = [], today = promptDate() }) {
+    prompt({ engine = "cascade", lang = profile.lang, note = {}, missing: miss = missing(note), memory = "", tools = [], now = new Date(), today = promptDate(now) }) {
       const r = renderer(lang, `personas/${persona.id}`);
       const section = name => r(persona.sections[name]);
       const jobs = capabilities.map((t, i) => `${LETTERS[i]}) ${r(t.title)}\n${stepsText(t, null, lang)}`);
@@ -99,7 +100,7 @@ ${section("next")}`;
         format,
         !live && tools.length ? toolRules(tools, slotContext(lang).lines) : "",
         // per call
-        `Today is ${today}.`,
+        `Today is ${today}; it's ${promptTime(now, profile.timezone)} for him.`,
         outbound ? section("outbound") : "",
         own.length ? `${section("agenda")}\n\nItems for this call, in this order:\n${own.join("\n\n")}` : "",
         `MEMORY (persists across calls: to-dos, customers and their notes):\n${memory || "(empty)"}`,

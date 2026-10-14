@@ -91,10 +91,12 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
      * persona researches. At most MAX_OBJECTIVES of the agent's own items per call.
      */
     createAgenda({ objectives = [], discovery = null, direction = "inbound" } = {}) {
-      const own = objectives.map(o => ({ id: o.id, key: o.id, template: byId(o.template), params: o.params, stored: true, questionLang: o.lang ?? locales.guess(o.params.questions?.map(q => q.ask).join(" ") ?? "") ?? profile.lang }));
+      const own = objectives.map(o => ({ id: o.id, key: o.id, template: byId(o.template), params: o.params, stored: true, previous: o.result || o.lastCall ? { ...(o.result ?? {}), lastCall: o.lastCall ?? null } : null, questionLang: o.lang ?? locales.guess(o.params.questions?.map(q => q.ask).join(" ") ?? "") ?? profile.lang }));
       const always = standing.filter(t => discovery || !t.steps.some(s => s.primitive === "research")).map(t => ({ id: t.id, key: t.id.replace(/\W/g, "_"), template: t, params: {}, stored: false }));
-      // A call the agent makes is for its errand only: no standing items (research) on top.
-      const items = direction === "outbound" ? own : [...own, ...always];
+      // A call the agent makes is for its errand only, and a "standalone" item (a whole conversation,
+      // like his day) is the call's own item too: no standing items (research) on top.
+      const standalone = own.some(o => o.template.standalone);
+      const items = direction === "outbound" || standalone ? own : [...own, ...always];
       return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile, locales, discovery, framework, direction });
     },
 

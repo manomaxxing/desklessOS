@@ -116,3 +116,38 @@ test("at most two of the agent's own items per call; research needs its store", 
   assert.deepEqual(two.objectives.map(o => o.id), ["a", "b"]);
   assert.deepEqual(skill.createAgenda().objectives, [], "no discovery store: no research item");
 });
+
+test("his day: a conversation by his time of day, picking up where the last call stopped", () => {
+  const skill = loadSkillFromTemplates("pilot");
+  const day = { id: "obj_d", template: "discovery.day", params: skill.objectiveParams("discovery.day", {}) };
+  const first = skill.createAgenda({ objectives: [day], discovery: createDiscovery({ framework: loadFramework() }) });
+  assert.deepEqual(first.objectives.map(o => o.template.id), ["discovery.day"], "a whole conversation: no research question on top");
+  const morning = first.prompt({ lang: "de", now: new Date("2026-10-14T06:40:00Z") });
+  assert.match(morning, /it's 08:40, early morning, his day has barely started for him/);
+  assert.match(morning, /"Wie war's gestern\? Oder was steht heute an\?"/);
+  assert.match(morning, /mostly listen/);
+  assert.doesNotMatch(morning, /FROM EARLIER CALLS/);
+  assert.match(first.prompt({ lang: "de", now: new Date("2026-10-14T16:10:00Z") }), /it's 18:10, evening for him/);
+
+  // The first call is cut off mid-story: not done, and what it got is kept.
+  first.update({ mode: "unclear", agenda: { obj_d: { agreed: true, day: "Bad in Allensbach.", stories: [{ title: "Angebot am Sonntag", what_happened: "Angebot nachts geschrieben", quote: "Sonntagabend halt" }], ideas: [], open_thread: "erzählte gerade vom Fliesenhändler", wrapped_up: false } } });
+  const [r1] = first.results();
+  assert.equal(r1.done, false, "he arrived: it stays open for the next call");
+  assert.equal(r1.result.open_thread, "erzählte gerade vom Fliesenhändler");
+  assert.equal(r1.result.questions[0].ask, "Angebot am Sonntag", "shown on the admin card like an answer");
+
+  // The next call picks it up (also from how the last call actually ended), and adds to it.
+  const lastCall = { reason: "caller_hangup", turns: [{ role: "user", text: "Ich musste zum Händler und, oh, ich bin da. Tschüss." }, { role: "model", text: "Klar, bis später!" }] };
+  const next = skill.createAgenda({ objectives: [{ ...day, result: r1.result, lastCall }] });
+  const p = next.prompt({ lang: "de" });
+  assert.match(p, /FROM EARLIER CALLS: he already told you about: Angebot am Sonntag\. It stopped while: erzählte gerade vom Fliesenhändler\./);
+  assert.match(p, /The last call ended like this:\n {2}He: Ich musste zum Händler und, oh, ich bin da\. Tschüss\.\n {2}You: Klar, bis später!/);
+  assert.match(skill.createAgenda({ objectives: [{ ...day, lastCall }] }).prompt({ lang: "de" }), /The last call ended like this/, "even when the extraction missed it");
+  next.update({ mode: "unclear", agenda: { obj_d: { agreed: true, day: "Heute Küche.", stories: [{ title: "angebot am sonntag", what_happened: "dup", quote: "" }, { title: "Fliesen falsch geliefert", what_happened: "Händler hat falsche Farbe geschickt", quote: "schon wieder" }], ideas: [{ idea: "Bestellungen per Anruf", last_time: "letzte Woche", quote: "wär super" }], open_thread: "", wrapped_up: true } } });
+  const [r2] = next.results();
+  assert.equal(r2.done, true, "ended naturally");
+  assert.deepEqual(r2.result.stories.map(s => s.title), ["Angebot am Sonntag", "Fliesen falsch geliefert"], "added, not repeated");
+  assert.deepEqual(r2.result.days, ["Bad in Allensbach.", "Heute Küche."]);
+  assert.equal(r2.result.open_thread, "");
+  assert.match(r2.result.questions.at(-1).ask, /^Idea: Bestellungen per Anruf/);
+});

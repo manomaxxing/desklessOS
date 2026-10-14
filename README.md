@@ -78,6 +78,21 @@ until it goes through.
   `POST /api/requests/:id/revise {answer | edits}`; `POST /api/requests/:id/approve
   {confirmToken}`; `POST /api/requests/:id/cancel`; `GET /api/requests[/:id]`; `GET /api/users`.
 
+**Talk with him about his day** (problem discovery, `templates/discovery.day.json`): on the admin
+page, "Talk with him about his day" plans a card you approve. Toni then has a relaxed conversation
+with him:
+- **Opener by his time of day:** yesterday or what's on today in the early morning, how today is
+  going during the day, how it went in the evening.
+- **Mostly listening:** only now and then one light Mom-Test follow-up about something that went
+  wrong (when, how he handled it, what it cost).
+- **Ideas and feedback:** when he brings one up, Toni asks about the problem behind it (the last
+  time, how often, what it costs today, how he handles it now). It promises nothing and doesn't pitch.
+- **Picking up:** if his drive ends mid-conversation, the next call continues from there. It sees
+  where the last one stopped.
+- **The result:** the card collects his day, the stories and the ideas, in his words.
+
+Toni calls him once Twilio is set up; until then it happens in his next call.
+
 **By phone:** calls from `ADMIN_PHONE` (E.164, comma-separated) reach Max's own line
 (`personas/admin.md`): "Frag Niko, …" drafts the same request and reads the card back;
 approving it, and hearing what came back, need `ADMIN_PIN` (said on the call; three wrong

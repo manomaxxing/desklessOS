@@ -10,7 +10,10 @@
 //   result(step, out, ctx)     what the objective keeps after the call
 //   validate(step, params)     checks and normalises an objective's params; throws on bad input
 //   memory(step, ctx)          what the post-call memory step adds { schema, rules, prompt(snapshot) }
-// ctx: { r(text, extra?) renders {{slots}}, lang, params, key, agentLabel, discovery, framework, locales }.
+// ctx: { r(text, extra?) renders {{slots}}, lang, params, key, agentLabel, discovery, framework, locales,
+//        previous (an objective's result from earlier calls) }.
+// Primitives: capture (a note), inform (answer from what's known), ask (Max's questions),
+// research (the pilot week's questions), conversation (his day, a listening conversation).
 
 const S = { type: "STRING" };
 const filled = v => (Array.isArray(v) ? v.length > 0 : typeof v === "string" ? v.trim() !== "" : v !== undefined && v !== null && v !== false);
@@ -136,4 +139,76 @@ ${(d.recentFindings ?? []).join("\n") || "(none)"}`;
   }),
 };
 
-export const primitives = { capture, inform, ask, research };
+// A conversation, not a questionnaire: he talks about his day; the agent listens like a colleague
+// and only now and then asks one light follow-up (Mom Test: what really happened, the last time,
+// what it cost). Ideas and feedback he brings get the same: the problem behind them. A call can
+// end mid-conversation (he arrived): what it got so far is kept, and the next call picks up where
+// it stopped (`previous`: the result of earlier calls). The guide is the step's instructions.
+const STORY = { type: "OBJECT", properties: { title: S, when: S, what_happened: S, what_he_did: S, cost: S, how_often: S, quote: S }, required: ["title", "what_happened", "quote"] };
+const IDEA = { type: "OBJECT", properties: { idea: S, last_time: S, how_often: S, cost: S, today: S, quote: S }, required: ["idea", "quote"] };
+const sameTitle = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+const addNew = (old = [], now = [], key) => [...old, ...now.filter(n => !old.some(o => sameTitle(o[key], n[key])))];
+const conversation = {
+  validate(s, params = {}) {
+    const focus = params.focus == null ? "" : String(params.focus).trim();
+    if (focus.length > 200) throw new Error("focus: one line, up to 200 characters");
+    return { focus };
+  },
+  prompt(s, c) {
+    const prev = c.previous;
+    const covered = [...(prev?.stories ?? []).map(x => x.title), ...(prev?.ideas ?? []).map(x => x.idea)].filter(Boolean);
+    const last = prev?.lastCall?.turns?.length
+      ? `The last call ended like this:\n${prev.lastCall.turns.map(t => `  ${t.role === "user" ? "He" : "You"}: ${t.text}`).join("\n")}\n`
+      : "";
+    return [
+      c.r(s.instructions),
+      c.params.focus ? `If it comes up naturally, Max is especially curious about: ${c.params.focus}.` : "",
+      prev?.open_thread || covered.length || last
+        ? `FROM EARLIER CALLS: ${covered.length ? `he already told you about: ${covered.join("; ")}. ` : ""}${prev?.open_thread ? `It stopped while: ${prev.open_thread}. ` : ""}\n${last}If it stopped in the middle of something, pick up from there, naming what he actually told you (in the form of ${c.r("{{q ex.dayPickUp}}")}, the … being his topic); don't start over and don't ask about what's covered again.`
+        : "",
+    ].filter(Boolean).join("\n");
+  },
+  output: () => ({
+    type: "OBJECT",
+    properties: { agreed: { type: "BOOLEAN" }, day: S, stories: { type: "ARRAY", items: STORY }, ideas: { type: "ARRAY", items: IDEA }, open_thread: S, wrapped_up: { type: "BOOLEAN" } },
+    required: ["agreed", "day", "stories", "ideas", "open_thread", "wrapped_up"],
+  }),
+  rules: (s, c) => [
+    `- agenda.${c.key}: the conversation about his day (${c.r(s.title)}). agreed = he's up for it (he has a few minutes, or he simply`,
+    "  started telling); day = his day as he told it (yesterday, today so far or what's planned), one or two neutral sentences;",
+    "  stories = things that really happened and were annoying, slow, costly or got forgotten: title (a few words), when,",
+    "  what_happened, what_he_did (how he handled it), cost (time, money, nerves, as he said it), how_often, quote (his exact",
+    "  words, short and telling); ideas = features or feedback he brought up himself: idea, last_time (the concrete case",
+    "  behind it), how_often, cost, today (how he handles it now), quote. \"\" for whatever he didn't say; one entry per",
+    "  distinct thing. open_thread = if the call ended in the middle of something (he arrived, had to go, the line dropped, a",
+    "  question or story was still open): a few words on where it stopped; \"\" only if it ran out on its own. wrapped_up = true",
+    `  ONLY if the ${c.agentLabel.toLowerCase()} asked whether there's anything else (or similar) and he said there isn't; a goodbye because`,
+    "  he had to stop is NOT wrapped up. Values in the language of the call; never invent.",
+  ],
+  // Done when it ran out on its own; cut off (he arrived), it stays open and the next call picks it up.
+  isDone: (s, out) => Boolean(out?.wrapped_up) && !out?.open_thread,
+  status(s, out, c) {
+    const n = (out?.stories?.length ?? 0) + (out?.ideas?.length ?? 0);
+    return `${c.r(s.title)}: ${out?.agreed ? `${n ? `${n} thing${n === 1 ? "" : "s"} he told about so far` : "he's talking"}; keep it a conversation` : "not started yet"}`;
+  },
+  // Adds this call to what earlier calls got; the latest call says where it stopped.
+  result(s, out, c) {
+    const prev = c.previous ?? {};
+    const stories = addNew(prev.stories, out?.stories ?? [], "title");
+    const ideas = addNew(prev.ideas, out?.ideas ?? [], "idea");
+    const days = [...(prev.days ?? []), ...(out?.day ? [out.day] : [])];
+    const line = (...parts) => parts.filter(Boolean).join(" · ");
+    return {
+      days, stories, ideas, open_thread: out?.open_thread ?? "",
+      // the same as questions and answers, for the admin card and Max's message
+      questions: [
+        ...stories.map((x, i) => ({ id: `s${i + 1}`, ask: x.title, status: "answered", asked: true, probed: true, quote: x.quote ?? "",
+          answer: line(x.what_happened, x.what_he_did && `what he did: ${x.what_he_did}`, x.cost && `cost: ${x.cost}`, x.how_often && `how often: ${x.how_often}`, x.when) })),
+        ...ideas.map((x, i) => ({ id: `i${i + 1}`, ask: `Idea: ${x.idea}`, status: "answered", asked: true, probed: true, quote: x.quote ?? "",
+          answer: line(x.last_time && `last needed: ${x.last_time}`, x.how_often && `how often: ${x.how_often}`, x.cost && `cost today: ${x.cost}`, x.today && `today: ${x.today}`) })),
+      ],
+    };
+  },
+};
+
+export const primitives = { capture, inform, ask, research, conversation };

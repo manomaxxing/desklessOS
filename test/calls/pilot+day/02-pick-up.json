@@ -1,0 +1,29 @@
+{
+  "lang": "de",
+  "says": [
+    "Hallo, ich bin's nochmal, hab jetzt kurz Zeit.",
+    "Ja genau, ich bin dann nochmal zum Händler gefahren und hab die richtigen geholt. Hat mich den halben Vormittag gekostet.",
+    "Ach, wär halt super, wenn du gleich beim Händler nachfragen könntest, ob die Lieferung stimmt.",
+    "Hm, so zwei, dreimal im Monat bestimmt. Meistens merk ich's erst auf der Baustelle.",
+    "Nee, das war's eigentlich. Danke, tschüss."
+  ],
+  "must": [
+    {
+      "api": {
+        "path": "/api/objectives",
+        "match": "\"ideas\":\\[\\{"
+      }
+    }
+  ],
+  "should": [
+    {
+      "said": "Fliesen|Händler|Lieferung"
+    },
+    {
+      "said": "wie oft|zuletzt|kostet|Wann|im Moment"
+    },
+    {
+      "noEvent": "error"
+    }
+  ]
+}
