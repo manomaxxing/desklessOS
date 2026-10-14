@@ -96,7 +96,7 @@ export function createDiscovery({ framework = loadFramework(), storage = memoryS
         `WHAT WE'VE LEARNED ABOUT HIM AND HIS BUSINESS (pilot week, day ${pilotDay} of ${framework.pilotDays}):`,
         ...known,
         "",
-        intro ? "FIRST CALL: yes, this is his first call to the notebook (see RESEARCH above)." : "FIRST CALL: no. He knows the notebook already; don't introduce yourself again.",
+        intro ? "FIRST CALL: yes, this is his first call to you (see RESEARCH above)." : "FIRST CALL: no. He knows you already; don't introduce yourself again.",
         capped || !picks.length
           ? "DISCOVERY QUESTION FOR THIS CALL: none. Don't ask any research question in this call."
           : `DISCOVERY QUESTION FOR THIS CALL (ask at most one, at the end; take the first unless another one links directly to what he said):\n${ask.join("\n")}`,

@@ -80,7 +80,7 @@
       "questions": [
         { "id": "p1", "ask": "Ich hab diese Woche mitgeschrieben, wie dein Büroalltag läuft: <fasse in zwei Sätzen zusammen, was in WHAT WE'VE LEARNED steht>. Stimmt das so, oder fehlt was Wichtiges?", "probe": "Was würdest du daran korrigieren?", "hypothesis": "" },
         { "id": "p2", "ask": "Was davon kostet dich am meisten Zeit oder Nerven?", "probe": "Wie viel Zeit ungefähr, pro Woche?", "hypothesis": "" },
-        { "id": "p3", "ask": "Und ehrlich: Was hat dich an mir, also am Notizbuch, diese Woche genervt?", "probe": "Wann hast du's nicht benutzt, obwohl du hättest können?", "hypothesis": "" }
+        { "id": "p3", "ask": "Und ehrlich: Was hat dich diese Woche an mir genervt?", "probe": "Wann hast du's nicht benutzt, obwohl du hättest können?", "hypothesis": "" }
       ]
     }
   ]

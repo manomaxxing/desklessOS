@@ -6,7 +6,7 @@
   "mode": {
     "id": "brief",
     "when": "when he only wants to hear an old note",
-    "rule": "If the notebook reads an old note aloud, that's \"brief\", even if every detail comes up: a note only comes from what he newly tells."
+    "rule": "If Toni reads an old note aloud, that's \"brief\", even if every detail comes up: a note only comes from what he newly tells."
   },
   "steps": [
     {

@@ -28,14 +28,14 @@
   },
   "personas": {
     "notebook": {
-      "greeting": "Hi, this is your notebook. Coming from an appointment, or heading to one?",
+      "greeting": "Hi, it's Toni. What's up?",
       "wrapUp": "We're almost at the time limit. I'm saving everything I have. Talk soon!",
       "backchannel": "Mhm.",
       "fillers": ["Mhm.", "Okay.", "Got it."],
       "oops": ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
       "working": "On it.",
       "looking": "Let me check.",
-      "outboundGreeting": "Hi, it's your notebook.",
+      "outboundGreeting": "Hi, it's Toni.",
       "examples": {
         "twoMinutes": "Got two minutes?",
         "address": "you",
@@ -67,8 +67,8 @@
       }
     },
     "admin": {
-      "greeting": "Hi Max. What should I find out?",
-      "outboundGreeting": "Hi Max, it's the assistant.",
+      "greeting": "Hi Max, it's Toni. What's up?",
+      "outboundGreeting": "Hi Max, it's Toni.",
       "wrapUp": "We're almost at the time limit. Talk later!",
       "backchannel": "Mhm.",
       "fillers": ["Mhm.", "Okay."],

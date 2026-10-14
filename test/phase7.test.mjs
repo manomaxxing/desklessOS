@@ -113,7 +113,7 @@ test("the admin persona renders, with only its own tools", () => {
   const agenda = admin.createAgenda();
   assert.deepEqual(agenda.tools(), ["request_create", "request_approve", "request_status"]);
   const prompt = agenda.prompt({ engine: "cascade", lang: "de", tools: agenda.tools() });
-  assert.match(prompt, /DesklessOS assistant on Max's own line/);
+  assert.match(prompt, /You are Toni, the DesklessOS assistant, on Max's own line/);
   assert.match(prompt, /"Moment, ich plane das\." and call request_create/);
   assert.match(prompt, /"Soll ich das so freigeben\?"/);
   assert.doesNotMatch(prompt, /\{\{|undefined/);

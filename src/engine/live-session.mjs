@@ -147,7 +147,7 @@ export function createLiveSession({ send, dev = false, skill, agenda = skill.cre
       ready = true;
       debug("live", { text: `connected to ${target.id} · voice ${cfg.liveVoice}` });
       for (const payload of early.splice(0)) gem.send(JSON.stringify({ realtimeInput: { audio: { data: payload, mimeType: "audio/pcm;rate=16000" } } }));
-      gem.send(JSON.stringify({ realtimeInput: { text: `(The call just connected. Greet him in one short sentence, in the spirit of: "${greeting}")` } }));
+      gem.send(JSON.stringify({ realtimeInput: { text: `(The call just connected. Say exactly this, nothing more, then let him speak: "${greeting}")` } }));
       return;
     }
     const sc = msg.serverContent;
