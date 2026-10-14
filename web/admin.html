@@ -366,7 +366,8 @@ function renderPeople(users, outbound) {
   $("people").innerHTML = users.map(u => {
     const w = { days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", ...(u.callWindow || {}) };
     return `<div class="card" data-user="${esc(u.id)}">
-      <div class="title">${esc(u.name)} <span class="chip">${esc(u.lang)}</span>${u.consentOutboundAt ? '<span class="chip done">may be called</span>' : ""}${u.outboundPaused ? '<span class="chip expired">paused</span>' : ""}</div>
+      <div class="title">${esc(u.name)} <span class="chip">${esc(u.lang)}</span>${u.demo ? '<span class="chip draft">demo</span>' : ""}${u.consentOutboundAt ? '<span class="chip done">may be called</span>' : ""}${u.outboundPaused ? '<span class="chip expired">paused</span>' : ""}</div>
+      ${u.demo ? '<div class="muted small" style="margin-top:4px">The online test phone, and calls from the number below. Its own memory; no research questions; nobody else\'s memory gets these calls.</div>' : ""}
       <div class="grid2">
         <div><label>Phone</label><input type="text" name="phone" value="${esc(u.phone)}" placeholder="+4915112345678"></div>
         <div><label>Time zone</label><input type="text" name="timezone" value="${esc(u.timezone || "Europe/Berlin")}"></div>

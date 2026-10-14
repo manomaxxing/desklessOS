@@ -279,6 +279,10 @@ Realtime and Google's Live best practices.
 - **Per user.** The caller ID picks the user (`users.phone_e164`); with one user every call
   is theirs (the pilot); an unknown caller among several users gets an empty memory and
   nothing is saved. The first start creates the org and user from the persona's profile.
+- **The demo.** A user of its own (`users.demo`, its own org, made on the first start): the
+  online test phone (no caller ID) and the number on its People card (Max's) reach it. Its
+  calls are saved and summarised into its own memory; it gets no research questions, and no
+  one else's memory gets these calls.
 - **Budgeted context.** When the call connects, the MEMORY block is built once
   (`src/memory/context.mjs`, 2,500 tokens): what we know about him, up to 10 open to-dos,
   the 8 most relevant customers (recent, open to-dos, due soon) with their latest notes,

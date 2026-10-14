@@ -163,7 +163,7 @@ only the server's service role reads and writes. Schema: `src/db/migrations/` (`
 
 | Table | Holds | Notes |
 |---|---|---|
-| `orgs`, `users` | tenants and the people who call | `phone_e164` (caller ID → user), consent, call window, time zone |
+| `orgs`, `users` | tenants and the people who call | `phone_e164` (caller ID → user), consent, call window, time zone; `demo` marks the demo user (own org; the test phone and Max's number reach it; no research) |
 | `contacts` | his customers | trigram index on name + place (sound-alike search) |
 | `calls` | every call with a known caller | transcript and extraction saved per turn; timeline; `recap` (the summary on the admin page); `consolidated_at`, `after_call_at` guard the after-call steps; `calls_open` index for "on a call" and the lost-call sweep |
 | `notes` | his note per call | unique per `call_id` (the after-call job may run twice); pgvector embedding |

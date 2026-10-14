@@ -232,9 +232,29 @@ test("an unknown caller among several users gets nothing and saves nothing", asy
   const known = await mem.openCall({ callId: "c9", from: "+49 170 0000002" });
   assert.equal(known.user.name, "Second", "matched by caller ID");
   const testPhone = await mem.openCall({ callId: "c10", from: "+49-browser" });
-  assert.equal(testPhone.user.name, "Niko", "no caller ID (the test phone): the first user");
+  assert.equal(testPhone.user.name, "Niko", "no caller ID (the test phone), no demo user: the first user");
   await db.query("delete from calls where id in ('c9', 'c10')");
   await db.query("delete from users where name = 'Second'");
+});
+
+test("the demo: the test phone and Max's own number reach it; its own org, no research, nobody else's memory", async () => {
+  await mem.ensureDemoUser();
+  await mem.ensureDemoUser();
+  const demos = (await mem.listUsers()).filter(u => u.demo);
+  assert.equal(demos.length, 1, "made once");
+  await mem.updateUser(demos[0].id, { phone: "+41 78 000 00 01" });
+  const niko = (await mem.listUsers()).find(u => u.name === "Niko");
+  for (const [callId, from] of [["demo1", "+49-browser"], ["demo2", "+41780000001"], ["demo3", null]]) {
+    const scope = await mem.openCall({ callId, from });
+    assert.equal(scope.user.name, "Demo", `${from ?? "no caller ID"} → the demo`);
+    assert.equal(scope.discovery, null, "no research questions in a demo");
+    assert.notEqual(scope.user.orgId, niko.orgId, "an org of its own");
+  }
+  assert.equal((await mem.openCall({ callId: "demo4", from: niko.phone || "+4915100000000" })).user.name, "Niko", "his own number still reaches Niko");
+  const [{ n }] = await db.query("select count(*)::int n from calls where id in ('demo1', 'demo2', 'demo3') and user_id = $1", [demos[0].id]);
+  assert.equal(n, 3, "demo calls are saved, as the demo's");
+  await db.query("delete from calls where id like 'demo%'");
+  await db.query("delete from users where demo");
 });
 
 test("the API shapes the pages read: memory, notes, research, the call log", async () => {

@@ -3,8 +3,10 @@
 // after-call steps, each of which does its work once however often it's tried.
 // Schema: src/db/migrations/.
 //
-// Who calls: caller ID → users.phone_e164; else DEFAULT_USER_ID; else the only
-// user there is (the pilot). Anyone else gets an empty memory and nothing is saved.
+// Who calls: caller ID → users.phone_e164; no caller ID at all (the online test phone,
+// scripted calls) → the demo user; else DEFAULT_USER_ID; else the only user there is (the
+// pilot). Anyone else gets an empty memory and nothing is saved. The demo user (users.demo)
+// has an org of its own, and a phone number like anyone (Max's own, to demo on WhatsApp).
 
 import { buildContext, DEFAULT_BUDGET } from "./context.mjs";
 import { noteLine, searchWords } from "./text.mjs";
@@ -37,6 +39,7 @@ const noteOut = n => ({ ...n.data, id: n.id, lang: n.lang || n.data?.lang || "",
 const userOut = u => u && ({
   id: u.id, orgId: u.org_id, name: u.name, phone: u.phone_e164 ?? "", lang: u.lang, role: u.role, timezone: u.timezone,
   callWindow: u.call_window ?? {}, consentOutboundAt: u.consent_outbound_at ? new Date(u.consent_outbound_at).toISOString() : null, outboundPaused: Boolean(u.outbound_paused),
+  demo: Boolean(u.demo),
 });
 const requestOut = r => r && ({
   id: r.id, userId: r.user_id, instruction: r.instruction, plan: r.plan, planHash: r.plan_hash, card: r.card, turns: r.turns, status: r.status,
@@ -88,18 +91,31 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       [org.id, p.owner ?? p.name ?? "User", e164(p.phone), p.lang ?? skill.DEFAULT_LANG, p.timezone ?? "Europe/Berlin", json(profile)]);
     log(`memory: created org "${orgName}" and its first user`);
   }
+  /** The demo: an org and a user of their own, created once. */
+  async function ensureDemoUser() {
+    if ((await db.query("select 1 from users where demo")).length) return;
+    const lang = skill.profile?.lang ?? skill.DEFAULT_LANG;
+    const [org] = await db.query("insert into orgs (name) values ('Demo') returning id");
+    await db.query("insert into users (org_id, name, lang, timezone, demo, profile) values ($1, 'Demo', $2, $3, true, $4)",
+      [org.id, lang, skill.profile?.timezone ?? "Europe/Berlin", json({ name: "Demo", lang, demo: true })]);
+    log("memory: created the demo user");
+  }
 
   async function resolveUser(from) {
     const phone = e164(from);
     if (phone) { const [u] = await db.query("select * from users where phone_e164 = $1", [phone]); if (u) return u; }
     if (isUuid(process.env.DEFAULT_USER_ID)) { const [u] = await db.query("select * from users where id = $1", [process.env.DEFAULT_USER_ID]); if (u) return u; }
-    const rows = await db.query("select * from users order by created_at limit 2");
+    const rows = await db.query("select * from users where not demo order by created_at limit 2");
     return rows.length === 1 ? rows[0] : null;
   }
   const defaultUser = () => resolveUser(null);
   /** Who's calling. No caller ID at all (the browser test phone, scripted calls: both need
-   *  DEV_TOKEN) is DEFAULT_USER_ID, else the first user, however many there are. */
+   *  DEV_TOKEN) is the demo user; without one, DEFAULT_USER_ID, else the first user. */
   async function callerUser(from) {
+    if (!e164(from)) {
+      const [demo] = await db.query("select * from users where demo order by created_at limit 1");
+      if (demo) return demo;
+    }
     if (e164(from) || isUuid(process.env.DEFAULT_USER_ID)) return resolveUser(from);
     const [first] = await db.query("select * from users order by created_at limit 1");
     return first ?? null;
@@ -107,7 +123,7 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
 
   // ---------- the pilot's research ----------
   async function loadResearch(q, user) {
-    if (!framework) return null;
+    if (!framework || user.demo) return null; // the demo gets no research questions
     const [[state], facts] = await Promise.all([
       q.query("select questions, calls from research_state where user_id = $1", [user.id]),
       q.query("select id, kind, text, quote, tags, source_call_id, created_at from facts where user_id = $1 and subject = 'user' and superseded_by is null and exists (select 1 from unnest(tags) t where t like 'area:%') order by created_at", [user.id]),
@@ -382,6 +398,7 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
     kind: "pg",
     db,
     ensureUser,
+    ensureDemoUser,
 
     /** Everything one call needs from memory, read once when it connects; the call's row starts here. */
     async openCall({ callId, from = null, to = null, userId = null, direction = "inbound", source = "", at = new Date() }) {
