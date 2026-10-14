@@ -2,7 +2,8 @@
 //
 // Vertex AI first (the Google for Startups credits cover Vertex, not AI Studio):
 //   GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (default global), and one of
-//   VERTEX_API_KEY | GOOGLE_SERVICE_ACCOUNT_JSON (raw or base64, for servers) |
+//   VERTEX_API_KEY | GOOGLE_SERVICE_ACCOUNT_JSON (raw or base64) |
+//   on Cloud Run: the service's own service account, from the metadata server (no key) |
 //   `gcloud auth application-default` (local dev).
 // AI Studio as the fallback door: GEMINI_BACKEND=studio, or no project, plus GEMINI_API_KEY.
 
@@ -39,6 +40,16 @@ async function serviceAccountToken(sa) {
   return (await res.json()).access_token;
 }
 
+// On Cloud Run (and GCE): the attached service account's token, no key file anywhere.
+// It may come back with only minutes left, so the cache goes by its own expiry.
+async function metadataToken() {
+  const res = await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`metadata token ${res.status}`);
+  const { access_token: token, expires_in: s } = await res.json();
+  cached.until = Math.min(cached.until, Date.now() + Math.max(0, (s - 120) * 1000));
+  return token;
+}
+
 function adcToken() {
   return new Promise((resolve, reject) => {
     execFile("gcloud", ["auth", "application-default", "print-access-token"], { timeout: 15000 }, (err, stdout) => {
@@ -52,7 +63,7 @@ function adcToken() {
 function vertexToken(env) {
   if (cached.token && cached.until > Date.now()) return cached.token;
   const sa = serviceAccount(env);
-  cached = { until: Date.now() + 45 * 60 * 1000, token: sa ? serviceAccountToken(sa) : adcToken() };
+  cached = { until: Date.now() + 45 * 60 * 1000, token: sa ? serviceAccountToken(sa) : env.K_SERVICE ? metadataToken() : adcToken() };
   cached.token.catch(() => { cached = { token: null, until: 0 }; });
   return cached.token;
 }

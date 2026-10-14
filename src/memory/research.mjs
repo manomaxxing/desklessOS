@@ -1,16 +1,15 @@
 // The pilot week's research log: what we've learned about how he works, and
 // which framework questions (config/discovery.json) were asked. Filled by the
-// consolidation step after every call; the state store of the research
-// primitive (src/agenda/primitives.mjs), which puts context() into the agenda
-// to pick at most one question for the end of this call.
-//   data/discovery/findings.json   [ finding ]
-//   data/discovery/questions.json  { [questionId]: { asked, lastAsked, answered, declined } }
-//   data/discovery/calls.json      [ { callId, date, asked, answered, declined, findings } ]
+// post-call step; the state of the research primitive (src/agenda/primitives.mjs),
+// which puts context() into the agenda to pick at most one question per call.
+// The state is three documents, loaded from Postgres for a call and saved back
+// after apply() (src/memory/pg.mjs):
+//   findings.json   [ finding ]          (rows in facts, tagged area:/hyp:/stance:)
+//   questions.json  { [questionId]: { asked, lastAsked, answered, declined } }
+//   calls.json      [ { callId, date, asked, answered, declined, findings } ]
 
-import { mkdirSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dataDir, readJson, writeJson } from "./files.mjs";
 
 const FINDINGS_PER_AREA_IN_PROMPT = 4;
 const RETRIES_PER_QUESTION = 2; // asked twice without an answer: drop it
@@ -20,29 +19,17 @@ export const loadFramework = (file = new URL("../../config/discovery.json", impo
 const day = d => (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10);
 const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 
-// Where the log lives: JSON files in a directory, or `memoryStorage(state)` (the
-// Postgres backend loads it at call start and saves what apply() wrote).
-export function fileStorage(dir) {
-  mkdirSync(dir, { recursive: true });
-  const file = name => path.join(dir, name);
-  const cache = {};
-  return {
-    read: (name, fallback) => (cache[name] ??= readJson(file(name), fallback)),
-    write: (name, data) => { writeJson(file(name), data); cache[name] = data; },
-    reset: () => { for (const k of Object.keys(cache)) delete cache[k]; mkdirSync(dir, { recursive: true }); },
-  };
-}
+// The state documents, in memory; `data` is what gets saved.
 export function memoryStorage(state = {}) {
   const data = { ...state };
   return {
     read: (name, fallback) => (data[name] ??= structuredClone(fallback)),
     write: (name, value) => { data[name] = value; },
-    reset: () => { for (const k of Object.keys(data)) delete data[k]; },
     data,
   };
 }
 
-export function createDiscovery({ framework = loadFramework(), dir = null, storage = fileStorage(dir ?? dataDir("discovery", "DISCOVERY_DIR")) } = {}) {
+export function createDiscovery({ framework = loadFramework(), storage = memoryStorage() } = {}) {
   const { read, write } = storage;
   const findings = () => read("findings.json", []);
   const questions = () => read("questions.json", {});
@@ -125,29 +112,5 @@ export function createDiscovery({ framework = loadFramework(), dir = null, stora
         recentFindings: findings().slice(-40).map(f => `${f.area}: ${f.text}`),
       };
     },
-
-    reset() { storage.reset(); },
-  };
-}
-
-/**
- * Long-term memory plus the research log, behind the memory interface the
- * sessions and the post-call step use: apply() also files the call's findings,
- * snapshot() adds the framework. The question for this call is the research
- * objective's business (its agenda item), not memory's.
- */
-export function withDiscovery(memory, discovery) {
-  return {
-    ...memory,
-    discovery,
-    apply(result, meta) {
-      const changed = memory.apply(result, meta);
-      changed.discovery = discovery.apply(result.discovery, meta);
-      return changed;
-    },
-    snapshot() {
-      return { ...memory.snapshot(), discovery: discovery.snapshot() };
-    },
-    reset() { memory.reset(); discovery.reset(); },
   };
 }

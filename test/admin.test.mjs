@@ -1,17 +1,14 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { createAuth, verifyTotp, hotp, base32Decode, generateSecret, planHash } from "../src/admin/auth.mjs";
 import { checkPlan, editPlan, plannerPrompt } from "../src/admin/planner.mjs";
 import { createRequests } from "../src/admin/requests.mjs";
 import { createNotifier } from "../src/notify.mjs";
 import { loadSkillFromTemplates } from "../src/skills/from-templates.mjs";
-import { openJsonMemory } from "../src/memory/json.mjs";
 import { openDb } from "../src/db/client.mjs";
 import { migrate } from "../src/db/migrate.mjs";
 import { openPgMemory } from "../src/memory/pg.mjs";
+import { createQueue } from "../src/jobs/queue.mjs";
 
 const skill = loadSkillFromTemplates("pilot");
 const users = [{ id: "u1", name: "Niko", phone: "+4915100000000", lang: "de", role: "owner" }, { id: "u2", name: "Nina", phone: "", lang: "de", role: "staff" }];
@@ -103,13 +100,22 @@ test("notifier: a webhook gets the result; no channel means nothing to send", as
   assert.deepEqual(createNotifier({ env: {} }).channels, []);
 });
 
-// The whole flow on both backends: plan → approve → his next call asks → answered → Max is told.
-async function flow(memory, userId) {
+// The whole flow: plan → approve → his next call asks → answered → Max is told (a "notify" job).
+let db;
+before(async () => { db = await openDb("pglite:memory"); await migrate(db); });
+after(async () => { await db?.close(); });
+test("the flow: plan, approve, asked in his next call, answered, Max told once", async () => {
+  const queue = createQueue({ db });
+  const memory = openPgMemory({ db, skill, queue });
+  await memory.ensureUser();
+  const [u] = await memory.listUsers();
+  assert.equal(u.name, "Niko");
   const auth = createAuth({ ADMIN_CODE: "x", SESSION_SECRET: "s" });
   const delivered = [];
   const notifier = { channels: ["webhook"], send: async m => { delivered.push(m); } };
-  const llm = async ({ prompt }) => { assert.match(prompt, /Frag Niko/); return good({ target: { user_id: userId, confidence: 0.95, alternatives: [] } }); };
-  const requests = createRequests({ memory, skill, auth, llm, notifier, publicUrl: "https://deskless.test" });
+  const llm = async ({ prompt }) => { assert.match(prompt, /Frag Niko/); return good({ target: { user_id: u.id, confidence: 0.95, alternatives: [] } }); };
+  const requests = createRequests({ memory, skill, auth, llm, queue, notifier, publicUrl: "https://deskless.test" });
+  const handlers = { notify: p => requests.sendNotification(p), after_call: async () => {} }; // the after-call steps are done by hand below
 
   const { request, confirmToken } = await requests.plan({ instruction: "Frag Niko, wie lange sein letztes Angebot gedauert hat" });
   assert.equal(request.status, "draft");
@@ -123,36 +129,27 @@ async function flow(memory, userId) {
 
   const scope = await memory.openCall({ callId: "call-a" });
   assert.deepEqual(scope.objectives.map(o => o.id), [approved.objectiveId], "his next call has the question");
+  await scope.endCall({ turns: [{ role: "user", text: "So zwei Stunden." }] });
+  const state = await memory.afterCall("call-a");
   const agenda = skill.createAgenda({ objectives: scope.objectives });
   agenda.update({ mode: "capture", agenda: { [approved.objectiveId]: { q1: { asked: true, probed: false, status: "answered", answer: "Zwei Stunden, am Sonntagabend.", quote: "so zwei Stunden" } } } });
-  const changed = await scope.recordObjectives(agenda.results());
+  const changed = await state.scope.recordObjectives(agenda.results());
   const [closed] = await requests.objectivesChanged(changed);
   assert.equal(closed.status, "done");
   assert.equal(closed.result.questions[0].quote, "so zwei Stunden");
   assert.deepEqual(closed.result.calls, ["call-a"]);
-  assert.equal(closed.notifyStatus, "pending");
-  await requests.flushNotifications();
+  assert.deepEqual(await requests.objectivesChanged(changed), [], "closed once");
+  assert.equal(delivered.length, 0, "the message is a job, not sent inline");
+  assert.deepEqual(await queue.run({ handlers }), { done: 2, failed: 0 }, "the call's after-call job, and the message");
   assert.equal(delivered.length, 1);
   assert.match(delivered[0].text, /Niko answered[\s\S]*Zwei Stunden, am Sonntagabend\. \("so zwei Stunden"\)[\s\S]*https:\/\/deskless\.test\/admin#req_/);
-  assert.equal((await requests.get(request.id)).notifyStatus, "sent");
-  assert.deepEqual(await requests.flushNotifications(), [], "sent once");
+  assert.ok((await requests.get(request.id)).notifiedAt);
+  assert.deepEqual(await queue.run({ handlers }), { done: 0, failed: 0 }, "sent once");
+
+  await requests.note(approved.objectiveId, "Couldn't reach Niko by phone.");
+  await queue.run({ handlers });
+  assert.match(delivered[1].text, /Couldn't reach Niko by phone/);
 
   const other = await requests.plan({ instruction: "Frag Niko noch was anderes" });
   assert.equal((await requests.cancel(other.request.id)).status, "cancelled");
-}
-
-test("the flow on JSON memory", async () => {
-  process.env.DATA_DIR = mkdtempSync(path.join(tmpdir(), "deskless-admin-"));
-  try { await flow(openJsonMemory({ skill }), "default"); } finally { delete process.env.DATA_DIR; }
-});
-
-let db;
-before(async () => { db = await openDb("pglite:memory"); await migrate(db); });
-after(async () => { await db?.close(); });
-test("the flow on Postgres memory", async () => {
-  const memory = openPgMemory({ db, skill });
-  await memory.ensureUser();
-  const [u] = await memory.listUsers();
-  assert.equal(u.name, "Niko");
-  await flow(memory, u.id);
 });

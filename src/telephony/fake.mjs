@@ -8,7 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 
-export function fakeAdapter({ wss, devToken = "", onStatus = () => {}, monitor = null, log = () => {}, ringMs = 25000 }) {
+export function fakeAdapter({ wss, devAllowed = () => true, onStatus = () => {}, monitor = null, log = () => {}, ringMs = 25000 }) {
   const phones = new Map(); // number → ws
   const ringing = new Map(); // call id → timer
 
@@ -18,7 +18,7 @@ export function fakeAdapter({ wss, devToken = "", onStatus = () => {}, monitor =
 
     upgrade(req, socket, head, url) {
       if (url.pathname !== "/fake/phone") return false;
-      if (devToken && url.searchParams.get("token") !== devToken) { socket.destroy(); return true; }
+      if (!devAllowed(url.searchParams.get("token"))) { socket.destroy(); return true; }
       const number = url.searchParams.get("number");
       wss.handleUpgrade(req, socket, head, ws => {
         phones.set(number, ws);

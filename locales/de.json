@@ -6,8 +6,7 @@
   "status": "enabled",
   "countryCodes": ["49", "43", "41"],
   "voices": {
-    "fish": "c5b66a80d90749fc914c714e793d1a2f",
-    "geminiTts": "Kore"
+    "fish": "c5b66a80d90749fc914c714e793d1a2f"
   },
   "testing": { "callerVoice": "a20517d0d23048319e4ced960899187e", "from": "+4915100000000" },
   "format": { "numberLocale": "de-DE" },
@@ -73,27 +72,6 @@
         "neverSay": "Lass mich überlegen"
       }
     },
-    "office": {
-      "greeting": "Servus, hier ist dein Büro. Was kann ich für dich tun?",
-      "wrapUp": "Wir sind gleich am Zeitlimit. Ich speichere alles, was ich habe. Bis später!",
-      "backchannel": "Mhm.",
-      "fillers": ["Mhm.", "Okay.", "Alles klar."],
-      "oops": ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
-      "working": "Mach ich.",
-      "looking": "Moment, ich schau nach.",
-      "outboundGreeting": "Hallo, hier ist dein Büro.",
-      "examples": {
-        "twoMinutes": "Hast du zwei Minuten?",
-        "acks": ["Alles klar.", "Passt."],
-        "emailReadBack": "peter at steinberger punkt com?",
-        "bookAndSend": "Soll ich's so eintragen und das Angebot an <Name> schicken?",
-        "onIt": "Mach ich.",
-        "anythingElse": "Noch was?",
-        "goodbyes": ["tschüss"],
-        "callerBackchannels": ["ja", "genau"],
-        "stillThere": "Bist du noch dran?"
-      }
-    },
     "admin": {
       "greeting": "Hallo Max. Was soll ich herausfinden?",
       "outboundGreeting": "Hallo Max, hier ist der Assistent.",
@@ -111,27 +89,6 @@
         "stillThere": "Bist du noch dran?",
         "twoMinutes": "Hast du kurz Zeit?"
       }
-    }
-  },
-  "documents": {
-    "quote": {
-      "title": "Angebot", "number": "Angebotsnummer", "date": "Datum", "valid": "Gültig bis", "contact": "Ihr Ansprechpartner",
-      "greetingFemale": "Sehr geehrte {name},", "greetingDefault": "Sehr geehrter {name},", "greetingNone": "Sehr geehrte Kundin, sehr geehrter Kunde,",
-      "femalePrefixes": ["frau"],
-      "intro": "vielen Dank für das freundliche Gespräch. Gerne bieten wir Ihnen folgende Leistungen an:",
-      "pos": "Pos.", "desc": "Beschreibung", "qty": "Menge", "unit": "Einheit", "price": "Einzelpreis", "total": "Gesamt",
-      "net": "Zwischensumme", "gross": "Gesamtbetrag", "onRequest": "auf Anfrage",
-      "needed": "Gewünschter Termin", "notes": "Hinweise",
-      "closing": "Wir freuen uns auf Ihren Auftrag. Bei Fragen erreichen Sie uns jederzeit.", "regards": "Mit freundlichen Grüßen",
-      "demo": "Demo-Angebot · erstellt per Sprachassistent", "page": "Seite 1 von 1"
-    },
-    "order": {
-      "unitFallback": "Stk",
-      "calendarTitle": "Auftrag {name}",
-      "followUpTodo": "Angebot bei {name} nachfassen",
-      "emailSubject": "Angebot {number} · {company}",
-      "emailSalutation": "Hallo {name},",
-      "emailBody": "vielen Dank für das Gespräch heute. Wie besprochen erhalten Sie anbei unser Angebot {number} über {total} inklusive Steuer auf das Material. Es ist gültig bis {validUntil}.\n\nWenn alles passt, antworten Sie einfach auf diese E-Mail, dann planen wir den Auftrag ein.\n\nMit freundlichen Grüßen\n{owner}\n{company} · {phone}"
     }
   }
 }

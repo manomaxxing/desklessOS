@@ -1,25 +1,25 @@
-// Memory on Postgres (Supabase EU; PGlite in tests): per user and org,
-// searchable, a budgeted context per call, and a post-call step that runs
-// once per call however often it's tried. Schema: src/db/migrations/.
+// Memory on Postgres (Supabase EU; PGlite locally and in tests): per user and org,
+// searchable, a budgeted context per call, the call itself saved as it goes, and the
+// after-call steps, each of which does its work once however often it's tried.
+// Schema: src/db/migrations/.
 //
 // Who calls: caller ID → users.phone_e164; else DEFAULT_USER_ID; else the only
 // user there is (the pilot). Anyone else gets an empty memory and nothing is saved.
 
 import { buildContext, DEFAULT_BUDGET } from "./context.mjs";
-import { noteLine, searchWords } from "../store/memory.mjs";
-import { normalizeNote } from "../store/note-keys.mjs";
-import { createDiscovery, memoryStorage } from "../store/discovery.mjs";
-import { mergeResult, MODES_FOR } from "../store/objectives.mjs";
+import { noteLine, searchWords } from "./text.mjs";
+import { normalizeNote } from "./note-keys.mjs";
+import { createDiscovery, memoryStorage } from "./research.mjs";
+import { mergeResult, MODES_FOR } from "./objectives.mjs";
 import { toVector } from "../engine/embed.mjs";
 import { randomUUID } from "node:crypto";
 
-const MAX_ATTEMPTS = 5; // post-call step: then it stays "failed" for a human to look at
 const QUERY_EMBED_MS = 1200; // search waits this long for the query's vector, then goes on with names only
 const EMBED_PAUSE_MS = 5 * 60 * 1000; // after a late one, searches skip vectors for a while
 // How well the spoken words ($2) match a contact's name and place: each word that sounds
 // like one of them (≥ 0.45) adds its similarity, so "Kowalski Radolfzell" beats "Radolfzell".
 const WORD_SCORE = "(select coalesce(sum(x), 0) from (select word_similarity(w, norm(name || ' ' || place)) x from unnest($2::text[]) w) t where x >= 0.45)";
-const RETRY_AFTER_S = 90; // a call's own attempts are done by then
+const LOST_AFTER_MIN = 30; // a call still open this long is over (calls end at MAX_CALL_MIN, 15): its instance died
 const isUuid = s => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s ?? ""));
 const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s ?? ""));
 const day = d => (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10);
@@ -42,11 +42,11 @@ const requestOut = r => r && ({
   id: r.id, userId: r.user_id, instruction: r.instruction, plan: r.plan, planHash: r.plan_hash, card: r.card, turns: r.turns, status: r.status,
   objectiveId: r.objective_id, result: r.result, createdBy: r.created_by, createdAt: new Date(r.created_at).toISOString(),
   approvedAt: r.approved_at && new Date(r.approved_at).toISOString(), closedAt: r.closed_at && new Date(r.closed_at).toISOString(),
-  notifyStatus: r.notify_status, notifyAttempts: r.notify_attempts, notifyError: r.notify_error, notifiedAt: r.notified_at && new Date(r.notified_at).toISOString(), log: r.log ?? [],
+  notifiedAt: r.notified_at && new Date(r.notified_at).toISOString(), log: r.log ?? [],
   updatedAt: new Date(r.updated_at).toISOString(),
 });
 // request fields (camelCase) → columns
-const REQUEST_COLUMNS = { log: "log", userId: "user_id", instruction: "instruction", plan: "plan", planHash: "plan_hash", card: "card", turns: "turns", status: "status", objectiveId: "objective_id", result: "result", approvedAt: "approved_at", closedAt: "closed_at", notifyStatus: "notify_status", notifyAttempts: "notify_attempts", notifyError: "notify_error", notifiedAt: "notified_at" };
+const REQUEST_COLUMNS = { log: "log", userId: "user_id", instruction: "instruction", plan: "plan", planHash: "plan_hash", card: "card", turns: "turns", status: "status", objectiveId: "objective_id", result: "result", approvedAt: "approved_at", closedAt: "closed_at", notifiedAt: "notified_at" };
 const JSON_COLUMNS = new Set(["plan", "card", "turns", "result", "log"]);
 const objectiveOut = o => o && ({
   id: o.id, template: o.template, version: o.version, params: o.params, mode: o.mode, status: o.status, priority: o.priority, lang: o.lang,
@@ -56,7 +56,22 @@ const objectiveOut = o => o && ({
 // The text a note or fact is found by.
 const noteText = d => { const n = normalizeNote(d); return [n.summary, n.customer_name, n.place, n.address, ...(n.work ?? []).map(w => [w.area, w.description, w.quantity, w.material].filter(Boolean).join(" "))].filter(Boolean).join(". "); };
 
-export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDGET, log = () => {} }) {
+/** A call that keeps nothing: an unknown caller, Max's own line, or memory that's down. */
+export const emptyScope = () => ({
+  user: null, context: "", hidden: 0, stats: null, discovery: null, objectives: [],
+  search: async () => [], setAgenda: async () => {}, checkpoint: async () => {}, endCall: async () => false, recordToolRun: async () => {},
+});
+
+const USER_TURNS = "(select count(*)::int from jsonb_array_elements(c.transcript) t where t->>'role' = 'user')";
+const callOut = c => c && ({
+  id: c.id, userId: c.user_id, direction: c.direction, source: c.source, from: c.from_e164, to: c.to_e164, lang: c.lang,
+  startedAt: new Date(c.started_at).getTime(), endedAt: c.ended_at ? new Date(c.ended_at).getTime() : null, endedReason: c.ended_reason,
+  summary: c.summary, callType: c.call_type, mode: c.meta?.mode ?? null, usd: c.meta?.usd ?? null, turns: c.turns ?? null, savedNoteId: c.note_id ?? null,
+  ...(c.timeline ? { events: c.timeline, transcript: c.transcript, note: c.note ?? c.extraction ?? null, cost: c.meta?.cost ?? null } : {}),
+});
+
+/** `queue` (src/jobs/queue.mjs): the end of a call enqueues its after-call job in the same transaction. */
+export function openPgMemory({ db, skill, queue = null, embedder = null, budget = DEFAULT_BUDGET, log = () => {} }) {
   const framework = skill.framework;
 
   // ---------- users ----------
@@ -195,7 +210,7 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
     return embedding;
   }
 
-  // ---------- the post-call step ----------
+  // ---------- the memory step after a call ----------
   function postCall(user) {
     return {
       /** What the memory model needs to match against: likely customers, open to-dos, the research framework. */
@@ -222,7 +237,7 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
         const changed = await db.tx(async q => {
           const org = user.org_id;
           const changed = { customer: null, added: [], completed: [], updated: [] };
-          const claimed = await q.query("update calls set consolidated_at = now(), consolidation_status = 'done', consolidation_error = null, call_type = $2, summary = $3, job = null where id = $1 and consolidated_at is null returning id", [callId, result.call_type ?? "", result.call_summary ?? ""]);
+          const claimed = await q.query("update calls set consolidated_at = now(), call_type = $2, summary = $3 where id = $1 and consolidated_at is null returning id", [callId, result.call_type ?? "", result.call_summary ?? ""]);
           if (!claimed.length) return { ...changed, skipped: true }; // already done (or no such call)
 
           const c = result.customer ?? {};
@@ -270,7 +285,6 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
           }
           return changed;
         });
-        embedPending();
         return changed;
       },
     };
@@ -301,6 +315,11 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
       const [o] = await db.query("update objectives set mode = 'next_inbound', updated_at = now() where id = $1 and status = 'pending' returning *", [id]);
       return objectiveOut(o) ?? null;
     },
+    async byIds(ids = []) {
+      if (!ids.length) return [];
+      const rows = (await db.query("select * from objectives where id = any($1::text[])", [ids])).map(objectiveOut);
+      return ids.map(id => rows.find(o => o.id === id)).filter(Boolean);
+    },
     async forCall(user, { direction = "inbound", at = new Date() } = {}) {
       return (await db.query("select * from objectives where user_id = $1 and status = 'pending' and mode = any($2::text[]) and (not_before is null or not_before <= $3) and (deadline is null or deadline >= $3) order by priority desc, created_at",
         [user.id, MODES_FOR[direction] ?? [], at.toISOString()])).map(objectiveOut);
@@ -322,26 +341,37 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
     },
   };
 
-  // ---------- the interface ----------
-  const guest = callId => ({
-    user: null, context: "", hidden: 0, stats: null, discovery: null, objectives: [],
-    search: async () => [], saveNote: async () => { log(`[${callId}] unknown caller: note not saved`); return null; }, endCall: async () => {},
-    snapshot: async () => ({ customers: [], openActions: [] }), apply: async () => ({ customer: null, added: [], completed: [], updated: [], skipped: true }),
-    consolidationFailed: async () => {}, upsertCustomer: async () => null, addAction: async () => null, recordObjectives: async () => [], recordToolRun: async () => {},
-  });
+  // ---------- one call: what it saves, and what the after-call steps do with it ----------
+  const json3 = (turns, extraction, extractionTurns) => [json(turns), extraction ? json(extraction) : null, extractionTurns];
+  function callScope(user, callId) {
+    return {
+      ...postCall(user),
+      /** His note for this call: one per call, so the after-call step can save it again safely. */
+      async saveNote(note) {
+        const { transcript: _t, call_id: _c, from: _f, ended_reason: _e, lang = "", ...data } = note;
+        const n = normalizeNote(data);
+        const [row] = await db.query(`insert into notes (org_id, user_id, call_id, mode, lang, data, summary) values ($1, $2, $3, $4, $5, $6, $7)
+          on conflict (call_id) do update set mode = excluded.mode, lang = excluded.lang, data = excluded.data, summary = excluded.summary returning *`,
+          [user.org_id, user.id, callId, n.mode ?? data.mode ?? "", lang, json(data), n.summary ?? ""]);
+        return noteOut(row);
+      },
+      recordObjectives: results => objectives.record(callId, results),
+    };
+  }
 
   return {
     kind: "pg",
     db,
     ensureUser,
 
-    async openCall({ callId, from = null, to = null, userId = null, direction = "inbound", at = new Date() }) {
+    /** Everything one call needs from memory, read once when it connects; the call's row starts here. */
+    async openCall({ callId, from = null, to = null, userId = null, direction = "inbound", source = "", at = new Date() }) {
       const started = performance.now();
       // An outbound call knows whom it called; an inbound one goes by caller ID.
       const user = isUuid(userId) ? (await db.query("select * from users where id = $1", [userId]))[0] ?? null : await resolveUser(from);
-      if (!user) return guest(callId);
-      await db.query("insert into calls (id, org_id, user_id, direction, from_e164, to_e164, started_at) values ($1, $2, $3, $4, $5, $6, $7) on conflict (id) do nothing",
-        [callId, user.org_id, user.id, direction, e164(from), e164(to), at.toISOString()]);
+      if (!user) return emptyScope();
+      await db.query("insert into calls (id, org_id, user_id, direction, source, from_e164, to_e164, started_at) values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (id) do nothing",
+        [callId, user.org_id, user.id, direction, source, e164(from), e164(to), at.toISOString()]);
       const [data, research, pending] = await Promise.all([contextData(user, at), loadResearch(db, user), objectives.forCall(user, { direction, at })]);
       const ctx = buildContext(data, { budget });
       return {
@@ -352,42 +382,25 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
         discovery: research?.discovery ?? null,
         objectives: pending,
         search: query => search(user, query),
-        async saveNote(note) {
-          const { transcript, call_id: _c, from: _f, ended_reason: _e, lang = "", ...data } = note;
-          const n = normalizeNote(data);
-          const [row] = await db.query("insert into notes (org_id, user_id, call_id, mode, lang, data, summary) values ($1, $2, $3, $4, $5, $6, $7) returning *",
-            [user.org_id, user.id, callId, n.mode ?? data.mode ?? "", lang, json(data), n.summary ?? ""]);
-          embedPending();
-          return noteOut(row);
+        /** The stored objectives this call's agenda took on. */
+        async setAgenda(objectiveIds) {
+          await db.query("update calls set objective_ids = $2 where id = $1", [callId, objectiveIds]);
         },
-        /** The call is over: keep its transcript, and what the post-call step needs if it has to be retried. */
-        async endCall({ turns = [], reason = "", lang = null, consolidate = true, note = null, noteId = null, date = day(at) } = {}) {
-          await db.query("update calls set ended_at = now(), ended_reason = $2, transcript = $3, lang = $4, consolidation_status = case when $5 then consolidation_status else 'skipped' end, job = case when $5 then $6::jsonb else null end where id = $1",
-            [callId, reason, json(turns), lang, consolidate, json({ note, noteId, lang, date })]);
+        /** The call so far (after every turn and note): if this instance dies, nothing is lost. */
+        async checkpoint({ turns = [], extraction = null, extractionTurns = 0, lang = null } = {}) {
+          await db.query("update calls set transcript = $2, extraction = coalesce($3::jsonb, extraction), extraction_turns = case when $3::jsonb is null then extraction_turns else $4 end, lang = coalesce($5, lang), updated_at = now() where id = $1 and ended_at is null",
+            [callId, ...json3(turns, extraction, extractionTurns), lang]);
         },
-        ...postCall(user),
-        async consolidationFailed(job, err) {
-          await db.query("update calls set consolidation_status = 'failed', consolidation_attempts = consolidation_attempts + 1, consolidation_error = $2 where id = $1 and consolidated_at is null", [callId, String(err?.message ?? err ?? "").slice(0, 500)]);
+        /** The call is over: its last state, and its after-call job, in one transaction. Returns whether it was the first end. */
+        async endCall({ turns = [], extraction = null, extractionTurns = 0, lang = null, reason = "", timeline = [], meta = {} } = {}) {
+          return db.tx(async q => {
+            const [row] = await q.query(`update calls set ended_at = now(), ended_reason = $2, transcript = $3, extraction = coalesce($4::jsonb, extraction), extraction_turns = case when $4::jsonb is null then extraction_turns else $5 end,
+              lang = coalesce($6, lang), timeline = $7, meta = meta || $8::jsonb, updated_at = now() where id = $1 and ended_at is null returning id`,
+              [callId, reason, ...json3(turns, extraction, extractionTurns), lang, json(timeline), json(meta)]);
+            if (row) await queue?.enqueue("after_call", { callId }, { key: `after_call:${callId}`, q });
+            return Boolean(row);
+          });
         },
-        async upsertCustomer({ name, company = "", email = "", phone = "", address = "", place = "", summary = "" }, { date = day(new Date()) } = {}) {
-          if (!name) return null;
-          const org = user.org_id;
-          let [c] = await db.query("select * from contacts where org_id = $1 and norm(name) = norm($2) and ($3 = '' or place = '' or norm(place) = norm($3)) order by last_contact desc nulls last limit 1", [org, name, place]);
-          if (!c) [c] = await db.query("insert into contacts (org_id, name) values ($1, $2) returning *", [org, name]);
-          [c] = await db.query(`update contacts set company = coalesce(nullif($2, ''), company), email = coalesce(nullif($3, ''), email), phone = coalesce(nullif($4, ''), phone),
-            address = coalesce(nullif($5, ''), address), place = coalesce(nullif($6, ''), place), summary = coalesce(nullif($7, ''), summary), last_contact = $8::date, updated_at = now() where id = $1 returning *`,
-            [c.id, company, email, phone, address, place, summary, date]);
-          await db.query("insert into call_contacts (call_id, contact_id) values ($1, $2) on conflict do nothing", [callId, c.id]);
-          return customerOut(c);
-        },
-        async addAction({ text, due = "", customerId = null, customerName = "", sourceCallId = callId }) {
-          const [dupe] = await db.query("select * from tasks where org_id = $1 and status = 'open' and text = $2 and contact_name = $3 limit 1", [user.org_id, text, customerName]);
-          if (dupe) return taskOut(dupe);
-          const [t] = await db.query("insert into tasks (org_id, user_id, contact_id, contact_name, text, due, source_call_id) values ($1, $2, $3, $4, $5, $6, $7) returning *",
-            [user.org_id, user.id, isUuid(customerId) ? customerId : null, customerName, text, isDate(due) ? due : null, sourceCallId]);
-          return taskOut(t);
-        },
-        recordObjectives: results => objectives.record(callId, results),
         async recordToolRun(o) {
           if (!o.key) return;
           await db.query("insert into tool_runs (key, org_id, call_id, name, args, status, result) values ($1, $2, $3, $4, $5, $6, $7) on conflict (key) do nothing",
@@ -396,24 +409,61 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
       };
     },
 
-    /** Calls whose post-call step is still to do, claimed so two servers don't take the same one. */
-    async pendingConsolidations({ limit = 3 } = {}) {
-      const rows = await db.query(`update calls set consolidation_attempts = consolidation_attempts + 1
-        where id in (select id from calls where consolidation_status in ('pending', 'failed') and job is not null and consolidated_at is null
-          and consolidation_attempts < $1 and ended_at < now() - make_interval(secs => $2) order by ended_at limit $3 for update skip locked)
-        returning id, user_id, transcript, job, lang`, [MAX_ATTEMPTS, RETRY_AFTER_S, limit]);
-      const out = [];
-      for (const r of rows) {
-        const [user] = await db.query("select * from users where id = $1", [r.user_id]);
-        if (!user) continue;
-        out.push({
-          job: { turns: r.transcript, note: r.job?.note ?? null, callId: r.id, noteId: r.job?.noteId ?? null, lang: r.job?.lang ?? r.lang, date: r.job?.date },
-          scope: postCall(user),
-          done: async () => {},
-          failed: async err => { await db.query("update calls set consolidation_status = 'failed', consolidation_error = $2 where id = $1 and consolidated_at is null", [r.id, String(err?.message ?? err).slice(0, 500)]); },
-        });
-      }
-      return out;
+    /** A finished call as the after-call steps need it: the row, its user, and the steps bound to them. Null when there's nothing to do. */
+    async afterCall(callId) {
+      const [c] = await db.query("select * from calls where id = $1", [callId]);
+      if (!c || !c.ended_at || c.after_call_at) return null;
+      const [user] = c.user_id ? await db.query("select * from users where id = $1", [c.user_id]) : [];
+      if (!user) return null;
+      const research = await loadResearch(db, user);
+      return {
+        call: { id: c.id, direction: c.direction, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at },
+        user: userOut(user),
+        objectives: await objectives.byIds(c.objective_ids ?? []),
+        discovery: research?.discovery ?? null,
+        scope: callScope(user, callId),
+        saveExtraction: (extraction, extractionTurns) => db.query("update calls set extraction = $2, extraction_turns = $3 where id = $1", [callId, json(extraction), extractionTurns]),
+        addEvents: events => (events.length ? db.query("update calls set timeline = timeline || $2::jsonb where id = $1", [callId, json(events.map(e => ({ t: Date.now(), ...e })))]) : null),
+        addCost: usd => db.query("update calls set meta = jsonb_set(meta, '{usd}', to_jsonb(coalesce((meta->>'usd')::float8, 0) + $2)) where id = $1", [callId, usd]),
+        done: () => db.query("update calls set after_call_at = now() where id = $1", [callId]),
+      };
+    },
+
+    /** Calls still open long after any call could last: their instance died. Ended here, and their after-call job queued. */
+    async sweepLostCalls({ olderThanMin = LOST_AFTER_MIN } = {}) {
+      return db.tx(async q => {
+        const lost = await q.query("update calls set ended_at = now(), ended_reason = 'lost', updated_at = now() where ended_at is null and started_at < now() - make_interval(mins => $1) returning id", [olderThanMin]);
+        for (const { id } of lost) await queue?.enqueue("after_call", { callId: id }, { key: `after_call:${id}`, q });
+        return lost.map(r => r.id);
+      });
+    },
+
+    /** Is he on a call right now, on any instance? */
+    async userOnCall(userId) {
+      const [r] = await db.query("select exists (select 1 from calls where user_id = $1 and ended_at is null and started_at > now() - make_interval(mins => $2)) on_call", [userId, LOST_AFTER_MIN]);
+      return Boolean(r?.on_call);
+    },
+    async callExists(callId) {
+      return (await db.query("select 1 from calls where id = $1", [callId])).length > 0;
+    },
+
+    // The monitor's call log.
+    async recentCalls({ limit = 100 } = {}) {
+      return (await db.query(`select c.id, c.user_id, c.direction, c.source, c.from_e164, c.to_e164, c.lang, c.started_at, c.ended_at, c.ended_reason, c.summary, c.call_type, c.meta,
+          ${USER_TURNS} turns, n.id note_id from calls c left join notes n on n.call_id = c.id order by c.started_at desc limit $1`, [limit])).map(callOut);
+    },
+    async getCall(id) {
+      const [c] = await db.query(`select c.*, ${USER_TURNS} turns, n.id note_id, n.data note from calls c left join notes n on n.call_id = c.id where c.id = $1`, [id]);
+      return callOut(c) ?? null;
+    },
+
+    // Pre-recorded lines (src/calls/voice.mjs).
+    voiceClips: {
+      async get(keys) {
+        const rows = await db.query("select key, pcm from voice_clips where key = any($1::text[])", [keys]);
+        return new Map(rows.map(r => [r.key, Buffer.from(r.pcm)]));
+      },
+      put: (key, pcm) => db.query("insert into voice_clips (key, pcm) values ($1, $2) on conflict (key) do nothing", [key, pcm]),
     },
 
     async listNotes({ limit = 200 } = {}) {
@@ -442,7 +492,7 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
       const d = research.discovery;
       return { framework, findings: d.findings(), questions: d.questions(), calls: d.calls(), next: d.next() };
     },
-    objectives: { list: objectives.list, get: objectives.get, create: objectives.create, cancel: objectives.cancel, toNextInbound: objectives.toNextInbound },
+    objectives: { list: objectives.list, get: objectives.get, byIds: objectives.byIds, create: objectives.create, cancel: objectives.cancel, toNextInbound: objectives.toNextInbound },
 
     /** Who can be asked something. */
     async listUsers() {
@@ -492,12 +542,8 @@ export function openPgMemory({ db, skill, embedder = null, budget = DEFAULT_BUDG
         return requestOut(row) ?? null;
       },
       byObjective: async objectiveId => requestOut((await db.query("select * from requests where objective_id = $1", [objectiveId]))[0]) ?? null,
-      pendingNotifications: async () => (await db.query("select * from requests where notify_status in ('pending', 'failed') and notify_attempts < 5 order by closed_at")).map(requestOut),
     },
     embedPending,
-    async reset() {
-      for (const t of ["call_jobs", "requests", "tool_runs", "objectives", "research_state", "facts", "tasks", "notes", "call_contacts", "calls", "contacts"]) await db.query(`delete from ${t}`);
-    },
     close: () => db.close(),
   };
 }

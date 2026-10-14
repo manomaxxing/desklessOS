@@ -1,7 +1,10 @@
--- Memory v2 (phase 4): orgs and users, contacts, calls, notes, facts, tasks,
--- objectives, the pilot's research state, tool runs. Every table carries
--- org_id. Row level security is on with no policies: only the server (service
--- role, which bypasses RLS) reads and writes; Supabase's public API sees nothing.
+-- The whole schema. Postgres is the only state: the app servers keep nothing that
+-- outlives a call, so any instance can serve any request.
+--   people and memory   orgs, users, contacts, calls (+ call_contacts), notes, facts, tasks
+--   what the agent brings  objectives, research_state, requests (Max's), outbound_calls
+--   plumbing            jobs (the queue for all background work), voice_clips, tool_runs
+-- Row level security is on with no policies: only the server (service role, which
+-- bypasses RLS) reads and writes; Supabase's public API sees nothing.
 
 create schema if not exists extensions;
 create extension if not exists vector with schema extensions;
@@ -55,11 +58,15 @@ create table contacts (
 create index contacts_name_trgm on contacts using gin (norm(name || ' ' || place) extensions.gin_trgm_ops);
 create index contacts_recent on contacts (org_id, last_contact desc nulls last);
 
+-- Every call with a known caller, from the first turn on. The session saves its transcript and
+-- the latest note extraction as it goes (so a lost instance loses nothing), and the
+-- after-call job (src/calls/after-call.mjs) does the rest from this row.
 create table calls (
-  id text primary key, -- Dial's call id
-  org_id uuid not null references orgs (id) on delete cascade,
+  id text primary key, -- the carrier's call id
+  org_id uuid references orgs (id) on delete cascade,
   user_id uuid references users (id) on delete set null,
   direction text not null default 'inbound',
+  source text not null default '', -- dial | twilio | dev | fake
   from_e164 text,
   to_e164 text,
   lang text,
@@ -67,19 +74,21 @@ create table calls (
   ended_at timestamptz,
   ended_reason text,
   transcript jsonb not null default '[]',
+  extraction jsonb, -- the latest note extraction: his note, the agenda's answers, consent (outbound)
+  extraction_turns int not null default 0, -- how many turns of the transcript it covers
+  objective_ids text[] not null default '{}', -- what was on this call's agenda
+  timeline jsonb not null default '[]', -- the monitor's events
+  meta jsonb not null default '{}', -- mode, cost
   call_type text not null default '',
   summary text not null default '',
-  cost jsonb,
-  -- the post-call memory step: pending → done | failed (retried) | skipped
-  consolidation_status text not null default 'pending' check (consolidation_status in ('pending', 'done', 'failed', 'skipped')),
-  consolidation_attempts int not null default 0,
-  consolidation_error text,
-  consolidated_at timestamptz,
-  job jsonb, -- what that step needs (note id, lang, date) while it's not done
+  consolidated_at timestamptz, -- memory step done (it runs once, however often it's tried)
+  after_call_at timestamptz, -- every after-call step done
+  updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
-create index calls_to_consolidate on calls (consolidation_status, ended_at) where consolidation_status in ('pending', 'failed');
 create index calls_user on calls (user_id, started_at desc);
+create index calls_recent on calls (started_at desc);
+create index calls_open on calls (started_at) where ended_at is null;
 
 create table call_contacts (
   call_id text not null references calls (id) on delete cascade,
@@ -105,7 +114,7 @@ create table notes (
 );
 create index notes_contact on notes (contact_id, created_at desc);
 create index notes_recent on notes (org_id, created_at desc);
-create index notes_call on notes (call_id);
+create unique index notes_one_per_call on notes (call_id); -- the after-call step may run twice
 
 -- What we know, with where it came from. Never overwritten: a newer fact supersedes an older one.
 create table facts (
@@ -193,6 +202,80 @@ create table tool_runs (
   created_at timestamptz not null default now()
 );
 
+-- Max's requests (src/admin/requests.mjs): his instruction, the plan he approved, and
+-- what came of it. The request follows its objective.
+create table requests (
+  id text primary key,
+  org_id uuid references orgs (id) on delete cascade,
+  user_id uuid references users (id) on delete set null, -- who gets asked
+  instruction text not null,
+  plan jsonb not null,
+  plan_hash text not null,
+  card jsonb not null,
+  turns jsonb not null default '[]', -- Max's answers to clarifications, in order
+  status text not null default 'draft' check (status in ('draft', 'approved', 'done', 'expired', 'cancelled')),
+  objective_id text references objectives (id) on delete set null,
+  result jsonb,
+  log jsonb not null default '[]', -- what happened on the way (couldn't reach him, moved to his next call, …)
+  created_by text not null default 'admin',
+  created_at timestamptz not null default now(),
+  approved_at timestamptz,
+  closed_at timestamptz,
+  notified_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+create index requests_recent on requests (created_at desc);
+create index requests_objective on requests (objective_id);
+
+-- Outbound calls (src/jobs/scheduler.mjs): one errand per user, with its tries. Claimed
+-- with FOR UPDATE SKIP LOCKED. It only ever dials a users row (consent, window, pause
+-- are checked against it); there is no way to dial a raw number.
+create table outbound_calls (
+  id text primary key,
+  org_id uuid not null references orgs (id) on delete cascade,
+  user_id uuid not null references users (id) on delete cascade,
+  objective_ids text[] not null,
+  status text not null default 'queued' check (status in ('queued', 'dialing', 'in_call', 'done', 'failed', 'cancelled')),
+  attempts int not null default 0,
+  max_attempts int not null default 3,
+  next_attempt_at timestamptz not null default now(),
+  call_id text, -- the current or last try's call
+  carrier text,
+  outcome text, -- the last try: answered, no-answer, busy, voicemail, declined, later, completed, …
+  log jsonb not null default '[]',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index outbound_calls_due on outbound_calls (status, next_attempt_at);
+create index outbound_calls_call on outbound_calls (call_id);
+
+-- All background work (src/jobs/queue.mjs): at least once, retried with backoff, then
+-- "dead" for a human to look at. `key` makes enqueueing idempotent ("after_call:<call id>").
+-- A running job holds a lease (locked_until); a crashed worker's job is taken again after it.
+create table jobs (
+  id bigint generated always as identity primary key,
+  kind text not null,
+  key text not null unique,
+  payload jsonb not null default '{}',
+  status text not null default 'queued' check (status in ('queued', 'running', 'done', 'dead')),
+  attempts int not null default 0,
+  max_attempts int not null default 5,
+  run_at timestamptz not null default now(),
+  locked_until timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index jobs_due on jobs (run_at) where status in ('queued', 'running');
+
+-- Pre-recorded lines (greeting, fillers, …) by hash of model, voice and text: a new
+-- instance loads them in one query instead of synthesising them again (cold starts).
+create table voice_clips (
+  key text primary key,
+  pcm bytea not null,
+  created_at timestamptz not null default now()
+);
+
 alter table orgs enable row level security;
 alter table users enable row level security;
 alter table contacts enable row level security;
@@ -204,3 +287,7 @@ alter table tasks enable row level security;
 alter table objectives enable row level security;
 alter table research_state enable row level security;
 alter table tool_runs enable row level security;
+alter table requests enable row level security;
+alter table outbound_calls enable row level security;
+alter table jobs enable row level security;
+alter table voice_clips enable row level security;

@@ -1,7 +1,7 @@
 // Locale packs: everything language-specific lives in locales/<id>.json, so a
 // new language is a new file, not a code change. A pack holds the voices, the
 // phone country codes, the turn-taking word lists, the persona lines (greeting,
-// fillers, …), the spoken examples the prompts quote, and document text.
+// fillers, …) and the spoken examples the prompts quote.
 // Prompts themselves stay in English; the model answers in the caller's language.
 //
 //   LANGS=de,en       which packs are live (default: every pack with status "enabled")
@@ -66,14 +66,10 @@ export function loadLocales(dir = LOCALES_DIR, { only = process.env.LANGS, fallb
     persona(id, persona) {
       return get(id).personas?.[persona] ?? packs.get(defaultId).personas?.[persona] ?? null;
     },
-    document(id, doc) {
-      return get(id).documents?.[doc] ?? packs.get(defaultId).documents?.[doc] ?? null;
-    },
     voice(id, kind, env = process.env) {
       const pack = get(id);
       // FISH_VOICE was the German (default) voice before packs existed: it still overrides the default language's.
       if (kind === "fish") return env[`FISH_VOICE_${pack.id.toUpperCase()}`] || (pack.id === defaultId && env.FISH_VOICE) || pack.voices?.fish || env.FISH_VOICE || "";
-      if (kind === "geminiTts") return env[`GEMINI_TTS_VOICE_${pack.id.toUpperCase()}`] || pack.voices?.geminiTts || "Kore";
       return pack.voices?.[kind] ?? "";
     },
     /** The enabled language for a phone number, by the longest matching country code. */
@@ -105,7 +101,7 @@ export function loadLocales(dir = LOCALES_DIR, { only = process.env.LANGS, fallb
 /**
  * The language for a new call: what we know about the user, then what the
  * carrier says (e.g. Dial's "de-DE"), then the caller's country code, then the
- * skill's own default (the office demo is English-first), then DEFAULT_LANG.
+ * skill's own default, then DEFAULT_LANG.
  */
 export function pickLanguage({ locales, userLang, dialTag, from, fallback }) {
   if (userLang && locales.isEnabled(userLang)) return userLang;

@@ -6,8 +6,7 @@
   "status": "enabled",
   "countryCodes": ["1", "44", "61", "64", "353"],
   "voices": {
-    "fish": "933563129e564b19a115bedd57b7406a",
-    "geminiTts": "Aoede"
+    "fish": "933563129e564b19a115bedd57b7406a"
   },
   "testing": { "callerVoice": "536d3a5e000945adb7038665781a4aca", "from": "+14155550100" },
   "format": { "numberLocale": "en-US" },
@@ -67,27 +66,6 @@
         "neverSay": "Let me think"
       }
     },
-    "office": {
-      "greeting": "Hi, this is your office. What can I do for you?",
-      "wrapUp": "We're almost at the time limit. I'm saving everything I have. Talk soon!",
-      "backchannel": "Mhm.",
-      "fillers": ["Mhm.", "Okay.", "Got it."],
-      "oops": ["Sorry, the line glitched for a second. Could you say that again?", "Hang on, I lost you for a moment. What was that?", "Sorry, that didn't come through. One more time?"],
-      "working": "On it.",
-      "looking": "Let me check.",
-      "outboundGreeting": "Hi, it's your office.",
-      "examples": {
-        "twoMinutes": "Got two minutes?",
-        "acks": ["Got it.", "Sure.", "Okay.", "Perfect.", "Noted."],
-        "emailReadBack": "peter at steinberger dot com?",
-        "bookAndSend": "Shall I book it and send <name> the quote?",
-        "onIt": "On it.",
-        "anythingElse": "Anything else?",
-        "goodbyes": ["bye", "that's all"],
-        "callerBackchannels": ["yeah", "mhm", "right", "okay"],
-        "stillThere": "Still there?"
-      }
-    },
     "admin": {
       "greeting": "Hi Max. What should I find out?",
       "outboundGreeting": "Hi Max, it's the assistant.",
@@ -105,27 +83,6 @@
         "stillThere": "Still there?",
         "twoMinutes": "Got a minute?"
       }
-    }
-  },
-  "documents": {
-    "quote": {
-      "title": "Quote", "number": "Quote #", "date": "Date", "valid": "Valid until", "contact": "Your contact",
-      "greetingFemale": "Hi {first},", "greetingDefault": "Hi {first},", "greetingNone": "Hi there,",
-      "femalePrefixes": [],
-      "intro": "great talking with you today. Here's our quote for the work we discussed:",
-      "pos": "No.", "desc": "Description", "qty": "Qty", "unit": "Unit", "price": "Unit price", "total": "Total",
-      "net": "Subtotal", "gross": "Total", "onRequest": "on request",
-      "needed": "Requested date", "notes": "Notes",
-      "closing": "We look forward to your order. Don't hesitate to get in touch with any questions.", "regards": "Kind regards",
-      "demo": "Demo quote · created by voice assistant", "page": "Page 1 of 1"
-    },
-    "order": {
-      "unitFallback": "ea",
-      "calendarTitle": "Order: {name}",
-      "followUpTodo": "Follow up on the quote with {name}",
-      "emailSubject": "Quote {number} · {company}",
-      "emailSalutation": "Hi {first},",
-      "emailBody": "great meeting you today. As promised, here's our quote {number}: {total} total, including sales tax on materials. It's valid until {validUntil}.\n\nIf it all looks good, just reply to this email and we'll get you on the schedule.\n\nBest,\n{owner}\n{company} · {phone}"
     }
   }
 }

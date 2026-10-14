@@ -1,0 +1,13 @@
+node_modules
+data
+models
+test
+docs
+deploy
+.git
+.env
+.env.*
+*.log
+*.pdf
+
+# gcloud run deploy --source uploads what the Dockerfile needs, nothing more

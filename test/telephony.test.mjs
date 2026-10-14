@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { createHmac } from "node:crypto";
 import { mulawEncode, mulawDecode, fromPhone, toPhone } from "../src/engine/audio.mjs";
-import { twilioSignature, verifyTwilioSignature, streamToken, checkStreamToken, streamTwiml, bridgeStream } from "../src/telephony/twilio.mjs";
+import { twilioSignature, verifyTwilioSignature, streamToken, checkStreamToken, streamTwiml, bridgeStream, twilioAdapter } from "../src/telephony/twilio.mjs";
 import { verifyDialSignature } from "../src/telephony/dial.mjs";
 import { createCallHost } from "../src/telephony/host.mjs";
 import { inWindow, nextInWindow, nextDayWindow, zonedTime } from "../src/jobs/windows.mjs";
@@ -154,11 +154,11 @@ function rig(at) {
   const notes = [];
   const carrier = { id: "test", async dialOut(o) { dialed.push(o); return { callId: `call-${++calls}`, carrier: "test" }; } };
   const requests = { note: async (objectiveId, text) => notes.push({ objectiveId, text }) };
-  const scheduler = createScheduler({ memory, carrier, host: { userOnCall: () => false }, requests, now: () => clock.now });
+  const scheduler = createScheduler({ memory, carrier, requests, now: () => clock.now });
   return { clock, dialed, notes, scheduler };
 }
 const ask = async (mode = "outbound") => memory.objectives.create({ template: "inquiry", mode, params: { questions: [{ ask: "Wie lange hat dein letztes Angebot gedauert?" }] }, userId: user.id });
-const job = async id => (await db.query("select * from call_jobs where id = $1", [id]))[0];
+const job = async id => (await db.query("select * from outbound_calls where id = $1", [id]))[0];
 
 test("scheduler: only with consent; no answer → retry in 30 min; answered and done → done", async () => {
   const o = await ask();
@@ -234,4 +234,25 @@ test("scheduler: a mailbox is a failed try; four tries, then his next call; a pa
   assert.equal(t.skipped, "calls to him are paused");
   assert.equal((await memory.objectives.get(paused.id)).mode, "next_inbound");
   await memory.updateUser(user.id, { outboundPaused: false });
+});
+
+test("scheduler: not while he's on a call (on any instance); answered but the call never came through is a failed try", async () => {
+  const { clock, dialed, scheduler } = rig("2026-10-28T08:00:00Z");
+  const o = await ask();
+  const busy = await memory.openCall({ callId: "his-own-call", userId: user.id });
+  const t0 = await scheduler.tick();
+  assert.equal(t0.deferred, "he's on a call");
+  await busy.endCall({ turns: [] });
+  clock.now = new Date("2026-10-28T08:11:00Z");
+  const t1 = await scheduler.tick();
+  assert.ok(t1.callId, "dialed once he's off the phone");
+  await scheduler.callStatus({ callId: t1.callId, status: "in-progress" });
+  await db.query("update outbound_calls set updated_at = now() - interval '25 minutes' where id = $1", [t1.job.id]);
+  await scheduler.tick();
+  const j = await job(t1.job.id);
+  assert.equal(j.outcome, "the call never came through");
+  assert.equal(j.status, "queued");
+  assert.equal(dialed.length, 1);
+  await memory.objectives.cancel(o.id);
+  await scheduler.cancelFor(o.id);
 });

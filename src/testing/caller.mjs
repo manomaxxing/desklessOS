@@ -265,7 +265,6 @@ export function describeEvent(f) {
     case "nudge": return `⏲  ${f.kind}`;
     case "tool": return f.ignored ? `🛠  tool call ignored (${f.reason}): ${f.ignored.join(", ")}` : `🛠  ${f.name} ${f.status} (${f.ms} ms)${f.summary ? `: ${f.summary}` : ""}`;
     case "tool_latency": return `⏱  answer after tool: ${f.hopMs} ms after the call, ${f.totalMs} ms after he stopped`;
-    case "workflow": return `🏢 office: ${f.result?.summary ?? ""}`;
     case "objective": return `🎯 ${f.template} ${f.done ? "done" : "open again"}: ${f.status}`;
     case "saved": return `💾 saved ${f.id}`;
     case "outbound": return "📞 we called him";

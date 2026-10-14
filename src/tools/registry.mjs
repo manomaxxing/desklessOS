@@ -2,7 +2,7 @@
 // shared by both engines. A tool:
 //   name, description, parameters   what the model sees (Gemini schema)
 //   effect                          "read" looks something up, "write" changes something
-//                                   outside the call (calendar, email), "call" steers the call
+//                                   outside the call (a request, an email), "call" steers the call
 //   requiresConfirm                 only right after he said yes to a recap (ctx.confirmed)
 //   timeoutMs                       how long to wait for it
 //   available?(ctx)                 offered on this call at all?

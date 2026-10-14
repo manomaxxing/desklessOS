@@ -1,24 +1,21 @@
-// A deployment's skill, built from a persona (personas/<id>.md) and templates
-// (templates/*.json): SKILL=pilot runs the notebook persona, SKILL=office the
-// office persona. Each call gets its own agenda (src/agenda/agenda.mjs): the
+// A skill, built from a persona (personas/<id>.md) and templates (templates/*.json):
+// "pilot" is the notebook persona with the research week, "admin" Max's own line.
+// Each call gets its own agenda (src/agenda/agenda.mjs): the
 // persona's capabilities, plus the objectives for this call (Max's questions
 // from the objectives store first, then standing ones like the pilot's research).
 
-import { readFileSync } from "node:fs";
 import { loadPersona, loadTemplates } from "../agenda/templates.mjs";
 import { createAgenda } from "../agenda/agenda.mjs";
 import { primitives } from "../agenda/primitives.mjs";
 import { render } from "../agenda/render.mjs";
-import { loadFramework } from "../store/discovery.mjs";
+import { loadFramework } from "../memory/research.mjs";
 import { locales as sharedLocales, promptWeekday } from "../locale/index.mjs";
 
-const PERSONA_OF = { pilot: "notebook", office: "office", admin: "admin" };
+const PERSONA_OF = { pilot: "notebook", admin: "admin" };
 const MAX_OBJECTIVES = 2; // the agent's own items per call, always after his business
-const config = name => JSON.parse(readFileSync(new URL(`../../config/${name}.json`, import.meta.url), "utf8"));
 const S = { type: "STRING" };
 
-// Who the persona serves ({{profile.*}}): the pilot participant or the demo company.
-// In v2 phase 4 this becomes the user's row in the database.
+// Who the persona serves ({{profile.*}}): the pilot participant, or Max on his own line.
 function profileFor(persona, framework, L) {
   if (persona.profile === "participant") {
     const who = framework.participant;
@@ -29,23 +26,12 @@ function profileFor(persona, framework, L) {
       tradeNoun: who.trade ? `a ${who.trade}` : "a tradesperson (his trade isn't known yet; it comes out in the first call)",
     };
   }
-  if (persona.profile === "company") {
-    const company = config("company");
-    return { ...company, langName: L.name(company.lang), business: company.business ?? "a contractor" };
-  }
   if (persona.profile === "admin") {
     // Max, on his own line (ADMIN_PHONE): ADMIN_NAME, ADMIN_LANG.
     const lang = L.isEnabled?.(process.env.ADMIN_LANG) ? process.env.ADMIN_LANG : L.defaultId;
     return { name: process.env.ADMIN_NAME || "Max", lang, langName: L.name(lang) };
   }
   throw new Error(`personas/${persona.id}.md: unknown profile "${persona.profile}"`);
-}
-
-// Extra context for the note extraction: the price list, for the office.
-function extractContextFor(persona, profile) {
-  if (persona.profile !== "company") return () => "";
-  const catalog = config("catalog");
-  return lang => `PRICE LIST (id | item | price):\n${catalog.items.map(i => `- ${i.id} | ${i.name[lang] ?? i.name[profile.lang]} | ${i.price.toFixed(2)} ${catalog.currency} / ${i.unit}`).join("\n")}`;
 }
 
 export function loadSkillFromTemplates(name, { locales = sharedLocales(), templates = loadTemplates() } = {}) {
@@ -60,7 +46,6 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
   const usesResearch = standing.some(t => t.steps.some(s => s.primitive === "research"));
   const framework = usesResearch ? loadFramework() : null;
   const profile = profileFor(persona, framework, locales);
-  const extractContext = extractContextFor(persona, profile);
 
   // ---------- after the call: long-term memory (customers, to-dos) plus what standing objectives file ----------
   const memoryCtx = { r: text => render(text, { profile, ex: {}, lines: {}, exAll: {}, lang: { id: profile.lang, name: profile.langName }, langs: { names: locales.enabled().map(locales.name) } }, `personas/${persona.id}`), framework, locales, params: {} };
@@ -102,7 +87,7 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
 
     /**
      * The agenda for one call. `objectives`: stored objectives picked for this call
-     * (src/store/objectives.mjs), best first. `discovery`: the research store, if the
+     * (src/memory/pg.mjs), best first. `discovery`: the research state, if the
      * persona researches. At most MAX_OBJECTIVES of the agent's own items per call.
      */
     createAgenda({ objectives = [], discovery = null, direction = "inbound" } = {}) {
@@ -110,7 +95,7 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
       const always = standing.filter(t => discovery || !t.steps.some(s => s.primitive === "research")).map(t => ({ id: t.id, key: t.id.replace(/\W/g, "_"), template: t, params: {}, stored: false }));
       // A call the agent makes is for its errand only: no standing items (research) on top.
       const items = direction === "outbound" ? own : [...own, ...always];
-      return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile, locales, discovery, framework, extractContext, direction });
+      return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile, locales, discovery, framework, direction });
     },
 
     /** Checks an objective's params against its template; returns them normalised (throws on bad input). */

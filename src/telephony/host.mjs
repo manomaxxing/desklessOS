@@ -5,11 +5,11 @@
 // carrier's protocol into these. A line that drops can come back for the same call
 // within the grace period (Dial re-dials for ~15 s).
 //
-// startCall({ id, msg, send, dev }) → { session, userId } is the server's: memory,
-// agenda and engine for one call.
+// startCall({ id, msg, send, dev, source }) → { session } (src/calls/start.mjs): memory,
+// agenda and engine for one call. The host only knows this instance's calls.
 
 export function createCallHost({ startCall, monitor = null, log = () => {}, graceMs = 20000 }) {
-  const calls = new Map(); // call id → { id, session, out, userId, graceTimer, startedAt }
+  const calls = new Map(); // call id → { id, session, out, graceTimer, startedAt }
 
   function connect(line, { callId = null, dev = false, reconnects = !dev, source = "dial" } = {}) {
     const out = { line };
@@ -28,8 +28,8 @@ export function createCallHost({ startCall, monitor = null, log = () => {}, grac
           monitor?.system(`reconnect: ${id}`, "warn");
         } else {
           starting = startCall({ id, msg, send, dev, source });
-          const { session, userId = null } = await starting;
-          entry = { id, session, out, userId, startedAt: Date.now() };
+          const { session } = await starting;
+          entry = { id, session, out, startedAt: Date.now() };
           calls.set(id, entry);
         }
       } else if (starting && !entry) {
@@ -53,7 +53,7 @@ export function createCallHost({ startCall, monitor = null, log = () => {}, grac
     connect,
     calls,
     get(id) { return calls.get(id) ?? null; },
-    /** Is this user on a call right now (any line)? */
-    userOnCall: userId => [...calls.values()].some(c => c.userId && c.userId === userId && !c.session.ended),
+    /** Shutting down: end every call here (each is saved, and its after-call job queued). */
+    closeAll: reason => Promise.all([...calls.values()].map(c => c.session.close(reason))),
   };
 }

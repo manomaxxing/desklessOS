@@ -4,6 +4,8 @@
 //   pglite:memory      PGlite in this process (tests), pglite:<dir> on disk (local runs);
 //                      a devDependency, loaded only when asked for
 // db.query(text, params) → rows; db.tx(async q => …) runs one transaction, q has the same query().
+// db.listen(channel, fn) gets NOTIFYs (Postgres only: one extra connection; through Supabase's
+// session pooler or a direct connection, not the transaction pooler).
 // Every connection runs with search_path public, extensions (Supabase keeps
 // extensions such as vector and pg_trgm in their own schema).
 
@@ -24,6 +26,7 @@ export async function openDb(url = process.env.DATABASE_URL) {
     ...wrap(sql),
     tx: fn => sql.begin(tx => fn(wrap(tx))),
     exec: text => sql.unsafe(text),
+    listen: (channel, fn) => sql.listen(channel, fn),
     close: () => sql.end({ timeout: 5 }),
   };
 }

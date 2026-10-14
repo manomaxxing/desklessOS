@@ -1,10 +1,10 @@
 // Outbound calls. Approved objectives with mode "outbound" or "either" become one
-// job per user (call_jobs). Every tick claims one due job (FOR UPDATE SKIP LOCKED),
-// checks the guard against the user's row, and dials through the carrier. Outcomes
-// come back from the carrier (no answer, busy, failed: nobody picked up) or from the
-// call (answered: done, declined, call me later, voicemail, hung up early).
-// Retries: 30 min, 2 h, then the next day's window; after the fourth try the errand
-// moves to his next inbound call and Max is told. Needs MEMORY_BACKEND=pg.
+// errand per user (outbound_calls). Every background tick (src/jobs/background.mjs) claims
+// one due errand (FOR UPDATE SKIP LOCKED), checks the guard against the user's row, and
+// dials through the carrier. Outcomes come back from the carrier (no answer, busy, failed:
+// nobody picked up) or from the call's after-call step (answered: done, declined, call me
+// later, voicemail, hung up early). Retries: 30 min, 2 h, then the next day's window;
+// after the fourth try the errand moves to his next inbound call and Max is told.
 
 import { randomUUID } from "node:crypto";
 import { inWindow, nextInWindow, nextDayWindow, zonedTime, localParts } from "./windows.mjs";
@@ -37,9 +37,9 @@ export function retryAt(n, user, at = new Date()) {
 
 const json = v => JSON.stringify(v ?? null);
 
-export function createScheduler({ memory, carrier, host, requests = null, log = () => {}, monitor = null, now = () => new Date(), tickMs = 30000, perDay = Number(process.env.OUTBOUND_PER_DAY || 1) }) {
+export function createScheduler({ memory, carrier, requests = null, log = () => {}, monitor = null, now = () => new Date(), perDay = Number(process.env.OUTBOUND_PER_DAY || 1) }) {
   const db = memory.db;
-  const note = (job, text) => db.query("update call_jobs set log = log || $2::jsonb, updated_at = now() where id = $1", [job.id, json([{ at: now().toISOString(), text }])]);
+  const note = (job, text) => db.query("update outbound_calls set log = log || $2::jsonb, updated_at = now() where id = $1", [job.id, json([{ at: now().toISOString(), text }])]);
   const say = text => { log(`outbound: ${text}`); monitor?.system(`outbound: ${text}`); };
 
   /** Pending outbound objectives without a job get one per user. */
@@ -47,12 +47,12 @@ export function createScheduler({ memory, carrier, host, requests = null, log = 
     const free = await db.query(`select o.id, o.user_id, o.org_id from objectives o
       where o.status = 'pending' and o.mode in ('outbound', 'either') and o.user_id is not null
         and (o.not_before is null or o.not_before <= now())
-        and not exists (select 1 from call_jobs j where o.id = any(j.objective_ids) and j.status in ('queued', 'dialing', 'in_call'))`);
+        and not exists (select 1 from outbound_calls j where o.id = any(j.objective_ids) and j.status in ('queued', 'dialing', 'in_call'))`);
     const byUser = new Map();
     for (const o of free) byUser.set(o.user_id, [...(byUser.get(o.user_id) ?? []), o]);
     const created = [];
     for (const [userId, list] of byUser) {
-      const [job] = await db.query("insert into call_jobs (id, org_id, user_id, objective_ids, max_attempts, next_attempt_at) values ($1, $2, $3, $4, $5, $6) returning *",
+      const [job] = await db.query("insert into outbound_calls (id, org_id, user_id, objective_ids, max_attempts, next_attempt_at) values ($1, $2, $3, $4, $5, $6) returning *",
         [`job_${randomUUID().slice(0, 8)}`, list[0].org_id, userId, list.map(o => o.id), MAX_ATTEMPTS, now().toISOString()]);
       created.push(job);
       say(`job ${job.id} for ${list.map(o => o.id).join(", ")}`);
@@ -69,7 +69,7 @@ export function createScheduler({ memory, carrier, host, requests = null, log = 
     say(`job ${job.id}: ${why} → next inbound call`);
   }
   async function finish(job, status, outcome, why) {
-    await db.query("update call_jobs set status = $2, outcome = $3, updated_at = now() where id = $1", [job.id, status, outcome]);
+    await db.query("update outbound_calls set status = $2, outcome = $3, updated_at = now() where id = $1", [job.id, status, outcome]);
     await note(job, why ?? outcome);
   }
   async function attemptFailed(job, outcome) {
@@ -79,7 +79,7 @@ export function createScheduler({ memory, carrier, host, requests = null, log = 
       await finish(job, "failed", outcome, `gave up after ${job.attempts} tries (last: ${outcome})`);
       return fallBack(job, `Couldn't reach ${user?.name ?? "him"} by phone (${job.attempts} tries, last: ${outcome}).`);
     }
-    await db.query("update call_jobs set status = 'queued', outcome = $2, next_attempt_at = $3, updated_at = now() where id = $1", [job.id, outcome, next.toISOString()]);
+    await db.query("update outbound_calls set status = 'queued', outcome = $2, next_attempt_at = $3, updated_at = now() where id = $1", [job.id, outcome, next.toISOString()]);
     await note(job, `try ${job.attempts}: ${outcome}; next try ${next.toISOString()}`);
   }
 
@@ -92,19 +92,19 @@ export function createScheduler({ memory, carrier, host, requests = null, log = 
   /** One step: new jobs, stuck ones back in the queue, and at most one call placed. */
   async function tick() {
     await sync();
-    for (const j of await db.query("update call_jobs set status = 'queued', updated_at = now() where status = 'dialing' and updated_at < now() - make_interval(secs => $1) returning *", [STUCK_MS / 1000])) {
+    for (const j of await db.query("update outbound_calls set status = 'queued', updated_at = now() where status = 'dialing' and updated_at < now() - make_interval(secs => $1) returning *", [STUCK_MS / 1000])) {
       await note(j, "no word from the carrier; trying again");
     }
-    // Answered but no call ever came through (or it never reported its end): a failed try.
-    for (const j of await db.query("select * from call_jobs where status = 'in_call' and updated_at < now() - interval '20 minutes'")) {
-      if (!host?.get?.(j.call_id)) await attemptFailed(j, "the call never came through");
+    // Answered, but no call ever came through: a failed try. (One that did gets its outcome from its after-call step.)
+    for (const j of await db.query("select * from outbound_calls where status = 'in_call' and updated_at < now() - interval '20 minutes'")) {
+      if (!(await memory.callExists(j.call_id))) await attemptFailed(j, "the call never came through");
     }
-    const [job] = await db.query(`update call_jobs set status = 'dialing', attempts = attempts + 1, updated_at = now()
-      where id = (select id from call_jobs where status = 'queued' and next_attempt_at <= $1 order by next_attempt_at limit 1 for update skip locked)
+    const [job] = await db.query(`update outbound_calls set status = 'dialing', attempts = attempts + 1, updated_at = now()
+      where id = (select id from outbound_calls where status = 'queued' and next_attempt_at <= $1 order by next_attempt_at limit 1 for update skip locked)
       returning *`, [now().toISOString()]);
     if (!job) return null;
     const user = await memory.getUser(job.user_id);
-    const guard = outboundGuard(user, { at: now(), onCall: Boolean(user && host?.userOnCall(user.id)), answeredToday: user ? await answeredToday(user, now()) : 0, perDay });
+    const guard = outboundGuard(user, { at: now(), onCall: Boolean(user && (await memory.userOnCall(user.id))), answeredToday: user ? await answeredToday(user, now()) : 0, perDay });
     if (!guard.ok) {
       if (guard.final) {
         await finish(job, "failed", "not allowed", guard.reason);
@@ -112,13 +112,13 @@ export function createScheduler({ memory, carrier, host, requests = null, log = 
         return { job, skipped: guard.reason };
       }
       // Not now: back in the queue, and this doesn't count as a try.
-      await db.query("update call_jobs set status = 'queued', attempts = attempts - 1, next_attempt_at = $2, updated_at = now() where id = $1", [job.id, guard.retryAt.toISOString()]);
+      await db.query("update outbound_calls set status = 'queued', attempts = attempts - 1, next_attempt_at = $2, updated_at = now() where id = $1", [job.id, guard.retryAt.toISOString()]);
       await note(job, `not now (${guard.reason}); next ${guard.retryAt.toISOString()}`);
       return { job, deferred: guard.reason, until: guard.retryAt };
     }
     try {
       const placed = await carrier.dialOut({ to: user.phone, userId: user.id, jobId: job.id });
-      await db.query("update call_jobs set call_id = $2, carrier = $3, updated_at = now() where id = $1", [job.id, placed.callId, placed.carrier]);
+      await db.query("update outbound_calls set call_id = $2, carrier = $3, updated_at = now() where id = $1", [job.id, placed.callId, placed.carrier]);
       await note(job, `try ${job.attempts}: calling ${user.name} (${placed.carrier} ${placed.callId})`);
       say(`calling ${user.name} for job ${job.id} (try ${job.attempts})`);
       return { job, callId: placed.callId };
@@ -128,7 +128,7 @@ export function createScheduler({ memory, carrier, host, requests = null, log = 
     }
   }
 
-  const jobOf = async callId => (callId ? (await db.query("select * from call_jobs where call_id = $1 order by updated_at desc limit 1", [callId]))[0] ?? null : null);
+  const jobOf = async callId => (callId ? (await db.query("select * from outbound_calls where call_id = $1 order by updated_at desc limit 1", [callId]))[0] ?? null : null);
 
   return {
     tick,
@@ -139,7 +139,7 @@ export function createScheduler({ memory, carrier, host, requests = null, log = 
       const job = await jobOf(callId);
       if (!job || !["dialing", "in_call"].includes(job.status)) return;
       if (["in-progress", "answered"].includes(status)) {
-        await db.query("update call_jobs set status = 'in_call', outcome = 'answered', updated_at = now() where id = $1", [job.id]);
+        await db.query("update outbound_calls set status = 'in_call', outcome = 'answered', updated_at = now() where id = $1", [job.id]);
         return;
       }
       if (job.status === "dialing" && ["no-answer", "busy", "failed", "canceled"].includes(status)) await attemptFailed(job, status);
@@ -167,28 +167,17 @@ export function createScheduler({ memory, carrier, host, requests = null, log = 
         const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(outcome.callbackWhen ?? "");
         const asked = m ? zonedTime(m[1], m[2], w.tz) : null; // his wall clock, not the server's
         const when = nextInWindow(asked && asked > now() ? asked : nextDayWindow(now(), w), w);
-        await db.query("update call_jobs set status = 'queued', outcome = 'later', attempts = greatest(attempts - 1, 0), next_attempt_at = $2, updated_at = now() where id = $1", [job.id, when.toISOString()]);
+        await db.query("update outbound_calls set status = 'queued', outcome = 'later', attempts = greatest(attempts - 1, 0), next_attempt_at = $2, updated_at = now() where id = $1", [job.id, when.toISOString()]);
         return note(job, `he asked to be called later; next try ${when.toISOString()}`);
       }
       return attemptFailed(job, reason === "caller_hangup" ? "hung up before it was done" : `ended (${reason}) before it was done`);
     },
 
     async list({ limit = 50 } = {}) {
-      return db.query("select j.*, u.name user_name from call_jobs j join users u on u.id = j.user_id order by j.created_at desc limit $1", [limit]);
+      return db.query("select j.*, u.name user_name from outbound_calls j join users u on u.id = j.user_id order by j.created_at desc limit $1", [limit]);
     },
     async cancelFor(objectiveId) {
-      await db.query("update call_jobs set status = 'cancelled', updated_at = now() where $1 = any(objective_ids) and status in ('queued', 'dialing')", [objectiveId]);
-    },
-
-    start() {
-      let busy = false;
-      const timer = setInterval(async () => {
-        if (busy) return;
-        busy = true;
-        try { await tick(); } catch (err) { log("scheduler error", err.message); } finally { busy = false; }
-      }, tickMs);
-      timer.unref?.();
-      return () => clearInterval(timer);
+      await db.query("update outbound_calls set status = 'cancelled', updated_at = now() where $1 = any(objective_ids) and status in ('queued', 'dialing')", [objectiveId]);
     },
   };
 }

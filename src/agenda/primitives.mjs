@@ -25,23 +25,6 @@ const capture = {
   save: (s, note) => lines(s.save?.anyOf).some(k => filled(note?.[k])),
 };
 
-// An order from a meeting: like capture, but what's missing depends on each item.
-const order = {
-  ...capture,
-  missing(s, d) {
-    const missing = [];
-    if (!d?.customer_name) missing.push("customer name");
-    if (!d?.items?.length) missing.push("what the customer needs");
-    for (const i of d?.items ?? []) {
-      if (!(Number(i.quantity) > 0)) missing.push(`quantity of ${i.description || i.catalog_id}`);
-      if (!i.catalog_id && i.unit_price == null) missing.push(`price per unit for ${i.description || "the item"} (not on the price list)`);
-    }
-    if (!d?.needed_by && !d?.appointment?.date) missing.push("when the customer needs it");
-    if (d?.send_quote !== false && !d?.customer_email) missing.push("customer's email address for the quote");
-    return missing;
-  },
-};
-
 // Answers from what's known (a briefing, the agenda): instructions only, nothing to extract.
 const inform = {
   prompt: (s, c) => c.r(s.instructions),
@@ -153,4 +136,4 @@ ${(d.recentFindings ?? []).join("\n") || "(none)"}`;
   }),
 };
 
-export const primitives = { capture, order, inform, ask, research };
+export const primitives = { capture, inform, ask, research };

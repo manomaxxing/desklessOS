@@ -1,29 +1,27 @@
 // Regression calls: real scripted calls against a fresh server, checked against
 // what they must (and should) produce. Run before every merge.
-//   npm run regress                      all scenarios in test/calls/<skill>/*.json
-//   npm run regress -- pilot/02-briefing only these (scenarios before them in the same skill run too,
+//   npm run regress                      all scenarios in test/calls/<folder>/*.json
+//   npm run regress -- pilot/02-briefing only these (scenarios before them in the same folder run too,
 //                                        because later calls build on earlier memory)
 //   npm run regress -- --keep            keep the scratch data dirs
 //   npm run regress -- --show            print every conversation, not only failed ones
-//   npm run regress -- --backend pg      memory on Postgres (PGlite in each scratch dir; seeds go
-//                                        through scripts/migrate-json-to-pg.mjs first)
 //
-// Each folder gets its own server (SKILL=<dir name>) on a scratch DATA_DIR, so
-// scenarios in a folder share memory in file order. "pilot+memory" runs SKILL=pilot
-// and starts from a copy of its _seed/ directory (an existing DATA_DIR). A scenario:
+// Each folder gets its own server on a scratch DATA_DIR (memory in PGlite there), so
+// scenarios in a folder share memory in file order. A folder's _seed/ is old-style JSON
+// memory, moved in through scripts/migrate-json-to-pg.mjs before the server starts. A scenario:
 //   { "lang": "de", "says": ["…", "…"], "config": {…},
 //     "must":   [ <check>, … ],   failing one fails the run
 //     "should": [ <check>, … ] }  failing one only warns (models vary run to run)
-// Checks: {"saved": true} {"hangup": true} {"event": "workflow"} {"noEvent": "error"}
+// Checks: {"saved": true} {"hangup": true} {"event": "objective"} {"noEvent": "error"}
 //   {"heard": "regex"} {"heardNext": "wait"} {"said": "regex"} {"note": "regex"}
 //   {"falseStart": true} {"maxFirstAudioMs": 4000}
-//   {"tool": "order_execute"}  the tool ran (status ok)    {"count": {"workflow": 1}}  exactly n such events
+//   {"tool": "memory_search"}  the tool ran (status ok)    {"count": {"tool": 1}}  exactly n such events
 //   {"api": {"path": "/api/objectives", "match": "regex"}}  what the server says after the call
 // "before": [{ "post": "/api/objectives", "body": {…} }] runs before the call (e.g. Max's question);
 //   [{ "adminRequest": "Frag Niko, …" }] plans it like the admin page and approves the card;
 //   [{ "user": { phone, consentOutbound, callWindow } }] sets up the (first) user.
 // "answer": "+49…" instead of calling: be that phone and wait for the server to call (OUTBOUND=fake).
-// A folder's _config.json: { "backend": "pg", "env": { … } } for the server it needs ("{port}" is filled in).
+// A folder's _config.json: { "env": { … } } for the server it needs ("{port}" is filled in).
 // "carrier": "twilio": the call goes through the Twilio path (src/testing/caller.mjs runTwilioCall).
 
 import { spawn, spawnSync } from "node:child_process";
@@ -38,13 +36,12 @@ const callsDir = path.join(root, "test", "calls");
 const args = process.argv.slice(2);
 const keep = args.includes("--keep");
 const show = args.includes("--show");
-const backend = args.includes("--backend") ? args[args.indexOf("--backend") + 1] : "json";
-const only = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--backend");
+const only = args.filter(a => !a.startsWith("--"));
 
 const median = xs => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : null; };
 const re = s => new RegExp(s, "i");
 
-// `saved` is the note the server stored for this call (fetched after the post-call step):
+// `saved` is the note the server stored for this call (fetched after its after-call job):
 // the call's socket is closed by then, so its "saved" event never reaches the caller.
 function check(spec, events, saved, api = {}) {
   const of = name => events.filter(e => e.event === name);
@@ -69,11 +66,11 @@ function check(spec, events, saved, api = {}) {
   }
 }
 
-const backendEnv = (dataDir, b = backend) => (b === "pg" ? { MEMORY_BACKEND: "pg", DATABASE_URL: `pglite:${path.join(dataDir, "pg")}` } : { MEMORY_BACKEND: "json" });
+const dbEnv = dataDir => ({ DATABASE_URL: `pglite:${path.join(dataDir, "pg")}` });
 
-function startServer(skill, dataDir, port, folderConfig = {}) {
+function startServer(dataDir, port, folderConfig = {}) {
   const own = Object.fromEntries(Object.entries(folderConfig.env ?? {}).map(([k, v]) => [k, String(v).replace("{port}", port)])); // "{port}": this server's port
-  const env = { ...process.env, SKILL: skill, DATA_DIR: dataDir, PORT: String(port), DEV_TOKEN: "", RECORD_CALLS: "0", OUTBOUND: "off", TWILIO_ACCOUNT_SID: "", ...backendEnv(dataDir, folderConfig.backend ?? backend), ...own };
+  const env = { ...process.env, DATA_DIR: dataDir, PORT: String(port), DEV_TOKEN: "", ADMIN_CODE: "", RECORD_CALLS: "0", OUTBOUND: "off", BACKGROUND: "inline", TICK_MS: "2000", TWILIO_ACCOUNT_SID: "", ...dbEnv(dataDir), ...own };
   const child = spawn(process.execPath, ["--env-file-if-exists=.env", "server.mjs"], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
   const log = [];
   const waiters = [];
@@ -99,7 +96,6 @@ const folders = readdirSync(callsDir, { withFileTypes: true }).filter(d => d.isD
 const results = [];
 let port = 8890;
 for (const folder of folders) {
-  const skill = folder.split("+")[0];
   const files = readdirSync(path.join(callsDir, folder)).filter(f => f.endsWith(".json") && !f.startsWith("_")).sort();
   const wanted = only.length ? files.filter((f, i) => files.slice(i).some(g => only.some(o => `${folder}/${g}`.startsWith(o)))) : files;
   if (!wanted.length) continue;
@@ -107,16 +103,15 @@ for (const folder of folders) {
   const seed = path.join(callsDir, folder, "_seed");
   const configFile = path.join(callsDir, folder, "_config.json");
   const folderConfig = existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : {};
-  const folderBackend = folderConfig.backend ?? backend;
-  if (existsSync(seed)) cpSync(seed, dataDir, { recursive: true });
-  if (existsSync(seed) && folderBackend === "pg") {
-    const r = spawnSync(process.execPath, ["--env-file-if-exists=.env", "scripts/migrate-json-to-pg.mjs"], { cwd: root, env: { ...process.env, SKILL: skill, DATA_DIR: dataDir, ...backendEnv(dataDir, "pg") }, encoding: "utf8" });
+  if (existsSync(seed)) {
+    cpSync(seed, dataDir, { recursive: true });
+    const r = spawnSync(process.execPath, ["--env-file-if-exists=.env", "scripts/migrate-json-to-pg.mjs"], { cwd: root, env: { ...process.env, DATA_DIR: dataDir, ...dbEnv(dataDir) }, encoding: "utf8" });
     if (r.status !== 0) throw new Error(`seed migration failed: ${r.stdout}${r.stderr}`);
   }
-  const server = startServer(skill, dataDir, ++port, folderConfig);
+  const server = startServer(dataDir, ++port, folderConfig);
   try {
-    await server.waitFor(/voice assets ready/, 60000).catch(err => {
-      throw new Error(`${skill} server didn't start: ${err.message}\n${server.log.slice(-15).join("\n")}`);
+    await server.waitFor(/voice clips ready/, 60000).catch(err => {
+      throw new Error(`${folder} server didn't start: ${err.message}\n${server.log.slice(-15).join("\n")}`);
     });
     for (const file of wanted) {
       const name = `${folder}/${file.replace(/\.json$/, "")}`;
@@ -158,8 +153,8 @@ for (const folder of folders) {
           await before();
           ({ events, callId } = await runCall({ url: `ws://localhost:${port}/dial`, lang: sc.lang, says: sc.says, config: sc.config ?? {}, from: sc.from }));
         }
-        // Later scenarios build on this call's memory: wait for the post-call step.
-        await server.waitFor(new RegExp(`\\[${callId.slice(-6)}\\] (memory:|memory error|finalize error)`), 45000).catch(() => {});
+        // Later scenarios build on this call's memory: wait for its after-call job.
+        await server.waitFor(new RegExp(`\\[${callId.slice(-6)}\\] after-call done|job after_call after_call:${callId} failed|\\[${callId.slice(-6)}\\] finalize error`), 60000).catch(() => {});
         const notes = await fetch(`http://localhost:${port}/api/notes`).then(r => r.json());
         saved = notes.find(n => n.call_id === callId) ?? null;
         // What happens after the call (objectives, requests, jobs) settles a moment after the memory step: poll.
@@ -183,7 +178,7 @@ for (const folder of folders) {
       for (const s of should.filter(s => !s.ok)) console.log(`   should ~ ${JSON.stringify(s.spec)}`);
       if (failed || show) {
         // The conversation, so a failure can be read without rerunning it.
-        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "workflow", "objective", "retry", "turn", "dangling", "end_call", "barge_in", "nudge"].includes(e.event))) {
+        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "objective", "retry", "turn", "dangling", "end_call", "barge_in", "nudge"].includes(e.event))) {
           console.log(`   ${e.at.toFixed(1).padStart(5)}s ${describeEvent(e) ?? e.event}`);
         }
       }
@@ -199,5 +194,5 @@ for (const folder of folders) {
 
 const failed = results.filter(r => r.failed);
 const warned = results.filter(r => r.should.some(s => !s.ok));
-console.log(`\n${results.length - failed.length}/${results.length} passed${warned.length ? `, ${warned.length} with warnings` : ""} (memory: ${backend})`);
+console.log(`\n${results.length - failed.length}/${results.length} passed${warned.length ? `, ${warned.length} with warnings` : ""}`);
 process.exit(failed.length ? 1 : 0);

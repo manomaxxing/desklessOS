@@ -9,6 +9,9 @@
 //   Security: every webhook carries X-Twilio-Signature (HMAC-SHA1 with the auth token over
 //             the URL and the sorted form fields); the stream's first message must carry our
 //             token (HMAC over the call sid and an expiry).
+//   Several instances: Twilio's webhooks and the call's stream may land on different ones,
+//             so the answering-machine verdict goes out on the bus (src/bus.mjs) to whichever
+//             instance has the stream.
 // env: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_NUMBER (E.164), PUBLIC_URL (https://…),
 //      TWILIO_REGION (ie1) + TWILIO_EDGE (dublin) for the EU REST endpoint,
 //      TWILIO_API_KEY + TWILIO_API_SECRET instead of the auth token for REST (optional),
@@ -96,7 +99,7 @@ export function bridgeStream(ws, { host, key, maxCallMs = 15 * 60 * 1000, answer
   return { get callSid() { return callSid; }, deliver: frame => conn?.receive(frame) };
 }
 
-export function twilioAdapter({ host, wss, env = process.env, onStatus = () => {}, monitor = null, log = () => {}, fetchImpl = fetch }) {
+export function twilioAdapter({ host, wss, bus = null, env = process.env, onStatus = () => {}, monitor = null, log = () => {}, fetchImpl = fetch }) {
   const sid = env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = env.TWILIO_AUTH_TOKEN?.trim();
   const number = env.TWILIO_NUMBER?.trim();
@@ -110,7 +113,13 @@ export function twilioAdapter({ host, wss, env = process.env, onStatus = () => {
   const maxCallMs = Number(env.MAX_CALL_MIN || 15) * 60000;
   const streamUrl = `${publicUrl.replace(/^http/, "ws")}/twilio/stream`;
   const answeredBy = new Map(); // call sid → AnsweredBy, when it comes before the stream
-  const streams = new Map(); // call sid → bridge
+  const streams = new Map(); // call sid → bridge (the streams on this instance)
+  const verdict = ({ callId, value }) => {
+    if (answeredBy.size > 1000) answeredBy.delete(answeredBy.keys().next().value); // the oldest; a call is long over by then
+    answeredBy.set(callId, value);
+    streams.get(callId)?.deliver({ type: "answered_by", answered_by: value });
+  };
+  bus?.subscribe(m => { if (m.type === "answered_by") verdict(m); });
 
   const readForm = req => new Promise((resolve, reject) => {
     let body = "";
@@ -148,9 +157,9 @@ export function twilioAdapter({ host, wss, env = process.env, onStatus = () => {
       }
       if (url.pathname === "/twilio/amd") {
         // Async answering-machine detection: a machine gets no message, we hang up and retry later.
-        const value = params.AnsweredBy ?? "unknown";
-        answeredBy.set(params.CallSid, value);
-        streams.get(params.CallSid)?.deliver({ type: "answered_by", answered_by: value });
+        const msg = { callId: params.CallSid, value: params.AnsweredBy ?? "unknown" };
+        if (bus) bus.publish({ type: "answered_by", ...msg }); // every instance, this one too
+        else verdict(msg);
         res.writeHead(204).end();
         return true;
       }

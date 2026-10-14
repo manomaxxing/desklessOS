@@ -1,5 +1,10 @@
 # DesklessOS v2: templates, primitives, pluggable languages, real memory
 
+> **Superseded in parts (2026-10-13):** the Cloud Run port changed how this runs: Postgres
+> only (no JSON backend), one job queue for all background work, the after-call steps as one
+> job, the office demo and the Live engine cut. The current design is `docs/architecture.md`;
+> this file stays as the record of how the phases were planned and built.
+
 > **Status (2026-10-12):** P1 (locale packs, English data keys, regression calls) done on branch `v2`.
 > P2 (native tool calls, tool registry, `memory_search`) done on `v2`. P3 (personas, templates,
 > primitives, agenda, objectives, "find out X" by API) done on `v2`. P4 (memory on Postgres behind

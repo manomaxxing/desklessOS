@@ -1,1 +1,1 @@
-{ "backend": "pg", "env": { "OUTBOUND": "fake", "SCHEDULER_TICK_MS": "1000", "OUTBOUND_PER_DAY": "5" } }
+{ "env": { "OUTBOUND": "fake", "TICK_MS": "1000", "OUTBOUND_PER_DAY": "5" } }

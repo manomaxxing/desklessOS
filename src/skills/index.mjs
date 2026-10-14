@@ -1,9 +1,8 @@
-// The skill a deployment runs, built from a persona and templates
-// (src/skills/from-templates.mjs): SKILL=pilot (the default: the notebook
-// persona with the discovery week) or SKILL=office (the order demo).
+// The skill a deployment runs: the notebook persona with the research week
+// (src/skills/from-templates.mjs). Max's own line loads "admin" separately.
 import { loadSkillFromTemplates } from "./from-templates.mjs";
 
-export async function loadSkill(name = process.env.SKILL || "pilot") {
-  if (!["pilot", "office"].includes(name)) throw new Error(`unknown SKILL "${name}" (pilot | office)`);
+export async function loadSkill(name = "pilot") {
+  if (name !== "pilot") throw new Error(`unknown skill "${name}" (pilot)`);
   return loadSkillFromTemplates(name);
 }

@@ -1,25 +1,25 @@
 // The pilot week's report: what he did (calls, times, notes), what we learned
 // per framework area, and the evidence for and against each hypothesis.
-//   npm run report                   → data/discovery/report.md
+//   npm run report                   → pilot-report.md
 //   npm run report -- --synthesize   adds an executive summary written by Gemini
 //   npm run report -- --from +49170… only calls from his number (skips test calls)
-// Reads the research log from memory (MEMORY_BACKEND=json or pg); call records from DATA_DIR/calls.
+// Reads the research log and the call log from Postgres (DATABASE_URL; default: the local PGlite,
+// which only one process can open: stop the dev server first).
 
-import { readdirSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { dataDir, readJson } from "../src/store/files.mjs";
+import { writeFileSync } from "node:fs";
 import { loadSkill } from "../src/skills/index.mjs";
-import { openMemory } from "../src/memory/index.mjs";
-import { normalizeFinding } from "../src/store/note-keys.mjs";
+import { openDb, openMemory } from "../src/memory/index.mjs";
+import { loadConfig } from "../src/config.mjs";
+import { normalizeFinding } from "../src/memory/note-keys.mjs";
 import { locales } from "../src/locale/index.mjs";
 
 const arg = name => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : null; };
-const memory = await openMemory({ skill: await loadSkill("pilot") });
+const memory = await openMemory({ db: await openDb(loadConfig().databaseUrl), skill: await loadSkill() });
 const research = await memory.discoveryOverview();
+const records = {};
+for (const c of await memory.recentCalls({ limit: 10000 })) records[c.id] = { ...c, events: (await memory.getCall(c.id))?.events ?? [] };
 await memory.close();
 const fw = research.framework;
-const callsDir = dataDir("calls", "CALLS_DIR");
-const records = Object.fromEntries(readdirSync(callsDir).filter(f => f.endsWith(".json")).map(f => { const c = readJson(path.join(callsDir, f), {}); return [c.id, c]; }));
 const from = arg("--from");
 const log = research.calls.filter(c => !from || records[c.callId]?.from === from);
 const ids = new Set(log.map(c => c.callId));
@@ -117,6 +117,6 @@ const report = [
   "## Findings by area", "", areas.join("\n\n"), "",
 ].join("\n");
 
-const out = path.join(dataDir("discovery", "DISCOVERY_DIR"), "report.md");
+const out = arg("--out") ?? "pilot-report.md";
 writeFileSync(out, report);
 console.log(`${out}: ${log.length} calls, ${findings.length} findings`);

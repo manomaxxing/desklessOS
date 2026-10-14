@@ -1,7 +1,7 @@
 // Admin requests: Max's instruction → a plan and its card → his approval → an
 // objective for the user's next call → the result back on his page (and by webhook
-// or email). The request follows its objective: done when the objective is done,
-// expired when it ran out of calls.
+// or email, as a "notify" job). The request follows its objective: done when the
+// objective is done, expired when it ran out of calls.
 //   draft → approved → done | expired       draft | approved → cancelled
 // Approval needs the confirm token issued with the card: it's signed over the
 // request id and the plan's hash, so what gets approved is exactly what was shown.
@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { draftPlan, editPlan } from "./planner.mjs";
 import { planHash } from "./auth.mjs";
 
-export function createRequests({ memory, skill, auth, llm, notifier = null, publicUrl = "", log = () => {}, onCancel = async () => {}, outbound = () => false }) {
+export function createRequests({ memory, skill, auth, llm, queue = null, notifier = null, publicUrl = "", log = () => {}, onCancel = async () => {}, outbound = () => false }) {
   // A draft goes out with its confirm token, unless something blocks approval.
   const withToken = r => ({ request: r, confirmToken: r.status === "draft" && !r.card.blocked.length ? auth.confirmToken(r.id, r.planHash) : null });
 
@@ -22,7 +22,7 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
     const { plan, card } = await draftPlan({ instruction: text, users, skill, llm, outbound: outbound() });
     const r = await memory.requests.create({
       id: `req_${randomUUID().slice(0, 8)}`, userId: plan.target?.userId ?? null, instruction: text, plan, planHash: planHash(plan), card, turns: [],
-      status: "draft", createdBy: by, createdAt: new Date().toISOString(), notifyStatus: "none", notifyAttempts: 0,
+      status: "draft", createdBy: by, createdAt: new Date().toISOString(),
     });
     log(`request ${r.id} planned: ${card.summary || card.title}`);
     return withToken(r);
@@ -65,7 +65,9 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
     return memory.requests.update(id, { status: "cancelled", closedAt: new Date().toISOString() });
   }
 
-  /** After a call: objectives that changed (scope.recordObjectives) close their requests. */
+  const notifying = () => Boolean(queue && notifier?.channels.length);
+
+  /** After a call: objectives that changed (scope.recordObjectives) close their requests; Max is told. */
   async function objectivesChanged(objectives = []) {
     const closed = [];
     for (const o of objectives) {
@@ -73,12 +75,10 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
       if (!r || r.status !== "approved") continue;
       const status = o.status === "done" ? "done" : o.status === "expired" ? "expired" : null;
       const result = { ...(o.result ?? {}), calls: o.calls ?? [] };
-      const patch = status
-        ? { status, result, closedAt: new Date().toISOString(), notifyStatus: notifier?.channels.length ? "pending" : "none" }
-        : { result }; // partial answers so far
-      closed.push(await memory.requests.update(r.id, patch));
+      const updated = await memory.requests.update(r.id, status ? { status, result, closedAt: new Date().toISOString() } : { result }); // without a status: partial answers so far
+      if (status && notifying()) await queue.enqueue("notify", { requestId: r.id }, { key: `notify:${r.id}:${status}` });
+      closed.push(updated);
     }
-    if (closed.some(r => r.notifyStatus === "pending")) flushNotifications().catch(err => log("notify error", err.message));
     return closed;
   }
 
@@ -86,11 +86,9 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
   async function note(objectiveId, text) {
     const r = await memory.requests.byObjective(objectiveId);
     if (!r) return null;
-    const updated = await memory.requests.update(r.id, { log: [...(r.log ?? []), { at: new Date().toISOString(), text }] });
-    if (notifier?.channels.length) {
-      notifier.send({ subject: `${r.plan?.target?.name ?? "Request"}: ${text.slice(0, 80)}`, text: `${text}\n\n${r.instruction}${link(r) ? `\n\n${link(r)}` : ""}`, payload: { type: "request.note", request: { id: r.id, instruction: r.instruction, text, link: link(r) } } })
-        .catch(err => log(`notify ${r.id} failed: ${err.message}`));
-    }
+    const log = [...(r.log ?? []), { at: new Date().toISOString(), text }];
+    const updated = await memory.requests.update(r.id, { log });
+    if (notifying()) await queue.enqueue("notify", { requestId: r.id, text }, { key: `notify:${r.id}:note:${log.length}` });
     return updated;
   }
 
@@ -102,30 +100,21 @@ export function createRequests({ memory, skill, auth, llm, notifier = null, publ
     return { subject: `${head}: ${r.instruction.slice(0, 60)}`, text: `${head}.\n\n${r.instruction}\n\n${answers}${link(r) ? `\n\n${link(r)}` : ""}` };
   }
 
-  /** The outbox: delivers pending notifications, retrying failed ones up to five times. One run at a time. */
-  let flushing = null;
-  function flushNotifications() {
-    flushing ??= deliver().finally(() => { flushing = null; });
-    return flushing;
-  }
-  async function deliver() {
-    if (!notifier?.channels.length) return [];
-    const sent = [];
-    for (const r of await memory.requests.pendingNotifications()) {
-      try {
-        const { subject, text } = message(r);
-        await notifier.send({ subject, text, payload: { type: `request.${r.status}`, request: { id: r.id, instruction: r.instruction, status: r.status, who: r.plan?.target?.name, result: r.result, link: link(r) } } });
-        sent.push(await memory.requests.update(r.id, { notifyStatus: "sent", notifiedAt: new Date().toISOString(), notifyAttempts: (r.notifyAttempts ?? 0) + 1, notifyError: null }));
-      } catch (err) {
-        await memory.requests.update(r.id, { notifyStatus: "failed", notifyAttempts: (r.notifyAttempts ?? 0) + 1, notifyError: err.message.slice(0, 300) });
-        log(`notify ${r.id} failed: ${err.message}`);
-      }
+  /** The "notify" job: tells Max by webhook / email. Throws on failure, so the queue retries it. */
+  async function sendNotification({ requestId, text = null }) {
+    const r = await memory.requests.get(requestId);
+    if (!r || !notifier?.channels.length) return;
+    if (text) {
+      await notifier.send({ subject: `${r.plan?.target?.name ?? "Request"}: ${text.slice(0, 80)}`, text: `${text}\n\n${r.instruction}${link(r) ? `\n\n${link(r)}` : ""}`, payload: { type: "request.note", request: { id: r.id, instruction: r.instruction, text, link: link(r) } } });
+      return;
     }
-    return sent;
+    const { subject, text: body } = message(r);
+    await notifier.send({ subject, text: body, payload: { type: `request.${r.status}`, request: { id: r.id, instruction: r.instruction, status: r.status, who: r.plan?.target?.name, result: r.result, link: link(r) } } });
+    await memory.requests.update(r.id, { notifiedAt: new Date().toISOString() });
   }
 
   return {
-    plan, revise, approve, cancel, objectivesChanged, flushNotifications, note,
+    plan, revise, approve, cancel, objectivesChanged, note, sendNotification,
     list: () => memory.requests.list(),
     get: id => memory.requests.get(id),
     /** A request as the admin page shows it (drafts with their confirm token). */

@@ -184,8 +184,6 @@ function items(call) {
       case "recovered": out.push({ t, kind: "chip", cls: "good", text: `recovered on ${e.model} (attempt ${e.attempt})` }); break;
       case "fallback": out.push({ t, kind: "chip", cls: "warn", text: `${e.what}: ${e.from} failed → ${e.to} · ${e.reason ?? ""}` }); break;
       case "mask": out.push({ t, kind: "chip", text: "typing sound (masking the wait)" }); break;
-      case "workflow_start": out.push({ t, kind: "chip", text: "office: booking calendar, to-dos, quote…" }); break;
-      case "workflow": out.push({ t, kind: "chip", cls: "good", text: `office done · ${e.result?.summary ?? ""}` }); break;
       case "tool": out.push({ t, kind: "chip", cls: e.ignored ? "warn" : e.status === "ok" || e.status === "repeated" ? "good" : "warn", text: e.ignored ? `tool call ignored (${e.reason}) · ${e.ignored.join(", ")}` : `tool ${e.name} · ${e.status} · ${e.ms} ms${e.summary ? " · " + e.summary : ""}` }); break;
       case "context": out.push({ t, kind: "chip", text: `memory · ${e.tokens} of ${e.budget} tokens · ${e.customers} customers + ${e.names} names · ${e.tasks} to-dos · ${e.ms} ms` }); break;
       case "turn": out.push({ t, kind: "chip", cls: e.complete ? "" : "warn", text: `Smart Turn · ${e.complete ? "done" : "not done"} (${e.probability}) · ${e.ms} ms` }); break;
@@ -258,11 +256,10 @@ function renderRight(c) {
   const mem = c.events.filter(e => e.event === "memory").at(-1);
   const t = c.cost, s = t?.byStep || {};
   const noteRows = n ? [
-    ["Mode", n.mode ?? n.modus], ["Customer", [n.customer_name, n.customer_company].filter(Boolean).join(", ")], ["Email", n.customer_email],
-    ["Items", (n.items || []).map(i => `${i.quantity ?? "?"} ${i.unit || ""} ${i.description || i.catalog_id}${i.unit_price != null ? ` @ ${i.unit_price}` : ""}`).join(" · ")],
-    ["Needed by", n.needed_by], ["Calendar", n.appointment?.date ? `${n.appointment.date} ${n.appointment.start_time || ""} ${n.appointment.title || ""}` : ""],
-    ["To-dos", (n.todos || []).map(t => t.text + (t.due ? ` (${t.due})` : "")).join(" · ")],
-    ["Confirmed", (n.confirmed ?? n.bestaetigt) ? "yes" : "no"], ["Missing", missing.join(", ")],
+    ["Mode", n.mode], ["Customer", [n.customer_name, n.address, n.place].filter(Boolean).join(", ")],
+    ["Work", (n.work || []).map(w => [w.area, w.quantity, w.material, w.description].filter(Boolean).join(" ")).join(" · ")],
+    ["Next", (n.next_steps || []).map(s => s.what + (s.due ? ` (${s.due})` : "")).join(" · ")],
+    ["Timeframe", n.timeframe], ["Budget", n.budget], ["Open", (n.open_questions || []).join(" · ")], ["Missing", missing.join(", ")],
   ].filter(([, v]) => v) : [];
   const crow = (name, sub, v) => `<div class="crow"><div>${name}<small>${sub}</small></div><div class="usd">${v}</div></div>`;
   $("rightcol").innerHTML = `
@@ -271,7 +268,7 @@ function renderRight(c) {
       ${crow("Conversation", `${s.turn?.calls ?? 0} turns`, usd(s.turn?.usd ?? 0))}${crow("Note", `${s.note?.calls ?? 0} extractions`, usd(s.note?.usd ?? 0))}${crow("Memory", "after the call", usd(s.memory?.usd ?? 0))}
       ${crow("Voice", `Fish · ${(t.ttsBytes / 1000).toFixed(1)} kB · paid tier ${usd(t.ttsPaidUsd)}`, usd(t.ttsUsd))}${crow("Phone", t.phoneMinutes ? t.phoneMinutes.toFixed(1) + " min" : "—", t.phoneUsd == null ? "—" : usd(t.phoneUsd))}</div>` : '<div class="card"><div class="empty" style="padding:18px">No cost yet.</div></div>'}
     <h3>Note</h3>
-    ${n ? `<div class="card">${noteRows.map(([k, v]) => `<div class="rowi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}${n.summary || n.zusammenfassung ? `<div class="rowi"><div class="v">${esc(n.summary || n.zusammenfassung)}</div></div>` : ""}<details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(n, null, 2))}</pre></details></div>` : '<div class="card"><div class="empty" style="padding:18px">No note yet.</div></div>'}
+    ${n ? `<div class="card">${noteRows.map(([k, v]) => `<div class="rowi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}${n.summary ? `<div class="rowi"><div class="v">${esc(n.summary)}</div></div>` : ""}<details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(n, null, 2))}</pre></details></div>` : '<div class="card"><div class="empty" style="padding:18px">No note yet.</div></div>'}
     <h3>Memory changes</h3>
     ${mem ? `<div class="card">
       <div class="rowi"><div class="k">Type</div><div class="v">${esc(mem.callType)}</div></div>
@@ -315,7 +312,7 @@ function connect() {
       const c = calls.find(c => c.id === msg.id);
       if (c) {
         if (msg.ev.event === "heard") c.turns += 1;
-        if (msg.ev.event === "note") c.summary = msg.ev.note?.summary ?? msg.ev.note?.zusammenfassung ?? c.summary;
+        if (msg.ev.event === "note") c.summary = msg.ev.note?.summary ?? c.summary;
         if (msg.ev.event === "memory") c.summary = msg.ev.summary ?? c.summary;
         if (msg.ev.event === "cost") c.usd = msg.ev.totals?.usd ?? c.usd;
         if ((msg.ev.event === "connected" || msg.ev.event === "heard") && msg.ev.lang) c.lang = msg.ev.lang;

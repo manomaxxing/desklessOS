@@ -1,16 +1,14 @@
-// Copies the JSON memory (DATA_DIR) into Postgres (DATABASE_URL): customers →
-// contacts (their call history → calls), to-dos → tasks, notes → notes, the
-// pilot's findings → facts and its question state → research_state, objectives.
-// Calendar and quotes stay in JSON. Safe to run again: rows carry their JSON id
-// (legacy_id), so a second run updates instead of duplicating.
+// One-time move of the pilot's JSON memory (the old DATA_DIR files) into Postgres
+// (DATABASE_URL): customers → contacts (their call history → calls), to-dos → tasks,
+// notes → notes, the pilot's findings → facts and its question state → research_state,
+// objectives. Safe to run again: rows carry their JSON id (legacy_id), so a second run
+// updates instead of duplicating. The regression calls seed their memory through it too.
 //   node scripts/migrate-json-to-pg.mjs --dry-run      counts only, no database needed
-//   DATABASE_URL=postgres://… node scripts/migrate-json-to-pg.mjs [--embed]
-//   (then MEMORY_BACKEND=pg; MEMORY_BACKEND=json is the way back)
+//   DATABASE_URL=postgres://… DATA_DIR=<old data> node scripts/migrate-json-to-pg.mjs [--embed]
 
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { readJson } from "../src/store/files.mjs";
-import { normalizeNote, normalizeFinding } from "../src/store/note-keys.mjs";
+import { normalizeNote, normalizeFinding } from "../src/memory/note-keys.mjs";
 import { loadSkill } from "../src/skills/index.mjs";
 import { openDb } from "../src/db/client.mjs";
 import { migrate } from "../src/db/migrate.mjs";
@@ -22,6 +20,7 @@ const root = process.env.DATA_DIR || "data";
 const file = (...p) => path.join(root, ...p);
 const isDate = s => /^\d{4}-\d{2}-\d{2}/.test(String(s ?? ""));
 const json = v => JSON.stringify(v ?? null);
+const readJson = (f, fallback) => (existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : fallback);
 
 const customers = Object.values(readJson(file("memory", "customers.json"), {}));
 const actions = readJson(file("memory", "actions.json"), []);
@@ -61,8 +60,8 @@ await db.tx(async q => {
   const callRows = new Map(history.map(h => [h.id, { id: h.id, date: h.date, type: h.type ?? "", summary: h.summary ?? "", lang: h.lang ?? null }]));
   for (const n of notes) if (n.call_id && !callRows.has(n.call_id)) callRows.set(n.call_id, { id: n.call_id, date: n.created_at, type: normalizeNote(n).mode ?? "", summary: "", lang: n.lang ?? n.sprache ?? null });
   for (const c of callRows.values()) {
-    await q.query(`insert into calls (id, org_id, user_id, started_at, ended_at, call_type, summary, lang, transcript, consolidation_status, consolidated_at)
-      values ($1, $2, $3, coalesce($4::timestamptz, now()), coalesce($4::timestamptz, now()), $5, $6, $7, $8, 'done', now())
+    await q.query(`insert into calls (id, org_id, user_id, started_at, ended_at, call_type, summary, lang, transcript, consolidated_at, after_call_at)
+      values ($1, $2, $3, coalesce($4::timestamptz, now()), coalesce($4::timestamptz, now()), $5, $6, $7, $8, now(), now())
       on conflict (id) do update set summary = case when calls.summary = '' then excluded.summary else calls.summary end, transcript = case when jsonb_array_length(calls.transcript) = 0 then excluded.transcript else calls.transcript end`,
       [c.id, org, user.id, isDate(c.date) ? c.date : null, c.type, c.summary, c.lang, json(transcriptOf.get(c.id) ?? [])]);
   }

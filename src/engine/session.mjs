@@ -10,8 +10,10 @@
 // What the call is about (prompt, note schema, Max's questions) comes from its
 // agenda (src/agenda/agenda.mjs), built from the persona and templates; what we
 // know about him from `memory`, the call's memory scope (src/memory/), read once
-// when the call connected.
-// `config` (from the mode selector): { model, tts: "fish"|"gemini", mask: "typing"|"filler"|"none" }.
+// when the call connected. The call is saved as it goes (memory.checkpoint); when it
+// ends, onEnd(reason, final) gets its last state, and everything slow (the final note,
+// memory, objectives) happens after the call, in its after-call job (src/calls/after-call.mjs).
+// `config` (per call; the browser test phone picks its own): { model, mask: "typing"|"filler"|"none" }.
 
 import { createVad } from "./vad.mjs";
 import { createReplyParser } from "./reply.mjs";
@@ -20,7 +22,6 @@ import { wav, silence, frames, durationMs } from "./audio.mjs";
 import { writeFileSync } from "node:fs";
 import { createMeter, geminiCost, ttsCost } from "./cost.mjs";
 import { createTypist } from "./ambience.mjs";
-import { consolidateCall } from "./consolidate.mjs";
 import { dangling, holdOn } from "./endpointing.mjs";
 import { locales, pickLanguage } from "../locale/index.mjs";
 import { createToolRunner } from "../tools/registry.mjs";
@@ -61,13 +62,13 @@ const pick = (arr, i) => (Array.isArray(arr) ? arr[i % arr.length] : arr);
 
 // `onEvent` feeds the monitor (every call); dev callers also get the events inline.
 // `recordDir(callId)` → directory for per-turn audio, or null to not record.
-export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, geminiTts, memory = null, office = null, assets, config = {}, initialTurns = [], initialLang = null, turnDetector = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null, tools: extraTools = [] }) {
-  const cfg = { model, tts: "fish", mask: "typing", ...Object.fromEntries(Object.entries(config).filter(([, v]) => v)) };
+export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, memory = null, assets, config = {}, initialTurns = [], initialLang = null, turnDetector = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null, tools: extraTools = [] }) {
+  const cfg = { model, mask: "typing", ...Object.fromEntries(Object.entries(config).filter(([, v]) => v)) };
   const fastModel = cfg.model;
   const slowModel = extractModel || model; // notes and memory stay on one model so modes compare fairly
   const fallbackModel = process.env.FALLBACK_MODEL || (fastModel === "gemini-2.5-flash" ? "gemini-3.5-flash" : "gemini-2.5-flash");
   // The tools this call's templates may use (src/tools/).
-  const runner = createToolRunner({ tools: callTools({ engine: "cascade", office, memory, allow: agenda.tools(), extra: extraTools }) });
+  const runner = createToolRunner({ tools: callTools({ memory, allow: agenda.tools(), extra: extraTools }) });
   let toolDecls = null;
   const declarations = () => (toolDecls ??= runner.declarations());
   const meter = createMeter();
@@ -87,7 +88,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     try { writeFileSync(path.join(dir, name), pcmOrWav); return name; } catch { return null; }
   };
   const call = { id: null, from: null, to: null, startedAt: Date.now() };
-  const turns = [...initialTurns]; // non-empty when taking over a call from the Live engine
+  const turns = [...initialTurns];
   let note = {};
   let missing = agenda.missing(note);
   let pendingUser = []; // caller audio not yet answered
@@ -140,33 +141,18 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     vad.setStrict(false);
   }
 
-  // A clip that starts synthesising now and can be drained later, in order.
-  // Fish first (streamed); if Fish fails before any audio, Gemini TTS takes over.
+  // A clip that starts synthesising now (Fish, streamed) and can be drained later, in order.
   function startClip(text, signal, voiceLang) {
     const clip = { text, chunks: [], done: false, error: null, wake: null };
     (async () => {
       try {
-        if (cfg.tts !== "gemini" && fish) {
-          meter.add(ttsCost(fish.model, text));
-          try {
-            for await (const part of fish.stream(text, { signal, lang: voiceLang })) {
-              clip.chunks.push(part);
-              clip.wake?.();
-            }
-            return;
-          } catch (err) {
-            if (signal.aborted) return;
-            if (clip.chunks.length || !geminiTts) { clip.error = err; fail("fish", err); return; }
-            debug("fallback", { what: "voice", from: "fish", to: "gemini-tts", reason: err.message });
-          }
-        }
-        if (geminiTts) {
-          const { pcm, usage } = await geminiTts.synth(text, { lang: voiceLang, signal });
-          if (usage) record("voice", usage, null, geminiTts.model);
-          clip.chunks.push(pcm);
+        meter.add(ttsCost(fish.model, text));
+        for await (const part of fish.stream(text, { signal, lang: voiceLang })) {
+          clip.chunks.push(part);
+          clip.wake?.();
         }
       } catch (err) {
-        if (!signal.aborted) { clip.error = err; fail("voice", err); }
+        if (!signal.aborted) { clip.error = err; fail("fish", err); }
       } finally {
         clip.done = true;
         clip.wake?.();
@@ -420,7 +406,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
               clearTimeout(falseStartTimer);
               falseStartTimer = setTimeout(() => vad.setInterruptMs(INTERRUPT_MS), FALSE_START_MS);
             }
-            if (!text) debug("latency", { turn: turn.id, firstAudioMs: Math.round(turn.firstAudioAt - turn.endpointAt), firstTokenMs: Math.round(turn.firstTokenAt - turn.endpointAt), fishFirstByteMs: cfg.tts === "fish" ? fish?.stream.lastFirstByteMs : null });
+            if (!text) debug("latency", { turn: turn.id, firstAudioMs: Math.round(turn.firstAudioAt - turn.endpointAt), firstTokenMs: Math.round(turn.firstTokenAt - turn.endpointAt), fishFirstByteMs: fish?.stream.lastFirstByteMs ?? null });
           }
           if (turn.followFrom != null && index >= turn.followFrom && !turn.followAudioAt) {
             // The answer after the tool: typing stops, and how long the tool hop took goes to the monitor.
@@ -496,7 +482,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
 
     // ---------- tools: run what the model called, then one follow-up call with the results ----------
     // A write waits until he can't take the turn back any more, FALSE_START_MS after
-    // the agent started talking ("Yes… no wait, make it Thursday" must not send the quote).
+    // the agent started talking ("Yes… no wait, make it Thursday" must not file the request).
     async function writeWindow() {
       const t0 = performance.now();
       while (clips.length && !turn.firstAudioAt && !signal.aborted && performance.now() - t0 < 4000) await sleep(50);
@@ -584,7 +570,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
 
     try {
       const tools = declarations();
-      const system = agenda.prompt({ engine: "cascade", note, missing, memory: memory?.context ?? "", office: office?.context(lang) ?? "", lang, tools: tools.map(t => t.name) });
+      const system = agenda.prompt({ note, missing, memory: memory?.context ?? "", lang, tools: tools.map(t => t.name) });
       const extra = force ? "(The caller is speaking in the audio above. He has now been silent for a few seconds: his thought is complete, so respond. Do not answer wait.)" : undefined;
       const request = { system, history: turns.slice(-16), audio, text, extra, tools };
       const calls = [];
@@ -615,6 +601,8 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
 
     await player;
     stopMask();
+    // The voice failed for the whole answer: say the pre-recorded sorry rather than nothing.
+    if (!outAudio.length && !signal.aborted && clips.some(c => c.error)) speakCached(pick(assets[lang]?.oops, oopsCount++), "oops");
     if (outAudio.length) {
       const outFile = saveAudio(`turn-${turn.id}-out.wav`, wav(Buffer.concat(outAudio)));
       if (outFile) debug("agent_audio", { turn: turn.id, audio: outFile, interrupted: signal.aborted });
@@ -629,6 +617,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     // What a tool did stays in the history, between the preface and the answer.
     const said = turn.toolNotes.length ? [reply.slice(0, turn.prefaceLength), ...turn.toolNotes, reply.slice(turn.prefaceLength)].map(s => s.trim()).filter(Boolean).join(" ") : reply;
     if (said) turns.push({ role: "model", text: said });
+    checkpoint();
     if (current === turn) current = null;
     lastNext = next;
     lastHold = turn.hold;
@@ -644,6 +633,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       const heard = turn.marks.filter(m => m && markText.get(m)?.heard).map(m => markText.get(m).text);
       const unsaid = clips.map(c => c.text).slice(heard.length).join(" ");
       if (reply || turn.toolNotes.length) turns.push({ role: "model", text: [...heard, ...turn.toolNotes, `[interrupted by the caller${unsaid ? `; not heard: "${unsaid.slice(0, 160)}"` : ""}]`].join(" ") });
+      checkpoint();
     }
   }
 
@@ -661,10 +651,12 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         noteApplied = seq;
         noteCovers = snapshot.length;
         const u = agenda.update(updated); // his note, and which of the agent's own items got done (checked in code)
+        lastExtraction = updated;
         note = u.note;
         missing = u.missing;
         debug("note", { note, missing });
         for (const c of u.changes) debug("objective", c);
+        checkpoint();
         return note;
       });
   }
@@ -683,6 +675,20 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     throw err;
   });
 
+  // The call so far, saved after every turn and note: one write at a time, the latest state wins.
+  let lastExtraction = null;
+  let saving = null;
+  let saveAgain = false;
+  function checkpoint() {
+    if (!memory?.checkpoint || ended) return;
+    if (saving) { saveAgain = true; return; }
+    saving = memory.checkpoint({ turns: turns.slice(), extraction: lastExtraction, extractionTurns: noteCovers, lang })
+      .catch(err => fail("checkpoint", err))
+      .finally(() => { saving = null; if (saveAgain) { saveAgain = false; checkpoint(); } });
+  }
+
+  // The call is over: no more model calls here. Its last state goes to onEnd; the
+  // after-call job does the final note and memory (on any instance, retried if need be).
   function finalize(reason) {
     if (finalized) return finalized;
     ended = true;
@@ -692,42 +698,13 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     clearTimeout(falseStartTimer);
     current?.abort.abort();
     vad.reset();
+    meter.phone(Date.now() - call.startedAt);
+    debug("cost", { final: true, totals: meter.totals() });
     finalized = (async () => {
-      await extracting;
-      const spoke = turns.some(t => t.role === "user" && !locales().unclear.test(t.text));
-      if (spoke) await refreshNote();
-      let saved = null;
-      if (memory && agenda.worthSaving(note)) {
-        saved = await memory.saveNote({ ...note, lang, call_id: call.id, from: call.from, ended_reason: reason, transcript: turns });
-        if (saved) { log("saved note", saved.id); debug("saved", { id: saved.id }); }
-      }
-      await memory?.endCall({ turns, reason, lang, consolidate: spoke, note, noteId: saved?.id ?? null });
-      if (spoke && memory && memory.consolidates !== false) await consolidate(saved?.id);
-    })()
-      .catch(err => fail("finalize", err))
-      .finally(() => {
-        meter.phone(Date.now() - call.startedAt);
-        debug("cost", { final: true, totals: meter.totals() });
-        onEnd(reason);
-      });
+      await saving;
+      await onEnd(reason, { turns: turns.slice(), extraction: lastExtraction, extractionTurns: noteCovers, lang, usd: meter.totals().usd });
+    })().catch(err => fail("finalize", err));
     return finalized;
-  }
-
-  // After the call: fold it into long-term memory (customers, to-dos, summaries).
-  async function consolidate(noteId) {
-    const job = { turns, note, callId: call.id, noteId, lang, date: new Date().toISOString().slice(0, 10) };
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const { result, changed } = await consolidateCall({ endpoint, model: slowModel, skill, memory, ...job, onUsage: u => record("memory", u) });
-        log(`memory: ${result.call_type}, +${changed.added.length} to-dos, ${changed.completed.length} done`);
-        debug("memory", { callType: result.call_type, summary: result.call_summary, customer: changed.customer, added: changed.added, completed: changed.completed, updated: changed.updated });
-        return;
-      } catch (err) {
-        if (attempt === 0) { await sleep(1500); continue; }
-        await memory.consolidationFailed(job, err); // retried by the server later, so nothing from the call is lost
-        fail("memory", new Error(`${err.message} (queued for retry)`));
-      }
-    }
   }
 
   // ---------- calls the agent made ----------

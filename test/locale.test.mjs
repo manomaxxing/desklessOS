@@ -37,7 +37,6 @@ test("voices: the pack's, overridable per language by env", () => {
   assert.equal(shipped.voice("de", "fish", { FISH_VOICE_DE: "custom" }), "custom");
   assert.equal(shipped.voice("de", "fish", { FISH_VOICE: "old-deploy" }), "old-deploy", "FISH_VOICE still sets the default language's voice");
   assert.equal(shipped.voice("en", "fish", { FISH_VOICE: "old-deploy" }), shipped.get("en").voices.fish, "but not the others'");
-  assert.equal(shipped.voice("en", "geminiTts", {}), "Aoede");
 });
 
 test("a new language is a new pack: the test-only 'xx' works without code changes", () => {

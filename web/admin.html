@@ -102,6 +102,8 @@
     <div id="people"><div class="empty">…</div></div>
     <h2 id="jobsTitle" style="display:none">Calls we make</h2>
     <div id="jobs"></div>
+    <h2 id="queueTitle" style="display:none">Background work that needs a look</h2>
+    <div id="queue"></div>
   </section>
 </main>
 <script>
@@ -283,6 +285,17 @@ function renderJobs(jobs) {
   </div>`).join("");
 }
 
+// Jobs that keep failing (retrying, or given up): what after a call or a notification didn't go through.
+function renderQueue(queue) {
+  const trouble = queue.filter(j => j.status === "dead" || (j.status !== "done" && j.attempts > 1));
+  $("queueTitle").style.display = trouble.length ? "" : "none";
+  $("queue").innerHTML = trouble.map(j => `<div class="card">
+    <div class="title">${esc(j.kind)} <span class="chip ${j.status === "dead" ? "expired" : "approved"}">${j.status === "dead" ? "given up" : "retrying"}</span></div>
+    <div class="muted small">${esc(j.key)} · try ${j.attempts} of ${j.max_attempts}${j.status !== "dead" ? ` · next ${esc(new Date(j.run_at).toLocaleString())}` : ""}</div>
+    ${j.last_error ? `<div class="log">${esc(j.last_error)}</div>` : ""}
+  </div>`).join("");
+}
+
 async function refresh(people = false) {
   const data = await api("/api/requests");
   requests = data.requests;
@@ -291,7 +304,7 @@ async function refresh(people = false) {
     renderPeople(u.users, u.outbound);
     $("people").dataset.loaded = "1";
   }
-  api("/api/jobs").then(j => renderJobs(j.jobs)).catch(() => {});
+  api("/api/jobs").then(j => { renderJobs(j.jobs); renderQueue(j.queue || []); }).catch(() => {});
   // Don't re-render under someone typing into a card.
   if (document.activeElement?.matches?.("input[data-req], input[id^=answer-]")) return;
   render();

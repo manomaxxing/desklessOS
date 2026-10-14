@@ -1,11 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { defineTool, createToolRunner, hashValue } from "../src/tools/registry.mjs";
-import { callTools, orderExecute } from "../src/tools/index.mjs";
-import { createMemory } from "../src/store/memory.mjs";
+import { callTools } from "../src/tools/index.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const ctx = (extra = {}) => ({ callId: "c1", confirmed: true, signal: new AbortController().signal, ...extra });
@@ -100,39 +96,22 @@ test("hashValue ignores key order", () => {
   assert.notEqual(hashValue({ a: 1 }), hashValue({ a: 2 }));
 });
 
-test("order_execute: the same order is the same write, however it's worded", () => {
-  const tool = orderExecute({ execute() {} });
-  const draft = { customer_name: "Peter Steinberger", customer_email: "Peter@Steinberger.com", needed_by: "2026-10-23", items: [{ catalog_id: "tile-gray-24", quantity: 400 }], summary: "first wording" };
-  assert.equal(hashValue(tool.key(draft)), hashValue(tool.key({ ...draft, summary: "other wording", customer_email: "peter@steinberger.com" })));
-  assert.notEqual(hashValue(tool.key(draft)), hashValue(tool.key({ ...draft, needed_by: "2026-10-22" })));
-  assert.equal(tool.requiresConfirm, true);
-  assert.equal(tool.effect, "write");
-});
-
-test("callTools: what each engine gets", () => {
+test("callTools: only what the call's templates allow", () => {
   const memory = { hidden: 0, search: async () => [] };
-  assert.deepEqual(callTools({ engine: "cascade", office: { execute() {} }, memory }).map(t => t.name), ["order_execute", "memory_search"]);
-  assert.deepEqual(callTools({ engine: "live", memory }).map(t => t.name), ["memory_search", "end_call"]);
-  assert.deepEqual(callTools({ engine: "cascade", office: { execute() {} }, memory, allow: ["memory_search"] }).map(t => t.name), ["memory_search"], "only what the call's templates allow");
+  const extra = [defineTool({ name: "request_create", description: "d", effect: "write", run: () => ({}) })];
+  assert.deepEqual(callTools({ memory, extra }).map(t => t.name), ["request_create", "memory_search"]);
+  assert.deepEqual(callTools({ memory, extra, allow: ["memory_search"] }).map(t => t.name), ["memory_search"]);
 });
 
-test("memory_search: offered only when the prompt can't show everyone; finds by sound-alike name", async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "tools-mem-"));
-  try {
-    const store = createMemory(dir);
-    // the call's memory scope, as the JSON backend builds it
-    const scope = () => ({ hidden: store.hidden({ notes: [] }), search: async q => store.search(q, { notes: [] }) });
-    const runner = () => createToolRunner({ tools: callTools({ engine: "cascade", memory: scope() }) });
-    store.upsertCustomer({ name: "Familie Kowalski", place: "Radolfzell", summary: "Bad im OG, 12 m² Feinsteinzeug 60x60 anthrazit." }, { date: "2026-01-05" });
-    assert.deepEqual(runner().declarations(), [], "everyone fits in the prompt");
-    for (let i = 0; i < 25; i++) store.upsertCustomer({ name: `Kunde ${i}`, place: "Konstanz", summary: `Job ${i}` }, { date: `2026-09-${String(i + 1).padStart(2, "0")}` });
-    assert.equal(store.hidden({ notes: [] }), 1);
-    assert.deepEqual(runner().declarations().map(d => d.name), ["memory_search"]);
-    const found = await runner().run({ name: "memory_search", args: { query: "Kowalsky in Radolfzell" } }, ctx());
-    assert.equal(found.status, "ok");
-    assert.equal(found.result.results[0].name, "Familie Kowalski");
-    assert.match(found.result.results[0].summary, /anthrazit/);
-    assert.equal(store.search("anthrazit", { notes: [] })[0].name, "Familie Kowalski", "other words are found in what we know");
-    assert.deepEqual(store.search("und die", { notes: [] }), [], "stopwords alone find nothing");
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+test("memory_search: offered only when the prompt can't show everyone; passes his words on", async () => {
+  const queries = [];
+  const scope = hidden => ({ hidden, search: async q => { queries.push(q); return [{ name: "Familie Kowalski", summary: "Bad im OG, anthrazit." }]; } });
+  const runner = hidden => createToolRunner({ tools: callTools({ memory: scope(hidden) }) });
+  assert.deepEqual(runner(0).declarations(), [], "everyone fits in the prompt");
+  assert.deepEqual(runner(1).declarations().map(d => d.name), ["memory_search"]);
+  const found = await runner(1).run({ name: "memory_search", args: { query: "Kowalsky in Radolfzell" } }, ctx());
+  assert.equal(found.status, "ok");
+  assert.deepEqual(queries, ["Kowalsky in Radolfzell"]);
+  assert.equal(found.result.results[0].name, "Familie Kowalski");
+  assert.equal(found.summary, "found Familie Kowalski");
 });
