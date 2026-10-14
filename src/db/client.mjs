@@ -6,10 +6,19 @@
 // db.query(text, params) → rows; db.tx(async q => …) runs one transaction, q has the same query().
 // db.listen(channel, fn) gets NOTIFYs (Postgres only: one extra connection; through Supabase's
 // session pooler or a direct connection, not the transaction pooler).
-// Every connection runs with search_path public, extensions (Supabase keeps
-// extensions such as vector and pg_trgm in their own schema).
+// Every connection runs with search_path <DB_SCHEMA>, extensions: the app's tables live in
+// DB_SCHEMA (default public; "deskless" when it shares a Supabase project with another app),
+// and Supabase keeps extensions such as vector and pg_trgm in their own schema.
 
-export async function openDb(url = process.env.DATABASE_URL) {
+// The app passes json/jsonb values already encoded (JSON.stringify), which PGlite takes as is.
+// postgres.js would JSON.stringify them again and store a quoted string, so its json
+// serializer lets strings through.
+export const pgTypes = {
+  json: { to: 114, from: [114, 3802], serialize: x => (typeof x === "string" ? x : JSON.stringify(x)), parse: x => JSON.parse(x) },
+};
+
+export async function openDb(url = process.env.DATABASE_URL, schema = process.env.DB_SCHEMA || "public") {
+  if (!/^[a-z_][a-z0-9_]*$/.test(schema)) throw new Error(`DB_SCHEMA=${schema}: a plain lowercase name`);
   if (!url) throw new Error("no DATABASE_URL (postgres://… or pglite:memory | pglite:<dir>)");
   if (url.startsWith("pglite:")) return openPglite(url.slice("pglite:".length));
   const { default: postgres } = await import("postgres");
@@ -17,7 +26,8 @@ export async function openDb(url = process.env.DATABASE_URL) {
     max: Number(process.env.DB_POOL || 5),
     idle_timeout: 30,
     prepare: !/pooler\.supabase\.com:6543/.test(url), // the transaction pooler can't keep prepared statements
-    connection: { search_path: "public, extensions", application_name: "desklessos" },
+    connection: { search_path: `${schema}, extensions`, application_name: "desklessos" },
+    types: pgTypes,
     onnotice: () => {},
   });
   const wrap = q => ({ query: (text, params = []) => q.unsafe(text, params) });

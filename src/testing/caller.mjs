@@ -31,7 +31,7 @@ export async function speakLine(fish, text) {
  * debug event as it happens (dev mode only; signed calls get no debug frames).
  */
 export async function runCall({
-  url = "ws://localhost:8787/dial", lang = locales().defaultId, says = [], utterances = null, config = {}, signed = false,
+  url = "ws://localhost:8787/dial", lang = locales().defaultId, says = [], utterances = null, config = {}, signed = false, token = "",
   voice = null, from = null, to = "+10000000000", language = null, onEvent = () => {}, onLine = () => {},
   callId: givenId = null, direction = "inbound", userId = null, speakFirst = false,
 }) {
@@ -43,7 +43,7 @@ export async function runCall({
   const lines = utterances ?? [];
   if (!utterances) for (const text of says) lines.push(await speakLine(fish, text));
 
-  const target = `${url.replace(/\/$/, "")}/${callId}${signed ? "" : "?dev=1"}`;
+  const target = `${url.replace(/\/$/, "")}/${callId}${signed ? "" : `?dev=1${token ? `&token=${encodeURIComponent(token)}` : ""}`}`;
   const headers = {};
   if (signed) {
     const secret = process.env.DIAL_SIGNING_SECRET;

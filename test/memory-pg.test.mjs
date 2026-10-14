@@ -242,3 +242,10 @@ test("the API shapes the pages read: memory, notes, research, the call log", asy
   assert.deepEqual(detail.events, [{ event: "heard" }]);
   assert.equal(await mem.getCall("nope"), null);
 });
+
+test("the Postgres driver stores already-encoded JSON as JSON, not as a quoted string", async () => {
+  const { pgTypes } = await import("../src/db/client.mjs");
+  const { serialize } = pgTypes.json;
+  assert.equal(serialize('[{"role":"user"}]'), '[{"role":"user"}]', "a JSON string goes through unchanged");
+  assert.equal(serialize([{ role: "user" }]), '[{"role":"user"}]', "an object is encoded once");
+});

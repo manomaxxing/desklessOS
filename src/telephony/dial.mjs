@@ -17,7 +17,8 @@ export function verifyDialSignature(header, callId, secret, now = Date.now()) {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-export function dialAdapter({ host, wss, secret = "", devAllowed = () => true, monitor = null, log = () => {} }) {
+/** `requireSignature`: a public server (Cloud Run) refuses real Dial calls when it has no DIAL_SIGNING_SECRET. */
+export function dialAdapter({ host, wss, secret = "", requireSignature = false, devAllowed = () => true, monitor = null, log = () => {} }) {
   return {
     id: "dial",
     upgrade(req, socket, head, url) {
@@ -34,6 +35,11 @@ export function dialAdapter({ host, wss, secret = "", devAllowed = () => true, m
           socket.destroy();
           return true;
         }
+      } else if (requireSignature) {
+        log("refused a Dial connection: no DIAL_SIGNING_SECRET on this server");
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return true;
       } else {
         log("warning: accepting unsigned connection (set DIAL_SIGNING_SECRET for real calls)");
       }

@@ -3,13 +3,19 @@
 --   people and memory   orgs, users, contacts, calls (+ call_contacts), notes, facts, tasks
 --   what the agent brings  objectives, research_state, requests (Max's), outbound_calls
 --   plumbing            jobs (the queue for all background work), voice_clips, tool_runs
--- Row level security is on with no policies: only the server (service role, which
--- bypasses RLS) reads and writes; Supabase's public API sees nothing.
+-- Row level security is on with no policies: only the server's own login (it owns the
+-- tables, so RLS doesn't apply to it) reads and writes; Supabase's public API sees nothing.
+-- The tables go into the first schema on the search path (DB_SCHEMA, src/db/client.mjs).
 
-create schema if not exists extensions;
-create extension if not exists vector with schema extensions;
-create extension if not exists pg_trgm with schema extensions;
-create extension if not exists unaccent with schema extensions;
+-- The extensions, unless they're there already: on a shared Supabase project an admin
+-- enables them once, and the app's own login can't create extensions.
+do $$
+begin
+  if not exists (select 1 from pg_namespace where nspname = 'extensions') then create schema extensions; end if;
+  if not exists (select 1 from pg_extension where extname = 'vector') then create extension vector with schema extensions; end if;
+  if not exists (select 1 from pg_extension where extname = 'pg_trgm') then create extension pg_trgm with schema extensions; end if;
+  if not exists (select 1 from pg_extension where extname = 'unaccent') then create extension unaccent with schema extensions; end if;
+end $$;
 
 -- Lowercase without accents, for name matching ("Müller" = "muller"). unaccent()
 -- isn't immutable on its own, so indexes go through this wrapper.

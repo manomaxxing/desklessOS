@@ -70,7 +70,7 @@ export async function createApp(env = process.env) {
   });
 
   // ---------- calls ----------
-  // Pre-recorded lines, from Postgres (synthesised once). Calls wait for them; the server listens at once.
+  // Pre-recorded lines, from Postgres (synthesised once), loaded before the server listens.
   const clips = loadVoiceClips({ fish, store: memory.voiceClips, personas: [skill.PERSONA, ...(adminSkill ? [adminSkill.PERSONA] : [])], log });
   clips.catch(err => log("voice clips error", err.message));
   // Smart Turn v3 (TURN_DETECTOR=smart-turn): hears in his voice whether he's done.
@@ -83,7 +83,7 @@ export async function createApp(env = process.env) {
   const onStatus = status => scheduler?.callStatus(status).catch(err => log("call status error", err.message));
   const twilio = twilioAdapter({ host, wss, bus, env, onStatus, monitor, log });
   const fake = cfg.outbound === "fake" ? fakeAdapter({ wss, devAllowed, onStatus, monitor, log }) : null;
-  const adapters = [dialAdapter({ host, wss, secret: cfg.dialSecret, devAllowed, monitor, log }), twilio, fake].filter(Boolean);
+  const adapters = [dialAdapter({ host, wss, secret: cfg.dialSecret, requireSignature: cfg.cloudRun, devAllowed, monitor, log }), twilio, fake].filter(Boolean);
 
   // Outbound calls: OUTBOUND=twilio (needs the Twilio settings), fake for tests, or off.
   const carrier = cfg.outbound === "fake" ? fake : cfg.outbound === "twilio" ? twilio : null;
@@ -115,6 +115,9 @@ export async function createApp(env = process.env) {
       warmTimer = setInterval(warmGemini, 5 * 60 * 1000);
       warmTimer.unref();
       stopBackground = background.start();
+      // The clips before listening: startup is when Cloud Run gives full CPU (after the first
+      // boot they're one query), and the first call doesn't wait for them.
+      await clips.catch(() => {});
       await new Promise(resolve => server.listen(cfg.port, resolve));
       log(`DesklessOS on :${cfg.port} (gemini: ${endpoint.door} ${cfg.model}, fish: ${fish.model}, db: ${db.kind}, background: ${cfg.background}, outbound: ${carrier?.id ?? "off"}, dial signature: ${cfg.dialSecret ? "required" : "OFF"})`);
     },

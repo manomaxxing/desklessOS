@@ -2,6 +2,7 @@
 //
 //   npm run fake-dial -- --say "Ich komm grad von der Frau Müller in Haching…" --say "Passt."
 //   npm run fake-dial -- --url wss://<host>/dial --signed --say "…"     (deployed, signed like Dial)
+//   npm run fake-dial -- --url wss://<host>/dial --token <DEV_TOKEN> --say "…"   (deployed, as the test phone)
 //   npm run fake-dial -- --wav caller.wav                                (your own 16 kHz recording)
 //   npm run fake-dial -- --say "Ich komm grad von … [pause 3] … und die will ein neues Bad."   (a thinking pause mid-line)
 //   npm run fake-dial -- --answer +4915100000000 --say "Hallo?" --say "Ja, klar."   (be called: OUTBOUND=fake)
@@ -29,7 +30,7 @@ const { agentAudio = Buffer.alloc(0) } = answer
   ? await answerCall({ base: opt("--url", "ws://localhost:8787/dial").replace(/\/dial\/?$/, ""), number: answer, token: opt("--token", ""), reject: opt("--reject"), lang, says, utterances, config, voice: opt("--voice"), onEvent, beforeRing: async () => console.log(`waiting for a call to ${answer}…`) })
   : await runCall({
     url: opt("--url", "ws://localhost:8787/dial"), lang, says, utterances, config,
-    signed: args.includes("--signed"), voice: opt("--voice"), from: opt("--from"), onEvent,
+    signed: args.includes("--signed"), token: opt("--token", ""), voice: opt("--voice"), from: opt("--from"), onEvent,
   });
 mkdirSync("data", { recursive: true });
 writeFileSync("data/fake-dial-agent.wav", wav(agentAudio));

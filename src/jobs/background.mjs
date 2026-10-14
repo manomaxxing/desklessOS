@@ -10,6 +10,8 @@
 //           a request is open, so all background work happens inside one; the scheduler's
 //           minute tick also keeps an instance warm and the database awake.
 
+const KICK_TIMEOUT_MS = 5 * 60 * 1000; // a job slowed by Gemini retries can take minutes; same as the job's lease
+
 export function createBackground({ queue, handlers, memory, scheduler = () => null, mode = "inline", publicUrl = "", token = "", intervalMs = 30000, budgetMs = 45000, log = () => {} }) {
   let running = null;
   let lastPrune = 0;
@@ -39,7 +41,8 @@ export function createBackground({ queue, handlers, memory, scheduler = () => nu
     kick() {
       if (mode !== "http") { if (!stopped) tick().catch(err => log("background error", err.message)); return; }
       if (!publicUrl) return; // the scheduler's next tick picks it up
-      fetch(`${publicUrl}/internal/tick`, { method: "POST", headers: { "x-tick-token": token }, signal: AbortSignal.timeout(budgetMs + 15000) })
+      // Held open until the tick is done: on Cloud Run the job only has CPU while this request is open.
+      fetch(`${publicUrl}/internal/tick`, { method: "POST", headers: { "x-tick-token": token }, signal: AbortSignal.timeout(KICK_TIMEOUT_MS) })
         .then(res => { if (!res.ok) log(`kick: tick answered ${res.status}`); })
         .catch(err => log("kick failed (the scheduler's next tick picks it up):", err.message));
     },

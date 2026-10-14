@@ -212,8 +212,9 @@ flows branch over days, per `docs/v2-architecture.md`).
   | outbound and jobs | SKIP LOCKED |
   | Dial reconnects | best effort (same instance or the call ends, saved) |
 - **Settings:** `--concurrency 20` calls per instance until a load test says otherwise.
-  `--max-instances 3` caps cost. Each instance holds a database pool (`DB_POOL`, 5) plus
-  one LISTEN connection; keep instances × 6 under Supabase's pooler size.
+  `--max-instances 3` caps cost. Each instance holds a database pool (`DB_POOL`, 4 in
+  production) plus one LISTEN connection; instances × 5 stays under the `deskless` login's
+  limit of 16 connections.
 - **Bottlenecks, in the order they'll bite:**
   1. Gemini quota (ask for more; the hedge already spreads over two models).
   2. Per-minute cost (cheaper carrier, SIP; see below).
@@ -231,7 +232,7 @@ flows branch over days, per `docs/v2-architecture.md`).
 |---|---|---|
 | Gemini slow or erroring | a turn stalls | hedge to the backup model after 2.2 s; error line ("oops") after 12 s; jobs retry 429s |
 | Gemini quota (429) after the call | after-call job fails | queue retries with backoff; dead after 5, visible |
-| Fish down | the agent's own answers can't be spoken | the pre-recorded "sorry" line plays instead; logged. No second voice since Gemini TTS was cut (§11.8) |
+| Fish down | the agent's own answers can't be spoken | the pre-recorded "sorry" line plays instead; logged. No second voice since Gemini TTS was cut (§11.10) |
 | Postgres down at call start | no memory | the call goes on without it, nothing is saved; logged as error |
 | Postgres down mid-call | checkpoints fail | logged; the end write retries nothing → the call's after-call is lost (gap, §11) |
 | Instance dies mid-call | the call drops | transcript safe up to the last turn; the sweep ends it after 30 min; the after-call job runs |
@@ -248,8 +249,8 @@ flows branch over days, per `docs/v2-architecture.md`).
 - **Service account:** its own, with `roles/aiplatform.user`. Vertex tokens come from the
   metadata server, so there are no keys.
 - **Secrets:** one Secret Manager secret holding `deploy/env.production`, mounted at
-  `/secrets/env`. Node reads it with `--env-file-if-exists`. Old versions are disabled to
-  stay within the free versions.
+  `/secrets/env`. Node reads it with `--env-file-if-exists`. Old versions are destroyed, to stay
+  within the free versions (disabled ones would still count).
 - **The service:** request-based billing, gen2, 1 vCPU / 1 GiB, 0–3 instances, 60-minute
   request timeout (a call is one WebSocket), startup CPU boost.
 - **Cloud Scheduler:** one job that POSTs `/internal/tick` every minute with the tick token.
@@ -265,8 +266,19 @@ keeps an instance warm most of the time.
 | Cloud Run | $0: calls ~15 h a month at 1 vCPU, plus ticks (~43,000 a month at ~0.3 s); the request-based free tier is 180,000 vCPU-s and 2M requests |
 | Scheduler | 1 job, inside the free 3 |
 | Secret Manager | 1 secret, 1 active version |
-| Supabase | free plan (500 MB) |
+| Supabase | free plan (500 MB), shared with the Mano App project (below) |
 | Gemini, Fish, Twilio | per minute, as before; Vertex on the Google for Startups credits |
+
+**The database** lives in the Mano App Supabase project (Frankfurt, eu-central-1), because
+the free plan allows two active projects per owner and both are in use. It is kept apart
+from Mano App:
+- **its own schema and login:** `deskless`, which owns only that schema and can't see Mano
+  App's tables (`DB_SCHEMA=deskless`);
+- **limits:** 16 connections and 30-second statements, so it can't starve Mano App.
+
+The extensions it needs (`vector`, `pg_trgm`, `unaccent`) were enabled once by an admin.
+LISTEN/NOTIFY works through the session pooler (tested). Moving it to a project of its own
+is a `pg_dump` of the schema.
 
 **Cutover from Fly:**
 1. Copy the volume: `fly ssh console -C "tar czf /tmp/data.tgz -C /data ."`, then
@@ -280,26 +292,32 @@ keeps an instance warm most of the time.
 
 ## 11. Open points, ranked
 
-1. **Load test:** calls per instance before raising concurrency (CPU per call: VAD,
+1. **Vertex quota:** on the first live call `gemini-3.5-flash` answered 429 (resource
+   exhausted) and stalled; the backup model carried two of three turns. Ask for a higher
+   quota in `mano-games`, or make 2.5 Flash the main model until then.
+2. **Load test:** calls per instance before raising concurrency (CPU per call: VAD,
    resampling, Smart Turn when on).
-2. **A deploy during a live call:** test what Cloud Run does with an open WebSocket on the
+3. **A deploy during a live call:** test what Cloud Run does with an open WebSocket on the
    old revision. Until then, deploy outside call hours.
-3. **Data residency:**
+4. **Data residency:**
    - Vertex runs at `GOOGLE_CLOUD_LOCATION=global`; check whether `gemini-3.5-flash` is
      served from an EU region and pin it.
    - Fish Audio's processing location is unknown.
    - Both belong in the GDPR record.
-4. **Retention:** transcripts and timelines are kept forever. Set a period (e.g. 90 days for
+5. **Retention:** transcripts and timelines are kept forever. Set a period (e.g. 90 days for
    timelines) and a per-user delete.
-5. **LISTEN through Supabase's session pooler:** check it on the first deploy (`bus: LISTEN
-   failed` in the log). Without it, one instance still works fully; several need a direct
-   connection for the bus.
-6. **Alerting:** a log-based alert on `severity>=ERROR` and on dead jobs (Cloud Monitoring, free tier).
-7. **Postgres down mid-call:** the call's end write is lost. Keep the final state in the
+6. **Own Supabase project:** the database shares the Mano App project (the free plan allows
+   two active projects per owner). Move it out (`pg_dump --schema=deskless`) when either app
+   needs the room, or when the org goes to Pro.
+7. **Tests against real Postgres:** unit and regression tests run on PGlite. The first deploy
+   found a difference: postgres.js JSON-encoded jsonb values a second time (fixed in
+   `src/db/client.mjs`, with a test). Add a test run against a throwaway Supabase schema.
+8. **Alerting:** a log-based alert on `severity>=ERROR` and on dead jobs (Cloud Monitoring, free tier).
+9. **Postgres down mid-call:** the call's end write is lost. Keep the final state in the
    job payload, or retry the end write.
-8. **Fish has no fallback voice** since Gemini TTS was cut. Accepted for now; a second Fish
+10. **Fish has no fallback voice** since Gemini TTS was cut. Accepted for now; a second Fish
    model or voice is the cheap fix.
-9. Login lockout counts per instance (in memory); move it to Postgres if more than one
+11. Login lockout counts per instance (in memory); move it to Postgres if more than one
    instance serves the admin page.
 
 ## 12. Audit: what changed and why
