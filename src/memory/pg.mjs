@@ -67,7 +67,8 @@ const callOut = c => c && ({
   id: c.id, userId: c.user_id, direction: c.direction, source: c.source, from: c.from_e164, to: c.to_e164, lang: c.lang,
   startedAt: new Date(c.started_at).getTime(), endedAt: c.ended_at ? new Date(c.ended_at).getTime() : null, endedReason: c.ended_reason,
   summary: c.summary, callType: c.call_type, mode: c.meta?.mode ?? null, usd: c.meta?.usd ?? null, turns: c.turns ?? null, savedNoteId: c.note_id ?? null,
-  ...(c.timeline ? { events: c.timeline, transcript: c.transcript, note: c.note ?? c.extraction ?? null, cost: c.meta?.cost ?? null } : {}),
+  userName: c.user_name ?? null, title: c.recap?.title ?? c.recap_title ?? null,
+  ...(c.timeline ? { events: c.timeline, transcript: c.transcript, note: c.note ?? c.extraction ?? null, cost: c.meta?.cost ?? null, recap: c.recap ?? null } : {}),
 });
 
 /** `queue` (src/jobs/queue.mjs): the end of a call enqueues its after-call job in the same transaction. */
@@ -96,6 +97,13 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
     return rows.length === 1 ? rows[0] : null;
   }
   const defaultUser = () => resolveUser(null);
+  /** Who's calling. No caller ID at all (the browser test phone, scripted calls: both need
+   *  DEV_TOKEN) is DEFAULT_USER_ID, else the first user, however many there are. */
+  async function callerUser(from) {
+    if (e164(from) || isUuid(process.env.DEFAULT_USER_ID)) return resolveUser(from);
+    const [first] = await db.query("select * from users order by created_at limit 1");
+    return first ?? null;
+  }
 
   // ---------- the pilot's research ----------
   async function loadResearch(q, user) {
@@ -379,7 +387,7 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
     async openCall({ callId, from = null, to = null, userId = null, direction = "inbound", source = "", at = new Date() }) {
       const started = performance.now();
       // An outbound call knows whom it called; an inbound one goes by caller ID.
-      const user = isUuid(userId) ? (await db.query("select * from users where id = $1", [userId]))[0] ?? null : await resolveUser(from);
+      const user = isUuid(userId) ? (await db.query("select * from users where id = $1", [userId]))[0] ?? null : await callerUser(from);
       if (!user) return emptyScope();
       await db.query("insert into calls (id, org_id, user_id, direction, source, from_e164, to_e164, started_at) values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (id) do nothing",
         [callId, user.org_id, user.id, direction, source, e164(from), e164(to), at.toISOString()]);
@@ -429,13 +437,14 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       if (!user) return null;
       const research = await loadResearch(db, user);
       return {
-        call: { id: c.id, direction: c.direction, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at },
+        call: { id: c.id, direction: c.direction, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at, recap: c.recap ?? null },
         user: userOut(user),
         objectives: await objectives.byIds(c.objective_ids ?? []),
         discovery: research?.discovery ?? null,
         scope: callScope(user, callId),
         saveExtraction: (extraction, extractionTurns) => db.query("update calls set extraction = $2, extraction_turns = $3 where id = $1", [callId, json(extraction), extractionTurns]),
         addEvents: events => (events.length ? db.query("update calls set timeline = timeline || $2::jsonb where id = $1", [callId, json(events.map(e => ({ t: Date.now(), ...e })))]) : null),
+        saveRecap: recap => db.query("update calls set recap = $2 where id = $1", [callId, json(recap)]),
         addCost: usd => db.query("update calls set meta = jsonb_set(meta, '{usd}', to_jsonb(coalesce((meta->>'usd')::float8, 0) + $2)) where id = $1", [callId, usd]),
         done: () => db.query("update calls set after_call_at = now() where id = $1", [callId]),
       };
@@ -462,11 +471,17 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
     // The monitor's call log.
     async recentCalls({ limit = 100 } = {}) {
       return (await db.query(`select c.id, c.user_id, c.direction, c.source, c.from_e164, c.to_e164, c.lang, c.started_at, c.ended_at, c.ended_reason, c.summary, c.call_type, c.meta,
-          ${USER_TURNS} turns, n.id note_id from calls c left join notes n on n.call_id = c.id order by c.started_at desc limit $1`, [limit])).map(callOut);
+          c.recap->>'title' recap_title, u.name user_name, ${USER_TURNS} turns, n.id note_id
+          from calls c left join notes n on n.call_id = c.id left join users u on u.id = c.user_id order by c.started_at desc limit $1`, [limit])).map(callOut);
     },
     async getCall(id) {
-      const [c] = await db.query(`select c.*, ${USER_TURNS} turns, n.id note_id, n.data note from calls c left join notes n on n.call_id = c.id where c.id = $1`, [id]);
+      const [c] = await db.query(`select c.*, ${USER_TURNS} turns, n.id note_id, n.data note, u.name user_name from calls c left join notes n on n.call_id = c.id left join users u on u.id = c.user_id where c.id = $1`, [id]);
       return callOut(c) ?? null;
+    },
+    /** A summary written on demand (the admin page), for a call that ended without one. */
+    async saveRecap(id, recap) {
+      const [c] = await db.query("update calls set recap = $2 where id = $1 and ended_at is not null returning id", [id, json(recap)]);
+      return Boolean(c);
     },
 
     // Pre-recorded lines (src/calls/voice.mjs).

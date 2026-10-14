@@ -2,7 +2,7 @@
 // else reads the server's settings or wires parts together.
 //
 //   phone lines ─► telephony adapters ─► call host ─► call (session + memory scope)
-//                  (Dial, Twilio, test)               │ saved as it goes, ended in one
+//                  (Dial, Twilio, WhatsApp, test)     │ saved as it goes, ended in one
 //                                                     ▼ transaction with its job
 //   Postgres ◄── memory, requests, outbound calls, job queue, voice clips, bus
 //      ▲
@@ -25,6 +25,7 @@ import { createQueue } from "./jobs/queue.mjs";
 import { createBackground } from "./jobs/background.mjs";
 import { createScheduler } from "./jobs/scheduler.mjs";
 import { createAuth } from "./admin/auth.mjs";
+import { createTeam } from "./admin/team.mjs";
 import { createRequests } from "./admin/requests.mjs";
 import { createNotifier } from "./notify.mjs";
 import { createMonitor } from "./monitor.mjs";
@@ -33,10 +34,12 @@ import { loadSkillFromTemplates } from "./skills/from-templates.mjs";
 import { loadVoiceClips } from "./calls/voice.mjs";
 import { createCallStarter } from "./calls/start.mjs";
 import { createAfterCall } from "./calls/after-call.mjs";
+import { createRecapWriter } from "./calls/recap.mjs";
 import { createCallHost } from "./telephony/host.mjs";
 import { dialAdapter } from "./telephony/dial.mjs";
 import { twilioAdapter } from "./telephony/twilio.mjs";
 import { fakeAdapter } from "./telephony/fake.mjs";
+import { whatsappAdapter } from "./telephony/whatsapp.mjs";
 import { createApi } from "./http/api.mjs";
 
 const RECONNECT_GRACE_MS = 20000; // Dial re-dials for ~15 s after a drop
@@ -58,8 +61,9 @@ export async function createApp(env = process.env) {
   const bus = await createBus({ db, log });
   const monitor = createMonitor({ bus, store: memory, record: cfg.recordCalls, audioRoot: `${cfg.dataDir}/calls` });
 
-  // ---------- admin: login, requests, notifications ----------
+  // ---------- admin: login (the owner's code, the team's own), requests, notifications ----------
   const auth = createAuth();
+  const team = createTeam({ db, auth });
   const notifier = createNotifier();
   let scheduler = null;
   const requests = createRequests({
@@ -83,21 +87,23 @@ export async function createApp(env = process.env) {
   const onStatus = status => scheduler?.callStatus(status).catch(err => log("call status error", err.message));
   const twilio = twilioAdapter({ host, wss, bus, env, onStatus, monitor, log });
   const fake = cfg.outbound === "fake" ? fakeAdapter({ wss, devAllowed, onStatus, monitor, log }) : null;
-  const adapters = [dialAdapter({ host, wss, secret: cfg.dialSecret, requireSignature: cfg.cloudRun, devAllowed, monitor, log }), twilio, fake].filter(Boolean);
+  const whatsapp = whatsappAdapter({ host, env, monitor, log });
+  const adapters = [dialAdapter({ host, wss, secret: cfg.dialSecret, requireSignature: cfg.cloudRun, devAllowed, monitor, log }), twilio, whatsapp, fake].filter(Boolean);
 
   // Outbound calls: OUTBOUND=twilio (needs the Twilio settings), fake for tests, or off.
   const carrier = cfg.outbound === "fake" ? fake : cfg.outbound === "twilio" ? twilio : null;
   if (carrier) scheduler = createScheduler({ memory, carrier, requests, log, monitor });
 
   // ---------- background work ----------
-  const afterCall = createAfterCall({ memory, skill, endpoint, model: cfg.model, requests, scheduler, monitor, log });
+  const writeRecap = createRecapWriter({ endpoint, model: cfg.model, agent: skill.persona.agentLabel });
+  const afterCall = createAfterCall({ memory, skill, endpoint, model: cfg.model, writeRecap, requests, scheduler, monitor, log });
   background = createBackground({
     queue, memory, scheduler: () => scheduler, mode: cfg.background, publicUrl: cfg.publicUrl, token: cfg.tickToken, intervalMs: cfg.tickMs, log,
     handlers: { after_call: afterCall, notify: payload => requests.sendNotification(payload) },
   });
 
   // ---------- HTTP ----------
-  const api = createApi({ cfg, skill, memory, queue, requests, auth, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, log });
+  const api = createApi({ cfg, skill, memory, queue, requests, auth, team, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap, log });
   const server = http.createServer((req, res) => {
     api.handle(req, res).catch(err => { log("http error", req.url, err.message); if (!res.headersSent) res.writeHead(500).end(); });
   });
@@ -119,7 +125,7 @@ export async function createApp(env = process.env) {
       // boot they're one query), and the first call doesn't wait for them.
       await clips.catch(() => {});
       await new Promise(resolve => server.listen(cfg.port, resolve));
-      log(`DesklessOS on :${cfg.port} (gemini: ${endpoint.door} ${cfg.model}, fish: ${fish.model}, db: ${db.kind}, background: ${cfg.background}, outbound: ${carrier?.id ?? "off"}, dial signature: ${cfg.dialSecret ? "required" : "OFF"})`);
+      log(`DesklessOS on :${cfg.port} (gemini: ${endpoint.door} ${cfg.model}, fish: ${fish.model}, db: ${db.kind}, background: ${cfg.background}, outbound: ${carrier?.id ?? "off"}, whatsapp: ${whatsapp ? "on" : "off"}, dial signature: ${cfg.dialSecret ? "required" : "OFF"})`);
     },
     /** SIGTERM (a deploy, a scale-down): no new connections; calls here end and are saved; their after-call jobs wait in the queue. */
     async stop(reason = "server_shutdown") {
@@ -127,6 +133,7 @@ export async function createApp(env = process.env) {
       clearInterval(warmTimer);
       server.close();
       await host.closeAll(reason);
+      whatsapp?.closeAll();
       await db.close().catch(() => {});
     },
   };

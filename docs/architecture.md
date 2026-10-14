@@ -59,6 +59,7 @@ flowchart LR
   subgraph carriers[Phone lines]
     TW[Twilio, DE number, IE1]
     DI[Dial, US number]
+    WA[WhatsApp, Meta Cloud API]
     BR[Browser test phone]
   end
   subgraph run[Cloud Run, europe-west1: 0..N stateless instances]
@@ -66,7 +67,13 @@ flowchart LR
     API[HTTP API + pages]
     BG[background tick]
   end
+  subgraph runwa[Cloud Run: desklessos-wa, CPU always on, 0..1 instance]
+    WAD[WhatsApp adapter, WebRTC] --> HO2[call host + session]
+  end
   TW & DI & BR -- WebSocket --> AD
+  WA -- webhooks --> WAD
+  WA <-- Opus over WebRTC, UDP --> WAD
+  HO2 --> PG
   TW -- webhooks --> API
   SE <--> GEM[Vertex AI Gemini]
   SE <--> FISH[Fish Audio]
@@ -80,16 +87,16 @@ flowchart LR
 | Component | Files | Responsibility |
 |---|---|---|
 | Composition root | `server.mjs`, `src/app.mjs`, `src/config.mjs` | builds every part once from validated config; start, drain on SIGTERM |
-| Telephony | `src/telephony/{dial,twilio,fake,host}.mjs` | carrier protocols → one frame protocol; signatures; calls on this instance |
+| Telephony | `src/telephony/{dial,twilio,whatsapp,fake,host}.mjs` (+ `webrtc-audio.mjs`) | carrier protocols → one frame protocol; signatures; calls on this instance |
 | Call wiring | `src/calls/start.mjs` | who's calling, the agenda, the engine, and the call's end |
 | Engines | `src/engine/session.mjs` (+ vad, reply, gemini, fish, audio); `src/engine/live-session.mjs` | the conversation. Gemini + Fish: our turn-taking, hedged Gemini stream, Fish, tools. Gemini Live (`ENGINE=live`): native audio in and out, falls back to Gemini + Fish. Both checkpoint the call and end it the same way |
 | Agenda | `src/agenda/*`, `personas/`, `templates/`, `locales/` | what a call is about: persona, capabilities, objectives, prompts, note schema |
 | Memory | `src/memory/*` | the data layer: context per call, search, the call row, after-call writes |
-| After-call | `src/calls/after-call.mjs` | final note, note saved, objectives, requests, outbound outcome, memory |
+| After-call | `src/calls/after-call.mjs`, `recap.mjs` | final note, note saved, objectives, requests, outbound outcome, memory, the call's summary |
 | Job queue | `src/jobs/queue.mjs` | all background work, at least once, retried, dead letters |
 | Background tick | `src/jobs/background.mjs` | lost calls, due jobs, outbound calls, embeddings |
 | Outbound | `src/jobs/scheduler.mjs`, `windows.mjs` | errands, guard (consent, window, cap, on a call), retries |
-| Admin | `src/admin/*`, `src/notify.mjs`, `web/admin.html` | login (code + TOTP), planner, cards, approval, notifications |
+| Admin | `src/admin/*`, `src/notify.mjs`, `web/admin.html` | the team's logins (`team.mjs`) and the owner's code + TOTP, calls (summary, transcript, Markdown), planner, cards, approval, notifications |
 | Bus | `src/bus.mjs` | messages between instances (Postgres NOTIFY) |
 | Monitor | `src/monitor.mjs`, `web/monitor.html` | live timelines (all instances), call log from Postgres |
 | HTTP API | `src/http/api.mjs` | one route table with an access level per route |
@@ -125,6 +132,17 @@ that takes seconds (the final extraction, the memory model) runs after the call,
 on whatever instance has CPU. On Cloud Run, CPU is only allocated while a request is open,
 so the job runs inside the tick request, never in the background of a closed one.
 
+**A WhatsApp call** (he calls the business number in WhatsApp): Meta's webhook brings the
+call with an SDP offer → we answer it (WebRTC, Opus) and send `pre_accept`, start the call
+(memory, agenda, greeting queued) and send `accept`; our audio flows once that returns 200.
+From there it is the same session and the same end as any call; `terminate` either way ends
+it. The audio is UDP between WhatsApp's media servers (ICE-lite, public addresses) and the
+instance, not an HTTP request, so request-based Cloud Run would take the CPU away mid-call.
+These calls therefore run on a second service from the same image (`desklessos-wa`): CPU
+always on, at most one instance (so a call's later webhooks reach the instance that holds its
+audio), none when idle. Calls Toni makes over WhatsApp are not built yet: they need his
+permission in WhatsApp and, from a US test number, may not be allowed at all.
+
 **A request from Max:** instruction → planner (Gemini, thinking) → plan and card, plus a
 confirm token (HMAC over request id, plan hash and expiry) → approve: an objective for the
 user → his next inbound call asks it after his own business, or an outbound errand calls
@@ -141,13 +159,13 @@ tries the question moves to his next inbound call and Max is told.
 ## 5. Data model
 
 All tables carry `org_id` (multi-tenant ready). Row level security is on with no policies:
-only the server's service role reads and writes. Schema: `src/db/migrations/001_schema.sql`.
+only the server's service role reads and writes. Schema: `src/db/migrations/` (`001_schema.sql`, then `002_team_and_recap.sql`).
 
 | Table | Holds | Notes |
 |---|---|---|
 | `orgs`, `users` | tenants and the people who call | `phone_e164` (caller ID → user), consent, call window, time zone |
 | `contacts` | his customers | trigram index on name + place (sound-alike search) |
-| `calls` | every call with a known caller | transcript and extraction saved per turn; timeline; `consolidated_at`, `after_call_at` guard the after-call steps; `calls_open` index for "on a call" and the lost-call sweep |
+| `calls` | every call with a known caller | transcript and extraction saved per turn; timeline; `recap` (the summary on the admin page); `consolidated_at`, `after_call_at` guard the after-call steps; `calls_open` index for "on a call" and the lost-call sweep |
 | `notes` | his note per call | unique per `call_id` (the after-call job may run twice); pgvector embedding |
 | `facts` | what we know, with provenance | never overwritten (`superseded_by`); research findings tagged `area:`/`hyp:`/`stance:` |
 | `tasks` | to-dos | open/done, due date, source call |
@@ -157,6 +175,7 @@ only the server's service role reads and writes. Schema: `src/db/migrations/001_
 | `outbound_calls` | outbound errands and their tries | only ever dials a `users` row |
 | `jobs` | the queue | `key` unique (idempotent enqueue), lease, backoff, `dead` |
 | `voice_clips` | pre-recorded lines | keyed by hash of model, voice and text |
+| `members` | who can log in to the admin page | email, role (owner/member), scrypt password hash, invite as a SHA-256 of its token, `session_version` |
 | `tool_runs` | audit trail of tools that changed something | |
 
 ## 6. API
@@ -165,14 +184,22 @@ One table in `src/http/api.mjs`; each route has an access level.
 
 | Access | Who | Routes |
 |---|---|---|
-| public | anyone | `/healthz`, `/api/health`, `/admin` (page), `/api/admin/login`, `/` (test phone page) |
-| signed | the carrier | `/twilio/voice`, `/twilio/status`, `/twilio/amd` (Twilio signature); WebSocket `/dial/<id>` (Dial signature) and `/twilio/stream` (our stream token) |
+| public | anyone | `/healthz`, `/api/health`, `/admin` (page), `/api/admin/login`, `/api/admin/logout`, `/api/team/invite-info`, `/api/team/accept` (the invite token is the key), `/` (test phone page) |
+| signed | the carrier | `/twilio/voice`, `/twilio/status`, `/twilio/amd` (Twilio signature); `/whatsapp/webhook` (Meta's `X-Hub-Signature-256`); WebSocket `/dial/<id>` (Dial signature) and `/twilio/stream` (our stream token) |
 | user | `DEV_TOKEN` or an admin session | `/monitor`, `/api/calls[/:id]`, `/api/memory`, `/api/notes`, `/api/discovery`, `/api/actions/:id`, `/api/config`, WebSocket `/monitor-ws`, test-phone calls |
-| admin | an admin session (code + TOTP) | `/api/users`, `/api/requests[...]`, `/api/objectives[...]`, `/api/jobs` |
+| admin | an admin session: a team member's, or the owner's code (+ TOTP) | `/api/users`, `/api/requests[...]`, `/api/objectives[...]`, `/api/jobs`, `/api/team`, `POST /api/calls/:id/recap` |
+| owner | an owner's session | `POST /api/team/invite`, `POST /api/team/:id/remove` |
 | tick | `X-Tick-Token` | `POST /internal/tick` |
 
 With neither `DEV_TOKEN` nor `ADMIN_CODE` set (a local run) everything is open; on Cloud
 Run the config refuses to start that way.
+
+An admin session is an HttpOnly, SameSite=Lax cookie (or `Authorization: Bearer` for
+scripts), signed with `SESSION_SECRET`. A team member's names their `members` row and its
+`session_version`; every request checks both (cached 30 s per instance), so removal or a new
+password ends it. POSTs on the cookie must be JSON, so no form on another site can post
+with it. Session tokens never go into URLs (the monitor link carries none); invite tokens
+travel after the `#`, so they don't reach a request log either.
 
 ## 7. Background work
 
@@ -248,6 +275,10 @@ flows branch over days, per `docs/v2-architecture.md`).
 
 `deploy/cloudrun.sh` (safe to re-run) sets up:
 
+- **WhatsApp service** (when `WHATSAPP_TOKEN` is set): `desklessos-wa` from the main
+  service's image, CPU always on, 0–1 instance; then `npm run whatsapp:setup -- <url>/whatsapp/webhook`
+  registers Meta's webhook and turns calling on for the number.
+
 - **Service account:** its own, with `roles/aiplatform.user`. Vertex tokens come from the
   metadata server, so there are no keys.
 - **Secrets:** one Secret Manager secret holding `deploy/env.production`, mounted at
@@ -266,10 +297,12 @@ keeps an instance warm most of the time.
 | Item | Cost |
 |---|---|
 | Cloud Run | $0: calls ~15 h a month at 1 vCPU, plus ticks (~43,000 a month at ~0.3 s); the request-based free tier is 180,000 vCPU-s and 2M requests |
+| Cloud Run, WhatsApp service | $0 up to ~66 h of instance time a month (the instance-based free tier is 240,000 vCPU-s): a 10-minute call plus the idle time before it scales down is ~25 min, so ~160 calls |
 | Scheduler | 1 job, inside the free 3 |
 | Secret Manager | 1 secret, 1 active version |
 | Supabase | free plan (500 MB), shared with the Mano App project (below) |
 | Gemini, Fish, Twilio | per minute, as before; Vertex on the Google for Startups credits |
+| WhatsApp | calls to us free; calls we make ~$0.01/min (not built yet) |
 
 **The database** lives in the Mano App Supabase project (Frankfurt, eu-central-1), because
 the free plan allows two active projects per owner and both are in use. It is kept apart

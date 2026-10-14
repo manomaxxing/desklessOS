@@ -102,7 +102,9 @@ test("after-call job: the final note, his note saved, the question answered, Max
     memoryResult: { call_type: "capture", call_summary: "Küche Huber aufgenommen.", customer: { name: "Herr Huber", place: "Allensbach", summary_update: "Küche: Fliesenspiegel neu." }, new_actions: [{ text: "Angebot Huber schreiben", due: "" }], completed_action_ids: [] },
   });
   try {
-    const afterCall = createAfterCall({ memory, skill, endpoint, model: "gemini-2.5-flash", requests });
+    const recaps = [];
+    const writeRecap = async ({ turns, name, lang }) => { recaps.push({ turns: turns.length, name, lang }); return { title: "Küche Huber", overview: "Neue Küche bei Huber aufgenommen.", topics: [], actions: [{ text: "Angebot Huber schreiben", owner: "Niko", due: "" }], open_questions: [], lang }; };
+    const afterCall = createAfterCall({ memory, skill, endpoint, model: "gemini-2.5-flash", writeRecap, requests });
     const handlers = { after_call: afterCall, notify: p => requests.sendNotification(p) };
     assert.deepEqual(await queue.run({ handlers }), { done: 2, failed: 0 }, "the after-call job, then the message it queued");
     assert.deepEqual(gemini.seen, ["note", "memory"], "the extraction again (it lagged a turn), then the memory step");
@@ -118,14 +120,19 @@ test("after-call job: the final note, his note saved, the question answered, Max
     const [call] = await db.query("select after_call_at is not null done, consolidated_at is not null consolidated, extraction_turns, timeline, (meta->>'usd')::float8 > 0.01 costed from calls where id = 'call-x'");
     assert.equal(call.done && call.consolidated, true);
     assert.equal(call.extraction_turns, 3);
-    assert.deepEqual(call.timeline.map(e => e.event), ["heard", "saved", "memory"], "the monitor sees what happened after the call");
+    assert.deepEqual(call.timeline.map(e => e.event), ["heard", "saved", "memory", "recap"], "the monitor sees what happened after the call");
     assert.equal(call.costed, true, "its Gemini cost is added to the call's");
+    assert.deepEqual(recaps, [{ turns: 3, name: "Niko", lang: "de" }], "the summary, from the whole transcript");
+    const shown = await memory.getCall("call-x");
+    assert.deepEqual([shown.recap.title, shown.title, shown.userName], ["Küche Huber", "Küche Huber", "Niko"], "the dashboard reads it with the call");
+    assert.equal((await memory.recentCalls()).find(c => c.id === "call-x").title, "Küche Huber");
 
     // Twice (a retry after a crash): nothing new.
     assert.deepEqual(await afterCall({ callId: "call-x" }), { skipped: true });
     await db.query("update calls set after_call_at = null where id = 'call-x'");
     await afterCall({ callId: "call-x" });
     assert.deepEqual(gemini.seen, ["note", "memory", "memory"], "the extraction isn't redone; the memory step runs but changes nothing");
+    assert.equal(recaps.length, 1, "the summary isn't written again");
     assert.equal((await db.query("select count(*)::int n from notes where call_id = 'call-x'"))[0].n, 1);
     assert.equal((await db.query("select count(*)::int n from tasks where text = 'Angebot Huber schreiben'"))[0].n, 1);
     assert.equal((await memory.objectives.get(objective.id)).attempts, 1, "the call counts once");

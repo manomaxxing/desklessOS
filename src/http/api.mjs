@@ -1,9 +1,14 @@
 // The HTTP API and pages, as one table: method, path, who may call it, handler.
 // Who may call it:
-//   public  anyone (pages, health, login; Twilio's webhooks are the adapters' and carry a signature)
-//   user    DEV_TOKEN (?token=) or an admin session (Authorization: Bearer …, or ?token=)
+//   public  anyone (pages, health, login; Twilio's and WhatsApp's webhooks are the adapters' and carry a signature)
+//   user    DEV_TOKEN (?token=) or an admin session
 //   admin   an admin session once ADMIN_CODE is set (before that, the user rule)
+//   owner   an owner's session: the ADMIN_CODE login, or a team member with role owner (managing the team)
 //   tick    X-Tick-Token: TICK_TOKEN (Cloud Scheduler, and the instance that just ended a call)
+// An admin session is the HttpOnly cookie the login sets (SameSite=Lax), or a token as
+// Authorization: Bearer … (scripts, tests). A team member's is checked against the team
+// on every request (src/admin/team.mjs). POSTs on the cookie must be JSON (no forms from
+// other sites).
 // With neither DEV_TOKEN nor ADMIN_CODE set (a local run) everything is open; on Cloud Run
 // the config refuses to start that way.
 
@@ -20,18 +25,33 @@ const same = (a, b) => {
   return x.length === y.length && timingSafeEqual(x, y);
 };
 const fail = (status, message) => Object.assign(new Error(message), { status });
+const COOKIE = "deskless_session";
+const cookieOf = req => (req.headers.cookie ?? "").split(/;\s*/).find(c => c.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1) ?? "";
 
-export function createApi({ cfg, skill, memory, queue, requests, auth, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, log }) {
+export function createApi({ cfg, skill, memory, queue, requests, auth, team = null, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap = null, log }) {
   const open = !cfg.devToken && !auth.enabled;
-  const tokenOf = (req, url) => req.headers.authorization?.replace(/^Bearer\s+/i, "") || url.searchParams.get("token") || "";
-  const isUser = (req, url) => open || same(url.searchParams.get("token"), cfg.devToken) || Boolean(auth.session(tokenOf(req, url)));
-  const isAdmin = (req, url) => (auth.enabled ? Boolean(auth.session(tokenOf(req, url))) : isUser(req, url));
+  /** Who's asking: { dev } for DEV_TOKEN (or a local run with no login at all), { session } for an admin session. */
+  async function identify(req, url) {
+    const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, "") || "";
+    const cookie = cookieOf(req);
+    const param = url.searchParams.get("token") || "";
+    const signed = [bearer, cookie, param].map(t => (t ? auth.session(t) : null));
+    const i = signed.findIndex(Boolean);
+    const session = i < 0 ? null : team ? await team.check(signed[i]) : signed[i].m === "code" ? signed[i] : null;
+    return { dev: open || same(param, cfg.devToken), session, viaCookie: i === 1 };
+  }
+  const isUser = who => who.dev || Boolean(who.session);
+  const isAdmin = who => (auth.enabled ? Boolean(who.session) : isUser(who));
   const allowed = {
     public: () => true,
     user: isUser,
     admin: isAdmin,
-    tick: req => (cfg.tickToken ? same(req.headers["x-tick-token"], cfg.tickToken) : open),
+    owner: who => (auth.enabled ? who.session?.r === "owner" : isUser(who)),
+    tick: (who, req) => (cfg.tickToken ? same(req.headers["x-tick-token"], cfg.tickToken) : open),
   };
+  const me = who => (who.session ? { name: who.session.n, email: who.session.e ?? "", role: who.session.r, id: who.session.m } : null);
+  const sessionCookie = (req, token, maxAgeMs) => `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0, Math.round(maxAgeMs / 1000))}${req.headers["x-forwarded-proto"] === "https" ? "; Secure" : ""}`;
+  const loggedIn = ({ req, setCookie }, out) => { setCookie(sessionCookie(req, out.token, auth.session(out.token).exp - Date.now())); return { ok: true }; };
 
   const readBody = req => new Promise((resolve, reject) => {
     let body = "";
@@ -60,12 +80,45 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, notifier,
     ["GET", "/monitor", "user", () => page("monitor.html")],
 
     // ---------- admin: login, people, requests, objectives, jobs ----------
-    ["POST", "/api/admin/login", "public", async ({ req, body }) => {
-      const out = auth.login({ code: body.code, totp: body.totp, ip: clientIp(req) });
+    // { email, password } (the team), or { code, totp? } (the owner's code). Sets the session cookie.
+    ["POST", "/api/admin/login", "public", async ctx => {
+      const { req, body } = ctx;
+      const ip = clientIp(req);
+      const out = body.email ? (team ? await team.login({ email: body.email, password: body.password, ip }) : { error: "no team logins here", status: 503 }) : auth.login({ code: body.code ?? body.password, totp: body.totp, ip });
       if (out.error) { log(`admin login refused (${out.status})`); throw fail(out.status ?? 401, out.error); }
+      if (out.needTotp) return out;
+      if (out.member) log(`admin login: ${out.member.email}`);
+      return loggedIn(ctx, out);
+    }],
+    ["POST", "/api/admin/logout", "public", ({ req, setCookie }) => { setCookie(sessionCookie(req, "", 0)); return { ok: true }; }],
+    ["GET", "/api/admin/me", "user", ({ who }) => ({ admin: isAdmin(who), login: auth.enabled, twoFactor: auth.twoFactor, notify: notifier.channels, me: me(who), team: Boolean(team), agent: skill.persona?.agentLabel ?? null })],
+
+    // ---------- the team: who can log in ----------
+    ["GET", "/api/team", "admin", async () => ({ members: team ? await team.list() : [] })],
+    // { email, role? } → { member, token }; the page turns the token into the link (/admin#invite=…).
+    ["POST", "/api/team/invite", "owner", async ({ body, who }) => {
+      if (!team) throw fail(503, "no team logins here");
+      const out = await team.invite({ email: body.email, role: body.role, by: who.session?.n ?? "dev" });
+      monitor.system(`login invite for ${out.member.email} (${out.member.role}) by ${who.session?.n ?? "dev"}`);
       return out;
     }],
-    ["GET", "/api/admin/me", "user", ({ req, url }) => ({ admin: isAdmin(req, url), login: auth.enabled, twoFactor: auth.twoFactor, notify: notifier.channels })],
+    ["POST", "/api/team/invite-info", "public", async ({ body }) => {
+      const info = team && (await team.inviteInfo(String(body.token ?? "")));
+      if (!info) throw fail(410, "this link was used already or has expired: ask for a new one");
+      return info;
+    }],
+    ["POST", "/api/team/accept", "public", async ctx => {
+      if (!team) throw fail(503, "no team logins here");
+      const out = await team.accept({ token: String(ctx.body.token ?? ""), name: ctx.body.name, password: ctx.body.password });
+      monitor.system(`${out.member.email} set up their login`);
+      return loggedIn(ctx, out);
+    }],
+    ["POST", /^\/api\/team\/([\w-]+)\/remove$/, "owner", async ({ params: [id], who }) => {
+      if (!team) throw fail(503, "no team logins here");
+      const m = await team.remove(id, { by: who.session?.m ?? null });
+      monitor.system(`login removed: ${m.email} by ${who.session?.n ?? "dev"}`);
+      return { member: m };
+    }],
     ["GET", "/api/users", "admin", async () => ({ users: await memory.listUsers(), outbound: Boolean(scheduler) })],
     ["POST", /^\/api\/users\/([\w-]+)$/, "admin", async ({ params: [id], body }) => {
       const u = await memory.updateUser(id, body);
@@ -74,9 +127,9 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, notifier,
       return { user: u };
     }],
     ["GET", "/api/requests", "admin", async () => ({ requests: (await requests.list()).map(r => requests.view(r)) })],
-    ["POST", "/api/requests", "admin", async ({ body }) => requests.plan({ instruction: body.instruction, by: "admin" })],
+    ["POST", "/api/requests", "admin", async ({ body, who }) => requests.plan({ instruction: body.instruction, by: who.session?.n ?? "admin" })],
     // A conversation about his day (problem discovery): { userId?, focus?, mode? } → a card to approve.
-    ["POST", "/api/requests/conversation", "admin", async ({ body }) => requests.planConversation({ userId: body.userId ?? null, focus: body.focus ?? "", mode: body.mode ?? "outbound", by: "admin" })],
+    ["POST", "/api/requests/conversation", "admin", async ({ body, who }) => requests.planConversation({ userId: body.userId ?? null, focus: body.focus ?? "", mode: body.mode ?? "outbound", by: who.session?.n ?? "admin" })],
     ["GET", /^\/api\/requests\/(req_[\w-]+)$/, "admin", async ({ params: [id] }) => {
       const r = await requests.get(id);
       if (!r) throw fail(404, "no such request");
@@ -136,6 +189,17 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, notifier,
       if (!call) throw fail(404, "unknown call");
       return call;
     }],
+    // The call's summary, written now: for a call that ended without one, or again.
+    ["POST", /^\/api\/calls\/([^/]+)\/recap$/, "admin", async ({ params: [id] }) => {
+      if (!writeRecap) throw fail(503, "no summaries here");
+      const call = await memory.getCall(id);
+      if (!call) throw fail(404, "unknown call");
+      if (!call.endedAt) throw fail(409, "the summary is written when the call has ended");
+      if (!call.transcript?.some(t => t.role === "user")) throw fail(409, "nothing was said in this call");
+      const recap = await writeRecap({ turns: call.transcript, name: call.userName, lang: call.lang, startedAt: call.startedAt });
+      await memory.saveRecap(id, recap);
+      return { recap };
+    }],
     ["GET", /^\/api\/calls\/([^/]+)\/audio\/([^/]+)$/, "user", ({ params: [id, name] }) => {
       const file = monitor.audioFile(id, name);
       if (!file) throw fail(404, "no audio");
@@ -143,23 +207,27 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, notifier,
     }],
   ];
 
-  const send = (res, status, out) => {
-    if (out?.html) { res.writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }); return res.end(out.html); }
-    if (out?.file) { res.writeHead(status, { "content-type": out.type, "cache-control": "no-store" }); return res.end(readFileSync(out.file)); }
-    res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+  const send = (res, status, out, cookies = []) => {
+    const base = { "cache-control": "no-store", ...(cookies.length ? { "set-cookie": cookies } : {}) };
+    if (out?.html) { res.writeHead(status, { ...base, "content-type": "text/html; charset=utf-8" }); return res.end(out.html); }
+    if (out?.file) { res.writeHead(status, { ...base, "content-type": out.type }); return res.end(readFileSync(out.file)); }
+    res.writeHead(status, { ...base, "content-type": "application/json" });
     res.end(JSON.stringify(out ?? null));
   };
 
   async function handle(req, res) {
     const url = new URL(req.url, "http://x");
-    for (const a of adapters) if (a.http && (await a.http(req, res, url))) return; // Twilio's webhooks carry their own signature
+    for (const a of adapters) if (a.http && (await a.http(req, res, url))) return; // Twilio's and WhatsApp's webhooks carry their own signature
     for (const [method, match, access, fn] of routes) {
       const m = typeof match === "string" ? (url.pathname === match ? [] : null) : url.pathname.match(match)?.slice(1).map(decodeURIComponent);
       if (!m || (req.method !== method && !(method === "GET" && req.method === "HEAD"))) continue;
-      if (!allowed[access](req, url)) return send(res, 401, { error: access === "admin" ? "admin login required" : "token required" });
+      const who = access === "public" ? { dev: false, session: null, viaCookie: false } : await identify(req, url);
+      if (!allowed[access](who, req)) return send(res, access === "owner" && who.session ? 403 : 401, { error: access === "owner" ? "only an owner can do this" : access === "admin" ? "admin login required" : "token required" });
+      if (req.method === "POST" && who.viaCookie && !/^application\/json\b/i.test(req.headers["content-type"] ?? "")) return send(res, 415, { error: "JSON only" });
+      const cookies = [];
       try {
         const body = req.method === "POST" ? await readBody(req) : {};
-        return send(res, 200, await fn({ req, url, params: m, body }));
+        return send(res, 200, await fn({ req, url, params: m, body, who, setCookie: c => cookies.push(c) }), cookies);
       } catch (err) {
         if (!err.status || err.status >= 500) log("http error", req.method, url.pathname, err.message);
         return send(res, err.status ?? 500, { error: err.message });
@@ -176,15 +244,18 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, notifier,
   function upgrade(req, socket, head, wss) {
     const url = new URL(req.url, "http://x");
     if (url.pathname === "/monitor-ws") {
-      if (!isUser(req, url)) return socket.destroy();
-      return wss.handleUpgrade(req, socket, head, ws => {
-        const unsubscribe = monitor.subscribe(msg => ws.readyState === 1 && ws.send(JSON.stringify(msg)));
-        ws.on("close", unsubscribe);
-      });
+      identify(req, url).then(who => {
+        if (!isUser(who)) return socket.destroy();
+        wss.handleUpgrade(req, socket, head, ws => {
+          const unsubscribe = monitor.subscribe(msg => ws.readyState === 1 && ws.send(JSON.stringify(msg)));
+          ws.on("close", unsubscribe);
+        });
+      }, () => socket.destroy());
+      return;
     }
     for (const a of adapters) if (a.upgrade?.(req, socket, head, url)) return;
     socket.destroy();
   }
 
-  return { handle, upgrade, isUser };
+  return { handle, upgrade };
 }

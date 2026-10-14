@@ -1,10 +1,13 @@
 // Admin login and signatures (ported from mano-app: server/totp.js, session.js, the
 // login handler). No dependencies, Node's crypto only.
-//   ADMIN_CODE          the admin's login code; unset = no admin (dev: admin routes fall
-//                       back to DEV_TOKEN, like the rest of the API)
+//   ADMIN_CODE          the owner's login code; unset = no admin (dev: admin routes fall
+//                       back to DEV_TOKEN, like the rest of the API). The team logs in with
+//                       their own email and password (src/admin/team.mjs), once it's set.
 //   ADMIN_TOTP_SECRET   base32 TOTP secret (npm run admin:totp makes one); set = a code from
-//                       the authenticator app is needed too
+//                       the authenticator app is needed too, with the code
 //   SESSION_SECRET      signs sessions and confirm tokens (default: derived from ADMIN_CODE)
+// A session names who it is: { m: member id, v: their session_version, r: role, n: name },
+// or m "code" for the code's login, which a new ADMIN_CODE ends (k, the code's fingerprint).
 // Secrets and codes are credentials: never logged, never sent to a model.
 
 import crypto from "node:crypto";
@@ -12,7 +15,8 @@ import crypto from "node:crypto";
 const STEP = 30; // seconds per TOTP code
 const DIGITS = 6;
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"; // RFC 4648 base32
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const CODE_SESSION_MS = 12 * 60 * 60 * 1000; // the owner's code: half a day
+export const MEMBER_SESSION_MS = 30 * 24 * 60 * 60 * 1000; // the team's own logins: a month (removal ends them sooner)
 export const CONFIRM_TTL_MS = 30 * 60 * 1000; // an approval card is valid for half an hour
 
 // ---------- TOTP (RFC 6238) ----------
@@ -64,6 +68,7 @@ export function createAuth(env = process.env) {
   const code = env.ADMIN_CODE?.trim() || "";
   const totpSecret = env.ADMIN_TOTP_SECRET?.trim() || "";
   const key = env.SESSION_SECRET?.trim() || `deskless:${code || "dev"}`;
+  const fingerprint = crypto.createHmac("sha256", key).update(`code:${code}`).digest("base64url").slice(0, 12);
   const mac = body => crypto.createHmac("sha256", key).update(body).digest("base64url");
   const same = (a, b) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
   const sign = payload => { const body = Buffer.from(JSON.stringify(payload)).toString("base64url"); return `${body}.${mac(body)}`; };
@@ -87,6 +92,10 @@ export function createAuth(env = process.env) {
     /** Is there an admin at all? Without ADMIN_CODE, admin routes use the dev rule (DEV_TOKEN). */
     enabled: Boolean(code),
     twoFactor: Boolean(totpSecret),
+    /** The brute-force guard, for the team's logins too. */
+    attempts: { locked, fail, clear: ip => failures.delete(ip) },
+    /** A member's session (src/admin/team.mjs checks they still exist on every request). */
+    issue: ({ id, version, role, name, email }) => sign({ role: "admin", m: id, v: version, r: role, n: name, e: email, exp: Date.now() + MEMBER_SESSION_MS }),
 
     /** { token } | { needTotp } | { error, status } */
     login({ code: given, totp, ip = "?" }) {
@@ -99,13 +108,15 @@ export function createAuth(env = process.env) {
         if (!verifyTotp(totpSecret, totp)) { fail(ip); return { error: "wrong authenticator code", status: 401 }; }
       }
       failures.delete(ip);
-      return { token: sign({ role: "admin", exp: Date.now() + SESSION_TTL_MS }) };
+      return { token: sign({ role: "admin", m: "code", k: fingerprint, r: "owner", n: "Admin", exp: Date.now() + CODE_SESSION_MS }) };
     },
 
-    /** The session payload, or null. */
+    /** The session payload, or null. Signature and expiry only: a member's is checked against the team too. */
     session(token) {
       const p = open(token);
-      return p?.role === "admin" && p.exp > Date.now() ? p : null;
+      if (p?.role !== "admin" || !(p.exp > Date.now())) return null;
+      if (p.m === "code") return code && p.k === fingerprint ? p : null;
+      return typeof p.m === "string" && p.m ? p : null;
     },
 
     /** Approval binds to exactly this plan: request id + the plan's hash + an expiry. */

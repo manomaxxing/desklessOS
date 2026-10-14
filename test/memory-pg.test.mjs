@@ -231,7 +231,9 @@ test("an unknown caller among several users gets nothing and saves nothing", asy
   assert.deepEqual(await db.query("select id from calls where id = 'c8'"), [], "no row, no transcript");
   const known = await mem.openCall({ callId: "c9", from: "+49 170 0000002" });
   assert.equal(known.user.name, "Second", "matched by caller ID");
-  await db.query("delete from calls where id = 'c9'");
+  const testPhone = await mem.openCall({ callId: "c10", from: "+49-browser" });
+  assert.equal(testPhone.user.name, "Niko", "no caller ID (the test phone): the first user");
+  await db.query("delete from calls where id in ('c9', 'c10')");
   await db.query("delete from users where name = 'Second'");
 });
 

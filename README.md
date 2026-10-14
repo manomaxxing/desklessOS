@@ -58,6 +58,14 @@ A skill is a persona plus templates, no code of its own (`src/skills/from-templa
   (static first, so the prefix caches), one extraction schema for his note and the
   objectives' answers, and checks in code after every turn which objective is done.
 
+**Calls, on the admin page:** `/admin` opens on the calls, newest first (live ones with a red
+dot). A call has two tabs. **Summary** (`src/calls/recap.mjs`, written by the after-call job,
+in the call's language): the gist in a box, the topics with their points and his own words,
+action items (who, by when), and open questions worth asking next time. **Transcript**: who
+said what. The copy button copies the open tab as Markdown; the download button saves both
+as one `.md` file. A call that ended before summaries existed gets a "Write the summary" button
+(`POST /api/calls/:id/recap`), and "Write it again" redoes one.
+
 **Find out X, from the admin page:** `/admin`. Type what you want to know ("Frag Niko,
 wie lange sein letztes Angebot gedauert hat"). A planner (`src/admin/planner.mjs`, Gemini
 with thinking, a few seconds) picks the user and writes 1 to 5 questions in their language
@@ -65,15 +73,24 @@ into an `inquiry` objective; it never writes rules for the agent. You get a card
 the questions (editable), anything it needs to ask you back. **Approve** binds to exactly that
 card (a token signed over the request and the plan's hash, 30 minutes); editing or re-planning
 makes a new card. The question is asked at the end of their next call, after their own
-business; the card then shows the answer, their words and a link to the call in the monitor.
+business; the card then shows the answer, their words and a link to the call.
 Results also go out by webhook (`NOTIFY_WEBHOOK_URL`) and/or email (`RESEND_API_KEY`,
 `NOTIFY_EMAIL_TO`), with `PUBLIC_URL` for the link back; each message is a job, retried
 until it goes through.
 
-- **Login:** `ADMIN_CODE` plus, if `ADMIN_TOTP_SECRET` is set, a code from an authenticator
-  app (`npm run admin:totp` makes a secret); 12-hour sessions signed with `SESSION_SECRET`;
-  five wrong tries lock an address for 15 minutes. With `ADMIN_CODE` or `DEV_TOKEN` set, the
-  API needs one of them; on Cloud Run the server won't start without either.
+- **Login, for the team** (`src/admin/team.mjs`): everyone has their own email and password.
+  An owner invites someone under People → "Who can log in here" and sends them the link
+  (`/admin#invite=…`, works once, for 7 days); they choose their name and password on it.
+  A new link for someone already on the team resets their password. Owners invite and
+  remove people; members do everything else. Removing someone, or a new password, logs them
+  out at once (each request checks the session against the `members` table, cached 30 s).
+  Passwords are scrypt hashes; sessions are an HttpOnly, SameSite=Lax cookie signed with
+  `SESSION_SECRET`, valid for 30 days.
+- **The owner's code:** `ADMIN_CODE` (leave the email empty) plus, if `ADMIN_TOTP_SECRET` is
+  set, a code from an authenticator app (`npm run admin:totp` makes a secret); 12-hour
+  sessions, and a new `ADMIN_CODE` ends them. It's the way in to invite the first people,
+  and a spare key. Five wrong tries lock an address for 15 minutes. With `ADMIN_CODE` or
+  `DEV_TOKEN` set, the API needs one of them; on Cloud Run the server won't start without either.
 - **API** (admin session): `POST /api/requests {instruction}` → `{request, confirmToken}`;
   `POST /api/requests/:id/revise {answer | edits}`; `POST /api/requests/:id/approve
   {confirmToken}`; `POST /api/requests/:id/cancel`; `GET /api/requests[/:id]`; `GET /api/users`.
@@ -154,6 +171,7 @@ call host (`host.mjs`) keeps the calls, whichever line they came in on.
 | **Fake Dial** | `npm run fake-dial -- --say "…" --say "…"` | Scripted calls, no mic needed; caller voice via Fish |
 | **Dial** | real phone call → `wss://<public-host>/dial/<call_id>` | US numbers |
 | **Twilio** | the number's voice webhook → `POST /twilio/voice` → media stream `wss://<public-host>/twilio/stream` | The German number (region IE1), and calls we make |
+| **WhatsApp** | Meta's webhook → `POST /whatsapp/webhook` → WebRTC (Opus) | He calls the business number in WhatsApp (free); runs on its own service |
 | **Fake carrier** | `OUTBOUND=fake`, then `npm run fake-dial -- --answer +49…` | Being called by the server, in tests |
 
 **Twilio:** set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_NUMBER` (E.164),
@@ -162,6 +180,12 @@ the number's "A call comes in" webhook at `https://<public-host>/twilio/voice` (
 Every webhook's `X-Twilio-Signature` is checked; the media stream must present a token we
 signed into the TwiML. Audio is μ-law 8 kHz on the line, converted at the edge. Calls are
 wrapped up before `MAX_CALL_MIN` (15).
+
+**WhatsApp:** a Meta app with the WhatsApp product (its test number works). Set
+`WHATSAPP_TOKEN` (a system user's token), `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_ID`,
+`WHATSAPP_APP_SECRET`; `deploy/cloudrun.sh` then deploys `desklessos-wa` (CPU always on: the
+call audio is UDP, not a request), and `npm run whatsapp:setup -- <its url>/whatsapp/webhook`
+registers the webhook and turns calling on. Webhooks are checked against the app secret.
 
 ## Calls we make (outbound)
 
@@ -269,7 +293,8 @@ Realtime and Google's Live best practices.
   - an outbound call's outcome sent to the scheduler;
   - the memory step: customers get a rolling summary and call history, "Angebot bis Freitag"
     becomes a to-do, "Angebot Müller ist raus" ticks one off, research findings become facts
-    tagged `area:` / `hyp:` / `stance:`.
+    tagged `area:` / `hyp:` / `stance:`;
+  - the call's summary for the admin page (`calls.recap`).
 
   Each step does its work once however often the job runs.
 - **Moving the pilot's old JSON data in:** `node scripts/migrate-json-to-pg.mjs --dry-run`,
@@ -302,8 +327,8 @@ live (on any instance) and past:
 
 Calls are kept in Postgres (`calls`: transcript, timeline, cost). Audio is recorded per
 turn on the local disk when `RECORD_CALLS=1` (on in the local `.env`; local runs only).
-On a public deploy the monitor, `/api/*` and the test phone need `?token=<DEV_TOKEN>` or
-an admin login. The admin page also lists background jobs that keep failing.
+On a public deploy the monitor and `/api/*` need `?token=<DEV_TOKEN>` or an admin login
+(the cookie); the test phone needs `?token=<DEV_TOKEN>`. The admin page also lists background jobs that keep failing.
 
 ## Local
 
@@ -369,7 +394,8 @@ src/app.mjs                composition root: every part built once, here
 src/config.mjs             the server's settings, checked at boot
 src/http/api.mjs           routes and pages, one table with access levels; WebSocket upgrades
 src/calls/start.mjs        one call's wiring: memory, agenda, engine, its end
-src/calls/after-call.mjs   after the call: final note, objectives, requests, outbound outcome, memory
+src/calls/after-call.mjs   after the call: final note, objectives, requests, outbound outcome, memory, summary
+src/calls/recap.mjs        the call's summary for the admin page: overview, topics, action items, open questions
 src/calls/voice.mjs        pre-recorded lines, cached in Postgres
 src/engine/session.mjs     one call: VAD → Gemini → Fish, barge-in, fillers, idle nudges, checkpoints
 src/engine/vad.mjs         energy VAD, adaptive noise floor, end-of-turn by state
@@ -390,14 +416,14 @@ src/jobs/background.mjs    the tick: lost calls, due jobs, outbound calls, embed
 src/jobs/scheduler.mjs     outbound errands, guards, call windows (time zones, DST)
 src/bus.mjs                messages between instances (Postgres NOTIFY)
 src/monitor.mjs            live call timelines, the call log
-src/admin/                 admin login (code + TOTP), planner, requests (plan → card → approve → result)
+src/admin/                 logins (the team's own, the owner's code + TOTP), planner, requests (plan → card → approve → result)
 src/notify.mjs             results to Max: webhook, email (Resend)
 src/telephony/             call host + carriers: Dial, Twilio (IE1, μ-law), a fake carrier for tests
 src/locale/                loads packs, picks the call's language, checks completeness
 src/testing/caller.mjs     scripted caller (fake-dial, regress)
 config/discovery.json      the research framework: key question, hypotheses, areas, questions
 locales/<id>.json          everything language-specific (see Languages)
-web/                       test phone (/), monitor (/monitor), admin (/admin)
+web/                       test phone (/), monitor (/monitor), admin (/admin: calls, requests, people)
 deploy/                    Cloud Run: deploy script, settings template
 scripts/                   smoke, fake-dial, dial admin, report, regress, the JSON → Postgres move
 ```

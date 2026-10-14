@@ -6,6 +6,7 @@
 //   3. the agenda's objectives recorded (each call counts once), their requests closed
 //   4. an outbound call's outcome back to the scheduler (retry, call later, done)
 //   5. long-term memory: customers, to-dos, research findings (once per call)
+//   6. the call's summary for the dashboard (src/calls/recap.mjs), unless it has one
 // Every step is idempotent, so the job can be retried from the top.
 
 import { extractJsonResilient } from "../engine/gemini.mjs";
@@ -13,11 +14,11 @@ import { consolidateCall } from "../engine/consolidate.mjs";
 import { geminiCost } from "../engine/cost.mjs";
 import { locales } from "../locale/index.mjs";
 
-export function createAfterCall({ memory, skill, endpoint, model, fallbackModel = process.env.FALLBACK_MODEL || "gemini-2.5-flash", requests = null, scheduler = null, monitor = null, log = () => {} }) {
+export function createAfterCall({ memory, skill, endpoint, model, fallbackModel = process.env.FALLBACK_MODEL || "gemini-2.5-flash", writeRecap = null, requests = null, scheduler = null, monitor = null, log = () => {} }) {
   return async function afterCall({ callId }) {
     const state = await memory.afterCall(callId);
     if (!state) return { skipped: true }; // done already, still open, or an unknown caller
-    const { call, objectives, discovery, scope } = state;
+    const { call, user, objectives, discovery, scope } = state;
     const tag = `[${callId.slice(-6)}]`;
     let usd = 0;
     const onUsage = step => u => { usd += geminiCost(model, u, step).usd ?? 0; };
@@ -56,12 +57,19 @@ export function createAfterCall({ memory, skill, endpoint, model, fallbackModel 
       memoryResult = c.skipped ? null : { callType: result.call_type, summary: result.call_summary, customer: c.customer, added: c.added, completed: c.completed, updated: c.updated };
     }
 
-    const events = [...(saved ? [{ event: "saved", id: saved.id }] : []), ...(memoryResult ? [{ event: "memory", ...memoryResult }] : [])];
+    // 6. The summary for the dashboard.
+    let recap = null;
+    if (spoke && writeRecap && !call.recap) {
+      recap = await writeRecap({ turns, name: user.name, lang, startedAt: call.startedAt, onUsage: onUsage("recap") });
+      await state.saveRecap(recap);
+    }
+
+    const events = [...(saved ? [{ event: "saved", id: saved.id }] : []), ...(memoryResult ? [{ event: "memory", ...memoryResult }] : []), ...(recap ? [{ event: "recap", title: recap.title }] : [])];
     await state.addEvents(events);
     for (const ev of events) monitor?.event(callId, ev);
     if (usd) await state.addCost(usd);
     await state.done();
-    log(`${tag} after-call done: ${saved ? "note saved" : "no note"}${memoryResult ? `, memory: ${memoryResult.callType}, +${memoryResult.added.length} to-dos, ${memoryResult.completed.length} done` : ""}${changed.length ? `, ${changed.length} objective(s)` : ""}`);
+    log(`${tag} after-call done: ${saved ? "note saved" : "no note"}${memoryResult ? `, memory: ${memoryResult.callType}, +${memoryResult.added.length} to-dos, ${memoryResult.completed.length} done` : ""}${changed.length ? `, ${changed.length} objective(s)` : ""}${recap ? ", summary written" : ""}`);
     return { noteId: saved?.id ?? null, objectives: changed.length, memory: Boolean(memoryResult) };
   };
 }

@@ -13,6 +13,9 @@
 #     0 to MAX_INSTANCES instances, 60-minute requests (a call is one WebSocket)
 #   - a Cloud Scheduler job: POST /internal/tick every minute (background work, and it keeps
 #     an instance warm and the database awake)
+#   - with WHATSAPP_TOKEN in the env file, a second service from the same image for WhatsApp
+#     calls ($SERVICE-wa): their audio is UDP, not a request, so its CPU stays on (instance-based
+#     billing, free tier ~66 h of instance time a month), one instance at most, none when idle
 set -euo pipefail
 
 PROJECT=${PROJECT:?set PROJECT to the Google Cloud project id}
@@ -62,6 +65,18 @@ g run deploy "$SERVICE" --source . --region "$REGION" \
   --set-secrets "/secrets/env=$SECRET:latest" \
   --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT,PUBLIC_URL=$URL,BACKGROUND=http"
 
+if grep -qE '^WHATSAPP_TOKEN=.+' "$ENV_FILE"; then
+  IMAGE=$(g run services describe "$SERVICE" --region "$REGION" --format 'value(spec.template.spec.containers[0].image)')
+  WA_URL="https://$SERVICE-wa-$(g projects describe "$PROJECT" --format 'value(projectNumber)').$REGION.run.app"
+  echo "→ Cloud Run service $SERVICE-wa ($WA_URL), WhatsApp calls"
+  g run deploy "$SERVICE-wa" --image "$IMAGE" --region "$REGION" \
+    --service-account "$SA" --allow-unauthenticated \
+    --execution-environment gen2 --cpu 1 --memory 1Gi --no-cpu-throttling --cpu-boost \
+    --concurrency 20 --min-instances 0 --max-instances 1 --timeout 3600 \
+    --set-secrets "/secrets/env=$SECRET:latest" \
+    --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT,PUBLIC_URL=$URL,BACKGROUND=http"
+fi
+
 echo "→ Cloud Scheduler: $SERVICE-tick, every minute"
 JOB=(--location "$REGION" --schedule "* * * * *" --uri "$URL/internal/tick" --http-method POST --attempt-deadline 300s --time-zone Etc/UTC)
 if g scheduler jobs describe "$SERVICE-tick" --location "$REGION" >/dev/null 2>&1; then
@@ -75,4 +90,5 @@ echo "Deployed: $URL"
 echo "  health:   curl $URL/api/health"
 echo "  Twilio:   the number's voice webhook → $URL/twilio/voice (POST)"
 echo "  Dial:     npm run dial -- activate wss://${URL#https://}/dial"
+[ -n "${WA_URL:-}" ] && echo "  WhatsApp: npm run whatsapp:setup -- $WA_URL/whatsapp/webhook"
 echo "  logs:     gcloud --project $PROJECT run services logs tail $SERVICE --region $REGION"
