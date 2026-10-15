@@ -175,3 +175,93 @@ test("he hangs up while it's ringing: no call is started", { timeout: 20000 }, a
   assert.equal(a.calls, 0);
   await caller.close();
 });
+
+const statusWebhook = (id, status) => ({
+  object: "whatsapp_business_account",
+  entry: [{ id: "waba", changes: [{ field: "calls", value: { messaging_product: "whatsapp", metadata: { display_phone_number: "15550001111", phone_number_id: "123" }, statuses: [{ id, type: "call", status, timestamp: "1", recipient_id: "4917012345678" }] } }] }],
+});
+
+/** WhatsApp's side of a call Toni makes: Graph's connect answers with a call id, the answer SDP comes by webhook. */
+function placing({ heard = [] } = {}) {
+  const callee = createAudioPeer({ stun: [], rtc: { iceLite: true }, onAudio: p => heard.push(p) });
+  const graphCalls = [];
+  let answer = null;
+  const fetchImpl = async (url, { body }) => {
+    const b = JSON.parse(body);
+    graphCalls.push(b);
+    if (b.action === "connect") answer = await callee.answer(b.session.sdp);
+    return { ok: true, json: async () => (b.action === "connect" ? { messaging_product: "whatsapp", calls: [{ id: "wacid.out1" }] } : { success: true }) };
+  };
+  return { callee, graphCalls, fetchImpl, answer: () => answer };
+}
+
+test("Toni calls him: connect with our offer, the conversation starts when he picks up", { timeout: 20000 }, async () => {
+  const heardByCallee = [];
+  const w = placing({ heard: heardByCallee });
+  const received = [];
+  let line = null;
+  const host = { connect(l) { line = l; return { receive: async m => { received.push(m); }, closed() {}, entry: null }; } };
+  const statuses = [];
+  const a = whatsappAdapter({ host, env: ENV, fetchImpl: w.fetchImpl, peerFactory: o => createAudioPeer({ ...o, stun: [] }), onStatus: s => statuses.push(s.status) });
+
+  const placed = await a.dialOut({ to: "+4917012345678", userId: "u1", extra: { rehearsal_of: "u2", objectives: [{ template: "discovery.day", params: {} }] } });
+  assert.deepEqual(placed, { callId: "wacid.out1", carrier: "whatsapp" });
+  const connect = w.graphCalls[0];
+  assert.equal(connect.to, "4917012345678");
+  assert.equal(connect.session.sdp_type, "offer");
+
+  // Meta's answer comes right away, while it rings: no conversation yet.
+  await request(a, { body: callWebhook({ id: "wacid.out1", event: "connect", direction: "BUSINESS_INITIATED", to: "4917012345678", session: { sdp_type: "answer", sdp: w.answer() } }) });
+  await request(a, { body: statusWebhook("wacid.out1", "RINGING") });
+  await sleep(500);
+  assert.ok(!received.some(m => m.type === "call_connected"), "not before he picks up");
+
+  await request(a, { body: statusWebhook("wacid.out1", "ACCEPTED") });
+  for (let i = 0; i < 30 && !received.some(m => m.type === "call_connected"); i++) await sleep(100);
+  const connected = received.find(m => m.type === "call_connected");
+  assert.equal(connected.direction, "outbound");
+  assert.equal(connected.to, "+4917012345678");
+  assert.equal(connected.from, "+15550001111");
+  assert.equal(connected.user_id, "u1");
+  assert.equal(connected.rehearsal_of, "u2");
+  assert.deepEqual(statuses, ["answered"]);
+
+  w.callee.start();
+  w.callee.play(tone(600));
+  line.send({ type: "media", payload: tone(800).toString("base64") });
+  await sleep(2000);
+  assert.ok(loudMs(heardByCallee) >= 700, `he hears Toni (${loudMs(heardByCallee)} ms)`);
+  assert.ok(loudMs(received.filter(m => m.type === "media").map(m => Buffer.from(m.payload, "base64"))) >= 400, "Toni hears him");
+
+  line.send({ type: "end_call" });
+  await sleep(500);
+  assert.equal(w.graphCalls.at(-1).action, "terminate");
+  assert.equal(a.calls, 0);
+  await w.callee.close();
+});
+
+test("Toni calls him: he declines, or doesn't pick up", { timeout: 20000 }, async () => {
+  for (const outcome of ["REJECTED", "nothing"]) {
+    const w = placing();
+    const received = [];
+    const host = { connect() { return { receive: async m => { received.push(m); }, closed() {}, entry: null }; } };
+    const statuses = [];
+    const a = whatsappAdapter({ host, env: { ...ENV, WHATSAPP_RING_S: 1 }, fetchImpl: w.fetchImpl, peerFactory: o => createAudioPeer({ ...o, stun: [] }), onStatus: s => statuses.push(s.status) });
+    await a.dialOut({ to: "+4917012345678" });
+    await request(a, { body: callWebhook({ id: "wacid.out1", event: "connect", direction: "BUSINESS_INITIATED", session: { sdp_type: "answer", sdp: w.answer() } }) });
+    if (outcome === "REJECTED") await request(a, { body: statusWebhook("wacid.out1", "REJECTED") });
+    else await sleep(1300);
+    await request(a, { body: callWebhook({ id: "wacid.out1", event: "terminate", status: "COMPLETED" }) });
+    assert.deepEqual(statuses, [outcome === "REJECTED" ? "busy" : "no-answer"], outcome);
+    assert.ok(!received.some(m => m.type === "call_connected"), `${outcome}: no conversation`);
+    assert.equal(a.calls, 0);
+    assert.equal(w.graphCalls.filter(b => b.action === "terminate").length, outcome === "REJECTED" ? 0 : 1, `${outcome}: terminate only when we gave up`);
+    await w.callee.close();
+  }
+});
+
+test("callEvents: a call's status can come in the messages field; a message's can't", () => {
+  const delivery = field => ({ entry: [{ changes: [{ field, value: { statuses: [{ id: "wacid.9", type: "call", status: "ACCEPTED" }, { id: "wamid.1", status: "delivered" }] } }] }] });
+  assert.deepEqual(callEvents(delivery("messages")).map(e => e.status.id), ["wacid.9"]);
+  assert.equal(callEvents(delivery("calls")).length, 2);
+});

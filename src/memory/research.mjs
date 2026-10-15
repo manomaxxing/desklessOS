@@ -83,6 +83,13 @@ export function createDiscovery({ framework = loadFramework(), storage = memoryS
       return { asked, answered, declined, findings: added };
     },
 
+    /** What he's told so far, by area (only areas with something), for calls without a research question. Empty if nothing. */
+    known() {
+      const lines = framework.areas.map(a => [a.title, findings().filter(f => f.area === a.id).slice(-FINDINGS_PER_AREA_IN_PROMPT).map(f => f.text)])
+        .filter(([, own]) => own.length).map(([title, own]) => `- ${title}: ${own.join(" ")}`);
+      return lines.join("\n");
+    },
+
     /** The prompt block: what we know so far and the question for this call. */
     context({ today = new Date() } = {}) {
       const { intro, pilotDay, questions: picks, capped } = next({ today });

@@ -32,8 +32,12 @@ Only what was said: no guesses, no advice, no filler. Leave out ${agent}'s own q
 /** The transcript as the prompt (and the dashboard) shows it: who said what, without the engine's [notes]. */
 export const spokenText = text => String(text ?? "").replace(/\s*\[(?:did|called|interrupted)[^\]]*\]/g, "").trim();
 
+/** The engine's own notes in his place ("(Silence: …)", "(You called him …)"): nobody said them. */
+export const engineHint = /^\((?:Silence|You called him|System:|The caller is speaking)/;
+
 export function recapPrompt({ turns, name, agent, date }) {
-  const lines = turns.map(t => `${t.role === "user" ? name : agent}: ${spokenText(t.text)}`).filter(l => !/:\s*$/.test(l));
+  const lines = turns.filter(t => !(t.role === "user" && engineHint.test(String(t.text ?? ""))))
+    .map(t => `${t.role === "user" ? name : agent}: ${spokenText(t.text)}`).filter(l => !/:\s*$/.test(l));
   return `${date ? `The call was on ${date}.\n\n` : ""}Transcript:\n${lines.join("\n")}`;
 }
 

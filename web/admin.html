@@ -102,6 +102,10 @@
   .member + .member { border-top: 1px solid var(--sep); }
   .member .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .hide { display: none !important; }
+  .goal { margin-top: 12px; background: var(--fill); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+  .goal .lbl { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .goal ul { margin: 4px 0 0; padding-left: 18px; }
+  .turn.hint { color: var(--muted); font-size: 13px; font-style: italic; }
   .quotes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .quote { display: inline-flex; gap: 6px; align-items: center; background: var(--bg2); box-shadow: var(--shadow); border-radius: 10px; padding: 7px 12px; font-size: 14px; color: var(--ink); }
   .quote:hover { box-shadow: 0 0 0 1px var(--sep), var(--shadow); }
@@ -500,8 +504,8 @@ const SOURCE = { whatsapp: "WhatsApp", dial: "Phone", twilio: "Phone", browser: 
 const fmtWhen = ms => new Date(ms).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const fmtDur = ms => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}`; };
 const agentName = () => me?.agent || "Toni";
-const callTitle = c => c.title || c.recap?.title || (c.userName ? `Call with ${c.userName}` : `Call from ${c.from || "an unknown number"}`);
-const callMeta = c => [c.userName, c.from, fmtWhen(c.startedAt), c.endedAt ? fmtDur(c.endedAt - c.startedAt) : "live now", SOURCE[c.source] ?? c.source].filter(Boolean);
+const callTitle = c => c.title || c.recap?.title || (c.rehearsalOf ? `Rehearsal: a call to ${c.rehearsalOf}` : c.userName ? `Call with ${c.userName}` : `Call from ${c.from || "an unknown number"}`);
+const callMeta = c => [c.rehearsalOf ? `rehearsal of a call to ${c.rehearsalOf}` : c.userName, c.direction === "outbound" ? `${agentName()} called ${c.to || ""}`.trim() : c.from, fmtWhen(c.startedAt), c.endedAt ? fmtDur(c.endedAt - c.startedAt) : "live now", SOURCE[c.source] ?? c.source].filter(Boolean);
 let calls = [], current = null, tab = null;
 
 async function loadCalls() {
@@ -520,7 +524,9 @@ async function loadCalls() {
 // Who said what. Ended calls: the saved transcript; live ones: what the monitor has so far.
 const spoken = text => String(text ?? "").replace(/\s*\[(?:did|called|interrupted)[^\]]*\]/g, "").trim();
 function turnsOf(c) {
-  if (c.transcript?.length) return c.transcript.map(t => ({ role: t.role === "user" ? "user" : "agent", text: spoken(t.text), cut: /\[interrupted/.test(t.text) })).filter(t => t.text);
+  if (c.transcript?.length) return c.transcript.map(t => ({ role: t.role === "user" ? "user" : "agent", text: spoken(t.text), cut: /\[interrupted/.test(t.text) }))
+    .filter(t => t.text && !(t.role === "user" && /^\((?:You called him|System:|The caller is speaking)/.test(t.text)))
+    .map(t => (t.role === "user" && /^\(Silence/.test(t.text) ? { role: "hint", text: "(silence)" } : t));
   const out = [];
   for (const e of c.events ?? []) {
     if (e.event === "heard" && e.text) out.push({ role: "user", text: e.text, turn: e.turn });
@@ -532,7 +538,7 @@ function turnsOf(c) {
   }
   return out;
 }
-const speaker = (c, t) => (t.role === "user" ? c.userName || "Caller" : agentName());
+const speaker = (c, t) => (t.role === "hint" ? "" : t.role === "user" ? (c.rehearsalOf ? `${c.rehearsalOf} (played)` : c.userName || "Caller") : agentName());
 
 // ---------- Markdown (what the copy buttons and the download give) ----------
 const mdHead = c => `# ${callTitle(c)}\n\n${callMeta(c).join(" · ")}\n`;
@@ -545,7 +551,17 @@ function summaryMd(c) {
     r.open_questions.length && `### Open questions\n\n${r.open_questions.map(q => `- ${q}`).join("\n")}`,
   ].filter(Boolean).join("\n\n");
 }
-const transcriptMd = c => `## Transcript\n\n${turnsOf(c).map(t => `**${speaker(c, t)}:** ${t.text}${t.cut ? " …" : ""}`).join("\n\n")}`;
+const transcriptMd = c => `## Transcript\n\n${turnsOf(c).map(t => (t.role === "hint" ? `_${t.text}_` : `**${speaker(c, t)}:** ${t.text}${t.cut ? " …" : ""}`)).join("\n\n")}`;
+// What the call was for: why Toni called, or her own item at the end of his call.
+const sentence = t => String(t ?? "").charAt(0) + String(t ?? "").slice(1).toLowerCase();
+const goalMd = c => (c.goal?.length ? `## ${c.direction === "outbound" ? `Why ${agentName()} called` : `${agentName()}'s own items`}\n\n${c.goal.map(g => `- **${sentence(g.title)}**${g.focus ? `: ${g.focus}` : ""}${g.questions?.length ? `\n${g.questions.map(q => `  - ${q}`).join("\n")}` : ""}`).join("\n")}\n` : "");
+function goalHtml(c) {
+  if (!c.goal?.length) return "";
+  return `<div class="goal"><div class="lbl">${c.direction === "outbound" ? `Why ${esc(agentName())} called` : `${esc(agentName())}'s own items`}${c.rehearsalOf ? ` · rehearsal, nothing kept in ${esc(c.rehearsalOf)}'s memory` : ""}</div>
+    ${c.goal.map(g => `<div style="margin-top:4px"><b>${esc(sentence(g.title))}</b>${g.focus ? `: ${esc(g.focus)}` : ""}
+      ${g.description ? `<div class="muted small">${esc(g.description)}</div>` : ""}
+      ${g.questions?.length ? `<ul>${g.questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul>` : ""}</div>`).join("")}</div>`;
+}
 async function copyText(text, button) {
   try { await navigator.clipboard.writeText(text); } catch {
     const ta = document.createElement("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove();
@@ -555,7 +571,7 @@ async function copyText(text, button) {
   setTimeout(() => { button.innerHTML = was; }, 1400);
 }
 function download(c) {
-  const md = [mdHead(c), summaryMd(c), transcriptMd(c)].filter(Boolean).join("\n");
+  const md = [mdHead(c), goalMd(c), summaryMd(c), transcriptMd(c)].filter(Boolean).join("\n");
   const slug = callTitle(c).toLowerCase().replace(/[äöüß]/g, ch => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[ch]).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([md + "\n"], { type: "text/markdown" })), download: `${new Date(c.startedAt).toISOString().slice(0, 10)}-${slug || "call"}.md` });
   a.click();
@@ -578,6 +594,7 @@ function renderCall() {
   $("view-call").innerHTML = `<a href="#calls" class="back">‹ Calls</a>
     <h1>${c.endedAt ? "" : '<span class="livedot" style="vertical-align:middle;margin-right:8px"></span>'}${esc(callTitle(c))}</h1>
     <div class="muted small" style="margin-top:6px">${callMeta(c).map(esc).join(" · ")} · <a href="${callLink(c.id)}" target="_blank">timeline</a></div>
+    ${goalHtml(c)}
     ${quotesHtml(c)}
     <div class="tabs">
       <button class="tab ${tab === "transcript" ? "on" : ""}" data-tab="transcript">Transcript</button>
@@ -589,7 +606,7 @@ function renderCall() {
     </div>
     <div class="doc">${tab === "summary" ? summaryHtml(c) : transcriptHtml(c)}</div>`;
   for (const b of document.querySelectorAll("[data-tab]")) b.onclick = () => { tab = b.dataset.tab; renderCall(); };
-  $("copyTab").onclick = () => copyText([mdHead(c), tab === "summary" ? summaryMd(c) || "(no summary yet)" : transcriptMd(c)].join("\n"), $("copyTab"));
+  $("copyTab").onclick = () => copyText([mdHead(c), tab === "summary" ? [goalMd(c), summaryMd(c) || "(no summary yet)"].filter(Boolean).join("\n") : transcriptMd(c)].join("\n"), $("copyTab"));
   $("downloadMd").onclick = () => download(c);
   const write = $("writeRecap");
   if (write) write.onclick = async () => {
@@ -617,7 +634,7 @@ function summaryHtml(c) {
 }
 function transcriptHtml(c) {
   const turns = turnsOf(c);
-  return turns.map(t => `<div class="turn ${t.role}"><div class="who">${esc(speaker(c, t))}</div><div>${esc(t.text)}${t.cut ? ' <span class="muted">…</span>' : ""}</div></div>`).join("")
+  return turns.map(t => (t.role === "hint" ? `<div class="turn hint">${esc(t.text)}</div>` : `<div class="turn ${t.role}"><div class="who">${esc(speaker(c, t))}</div><div>${esc(t.text)}${t.cut ? ' <span class="muted">…</span>' : ""}</div></div>`)).join("")
     || `<div class="empty" style="padding:12px">${c.endedAt ? "Nothing was said in this call." : "Waiting for the first words…"}</div>`;
 }
 

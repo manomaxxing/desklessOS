@@ -41,7 +41,7 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
   };
   const stepContext = (item, lang, tools = []) => ({
     r: renderer(lang, item ? `templates/${item.template.id}` : `personas/${persona.id}`),
-    lang, locales, discovery, framework,
+    lang, locales, discovery, framework, outbound,
     params: item?.params ?? {}, key: item?.key, questionLang: item?.questionLang ?? null,
     previous: item?.previous ?? null, // what this objective got in earlier calls (its stored result)
     agentLabel: persona.agentLabel ?? "Agent",
@@ -89,6 +89,9 @@ NEXT: <listen | wait | ask | confirm | hangup>
 ${section("next")}`;
       const own = items.map((o, i) => `${i + 1}. ${stepsText(o.template, o, lang)}`);
       const status = statusLines(lang);
+      // What he told in earlier calls' research questions: the research item shows it; without one (a call Toni makes), this does.
+      const researching = items.some(o => o.template.steps.some(s => s.primitive === "research"));
+      const known = !researching && discovery?.known?.();
       return [
         // static: the same on every turn of every call in this language
         `${section("role")}\n${intro}`,
@@ -104,6 +107,7 @@ ${section("next")}`;
         `Today is ${today}; it's ${promptTime(now, profile.timezone)} for him.`,
         outbound ? section("outbound") : "",
         own.length ? `${section("agenda")}\n\nItems for this call, in this order:\n${own.join("\n\n")}` : "",
+        known ? `WHAT HE TOLD YOU IN EARLIER CALLS (about his business): known, so never ask it again; build on it instead (${r("{{q ex.knownBefore}}")}):\n${known}` : "",
         `MEMORY (persists across calls: to-dos, customers and their notes):\n${memory || "(empty)"}`,
         // per turn
         `THIS CALL (changes every turn, so it comes last):

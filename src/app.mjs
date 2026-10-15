@@ -91,7 +91,7 @@ export async function createApp(env = process.env) {
   const onStatus = status => scheduler?.callStatus(status).catch(err => log("call status error", err.message));
   const twilio = twilioAdapter({ host, wss, bus, env, onStatus, monitor, log });
   const fake = cfg.outbound === "fake" ? fakeAdapter({ wss, devAllowed, onStatus, monitor, log }) : null;
-  const whatsapp = whatsappAdapter({ host, env, monitor, log });
+  const whatsapp = whatsappAdapter({ host, env, onStatus, monitor, log });
   const adapters = [dialAdapter({ host, wss, secret: cfg.dialSecret, requireSignature: cfg.cloudRun, devAllowed, monitor, log }), twilio, whatsapp, fake].filter(Boolean);
 
   // Outbound calls: OUTBOUND=twilio (needs the Twilio settings), fake for tests, or off.

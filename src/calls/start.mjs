@@ -6,6 +6,8 @@
 // (src/engine/live-session.mjs: Gemini Live). If Live fails mid-call, the cascade takes
 // the call over. Calls we make and Max's own line always run on the cascade.
 // Max on his own line (ADMIN_PHONE) gets the admin persona instead, and keeps nothing.
+// A rehearsal (msg.rehearsal_of: a user id) is a call to Max's own phone that plays one to
+// that person: his memory and objectives, read only; the call is kept under the demo user.
 // A WhatsApp call can send him a quote PDF into his chat (quote_send, once his "quotes"
 // feature is on); the online test phone saves it for the dashboard only; other lines don't offer it.
 
@@ -15,13 +17,14 @@ import { adminTools } from "../tools/admin.mjs";
 import { quoteSend } from "../tools/quote.mjs";
 import { hasFeature } from "../features.mjs";
 import { emptyScope, e164 } from "../memory/pg.mjs";
+import { shortCallId } from "../telephony/whatsapp.mjs";
 
 export const describeMode = c => (c.engine === "live" ? `Gemini Live · ${c.liveModel} · ${c.liveVoice}` : `${c.model} + Fish · ${c.mask}`);
 
 export function createCallStarter({ cfg, skill, adminSkill = null, memory, monitor, clips, endpoint, fish, turnDetector = null, requests, auth, background, quotes = null, whatsapp = null, log }) {
   const adminPhones = new Set(cfg.adminPhones.map(e164).filter(Boolean));
   const phoneConfig = { engine: cfg.engine, model: cfg.model, mask: cfg.mask, liveModel: cfg.liveModel, liveVoice: cfg.liveVoice };
-  const callLog = id => (...a) => log(`[${id.slice(-6)}]`, ...a);
+  const callLog = id => (...a) => log(`[${shortCallId(id)}]`, ...a);
   const recordDir = cfg.recordCalls ? callId => monitor.audioDir(callId) : null;
 
   function startAdminCall({ id, send, dev, config, assets }) {
@@ -46,13 +49,18 @@ export function createCallStarter({ cfg, skill, adminSkill = null, memory, monit
     const shownSource = source === "dev" ? (/-browser$/.test(msg.from ?? "") ? "browser" : "script") : source;
     monitor.start({ id, from: msg.from, to: msg.to, lang: null, mode: describeMode(config), source: shownSource });
     // Memory down? The call still happens, only without what we know about him (and nothing is kept).
-    const scope = await memory.openCall({ callId: id, from: outbound ? msg.to : msg.from, to: outbound ? msg.from : msg.to, userId: msg.user_id ?? null, direction: outbound ? "outbound" : "inbound", source: shownSource })
+    const scope = await memory.openCall({ callId: id, from: outbound ? msg.to : msg.from, to: outbound ? msg.from : msg.to, userId: msg.user_id ?? null, direction: outbound ? "outbound" : "inbound", source: shownSource, rehearsalOf: msg.rehearsal_of ?? null })
       .catch(err => { log(`call ${id}: memory error, going on without it: ${err.message}`); monitor.system(`call ${id}: memory unavailable (${err.message})`, "error"); return emptyScope(); });
     if (scope.stats) monitor.event(id, { event: "context", ...scope.stats });
     if (!scope.user) monitor.system(`call ${id}: unknown caller ${msg.from ?? "?"}: empty memory, nothing saved`, "warn");
-    const agenda = skill.createAgenda({ objectives: scope.objectives, discovery: scope.discovery, direction: outbound ? "outbound" : "inbound", user: scope.user });
+    if (scope.rehearsal) monitor.system(`call ${id}: a rehearsal of a call to ${scope.rehearsal.of} (his memory, read only)`);
+    // A call Toni makes can bring its errand along (a rehearsal's: not stored, so nothing is written back).
+    const errands = (msg.objectives ?? []).map((o, i) => ({ id: `errand_${i + 1}`, template: o.template, params: skill.objectiveParams(o.template, o.params ?? {}), stored: false, lang: o.lang ?? null }));
+    const agenda = skill.createAgenda({ objectives: [...errands, ...scope.objectives], discovery: scope.discovery, direction: outbound ? "outbound" : "inbound", user: scope.user });
     const stored = agenda.objectives.filter(o => o.stored).map(o => o.id);
-    if (stored.length) await scope.setAgenda(stored);
+    // What the call is for, as the dashboard shows it: each item's title and what it was given.
+    const goal = agenda.objectives.map(o => ({ template: o.template.id, title: o.template.title, description: o.template.description ?? "", focus: o.params?.focus ?? "", questions: (o.params?.questions ?? []).map(q => q.ask), stored: Boolean(o.stored) }));
+    if (goal.length) await scope.setAgenda(stored, goal);
     if (agenda.objectives.length) monitor.system(`call ${id}: agenda ${agenda.objectives.map(o => (o.stored ? `${o.template.id} ${o.id}` : o.template.id)).join(", ")}`);
 
     const viaWhatsApp = source === "whatsapp" && Boolean(whatsapp) && Boolean(msg.from);

@@ -253,7 +253,31 @@ test("the demo: the test phone and Max's own number reach it; its own org, no re
   assert.equal((await mem.openCall({ callId: "demo4", from: niko.phone || "+4915100000000" })).user.name, "Niko", "his own number still reaches Niko");
   const [{ n }] = await db.query("select count(*)::int n from calls where id in ('demo1', 'demo2', 'demo3') and user_id = $1", [demos[0].id]);
   assert.equal(n, 3, "demo calls are saved, as the demo's");
+  const { scope: post } = await ended("demo5", { from: "+41780000001" });
+  const changed = await post.apply(result({ customer: { name: "Frau Demo" }, new_actions: [] }), { callId: "demo5", date: "2026-10-15" });
+  assert.equal(changed.customer.name, "Frau Demo", "a demo call's after-call step goes through");
+  assert.equal(changed.discovery, undefined, "and keeps no research findings");
+  await db.query("delete from contacts where org_id = $1", [demos[0].orgId]);
   await db.query("delete from calls where id like 'demo%'");
+  await db.query("delete from users where demo");
+});
+
+test("a rehearsal: Max's phone, Niko's memory (read only), the call kept as the demo's", async () => {
+  await mem.ensureDemoUser();
+  const demo = (await mem.listUsers()).find(u => u.demo);
+  await mem.updateUser(demo.id, { phone: "+41 78 000 00 02" });
+  const niko = (await mem.listUsers()).find(u => u.name === "Niko");
+  const [{ id: objId }] = await db.query("insert into objectives (id, org_id, user_id, template, params, mode, status) values ('obj_rehearsal', $1, $2, 'inquiry', $3, 'outbound', 'pending') returning id", [niko.orgId, niko.id, JSON.stringify({ questions: [{ ask: "Wie lange?" }] })]);
+  const scope = await mem.openCall({ callId: "rehearsal1", from: "+41780000002", direction: "outbound", rehearsalOf: niko.id });
+  assert.equal(scope.user.name, "Niko", "Toni talks to Niko");
+  assert.deepEqual(scope.rehearsal, { of: "Niko" });
+  assert.ok(scope.objectives.some(o => o.id === objId && o.stored === false), "his objectives come along as copies");
+  const [call] = await db.query("select user_id, meta from calls where id = 'rehearsal1'");
+  assert.equal(call.user_id, demo.id, "the call is the demo's");
+  assert.equal(call.meta.rehearsalOf.name, "Niko");
+  assert.equal((await mem.openCall({ callId: "plain1", from: "+41780000002" })).rehearsal, null);
+  await db.query("delete from objectives where id = $1", [objId]);
+  await db.query("delete from calls where id in ('rehearsal1', 'plain1')");
   await db.query("delete from users where demo");
 });
 

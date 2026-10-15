@@ -19,6 +19,7 @@ import { timingSafeEqual } from "node:crypto";
 import { renderQuotePdf, quoteFileName } from "../quotes/pdf.mjs";
 import { FEATURES } from "../features.mjs";
 import { locales } from "../locale/index.mjs";
+import { e164 } from "../memory/pg.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "web");
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg" };
@@ -77,6 +78,22 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
 
     // ---------- background work (Cloud Scheduler, every minute) ----------
     ["POST", "/internal/tick", "tick", () => background.tick()],
+
+    // ---------- a call Toni makes on WhatsApp, now (on the WhatsApp service: it holds the call's audio) ----------
+    // { to: one of our users' numbers, rehearsalOf?: a user id (Max plays that person: his memory, read only),
+    //   objectives?: [{ template, params }] (what the call is for) } → { callId }
+    ["POST", "/internal/whatsapp/call", "tick", async ({ body }) => {
+      const whatsapp = adapters.find(a => a.id === "whatsapp");
+      if (!whatsapp?.dialOut) throw fail(503, "no WhatsApp here");
+      const users = await memory.listUsers();
+      const to = users.find(u => u.phone && u.phone === e164(body.to))?.phone;
+      if (!to) throw fail(400, "to: only our own users' numbers");
+      if (body.rehearsalOf && !users.some(u => u.id === body.rehearsalOf)) throw fail(400, "rehearsalOf: no such user");
+      const objectives = [].concat(body.objectives ?? []).map(o => ({ template: o.template, params: skill.objectiveParams(o.template, o.params ?? {}) }));
+      const placed = await whatsapp.dialOut({ to, extra: { rehearsal_of: body.rehearsalOf ?? null, objectives } });
+      log(`whatsapp: calling ${to}${body.rehearsalOf ? ` (a rehearsal of a call to ${users.find(u => u.id === body.rehearsalOf).name})` : ""}`);
+      return placed;
+    }],
 
     // ---------- pages ----------
     ["GET", "/admin", "public", () => page("admin.html")],
@@ -213,7 +230,7 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
       if (!call) throw fail(404, "unknown call");
       if (!call.endedAt) throw fail(409, "the summary is written when the call has ended");
       if (!call.transcript?.some(t => t.role === "user")) throw fail(409, "nothing was said in this call");
-      const recap = await writeRecap({ turns: call.transcript, name: call.userName, lang: call.lang, startedAt: call.startedAt });
+      const recap = await writeRecap({ turns: call.transcript, name: call.rehearsalOf ?? call.userName, lang: call.lang, startedAt: call.startedAt });
       await memory.saveRecap(id, recap);
       return { recap };
     }],

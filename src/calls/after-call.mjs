@@ -77,7 +77,7 @@ export function createAfterCall({ memory, skill, endpoint, model, fallbackModel 
     // 6. The summary for the dashboard.
     let recap = null;
     if (spoke && writeRecap && !call.recap) {
-      recap = await writeRecap({ turns, name: user.name, lang, startedAt: call.startedAt, onUsage: onUsage("recap") });
+      recap = await writeRecap({ turns, name: call.rehearsalOf ?? user.name, lang, startedAt: call.startedAt, onUsage: onUsage("recap") }); // a rehearsal: who was played
       await state.saveRecap(recap);
     }
 

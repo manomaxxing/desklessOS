@@ -59,7 +59,12 @@ export function quoteSend({ memory, quotes, sender = null, to = null, agent = "T
       } catch (err) {
         log(`quote ${q.number}: not sent: ${err.message}`);
         await quotes.markFailed(quote.id, err.message).catch(() => {});
-        throw new Error(`the quote couldn't be sent (${err.message.slice(0, 120)})`);
+        ctx.emit?.("quote", { id: quote.id, number: q.number, sent: false, error: err.message.slice(0, 200) });
+        // What he hears: the reason in plain words, and that the quote isn't lost.
+        const why = /131030/.test(err.message) ? "WhatsApp hasn't approved his number for messages from this test number yet; Max has to add it"
+          : /131047|re-?engagement/i.test(err.message) ? "his WhatsApp chat window is closed (more than 24 hours since he last wrote or called)"
+            : "WhatsApp didn't take it just now";
+        throw new Error(`NOT sent to his WhatsApp: ${why}. The quote ${q.number} is saved; Max sees it on the dashboard. Say that plainly, don't guess other reasons, and promise nothing more.`);
       }
     },
   });

@@ -79,7 +79,7 @@ const callOut = c => c && ({
   id: c.id, userId: c.user_id, direction: c.direction, source: c.source, from: c.from_e164, to: c.to_e164, lang: c.lang,
   startedAt: new Date(c.started_at).getTime(), endedAt: c.ended_at ? new Date(c.ended_at).getTime() : null, endedReason: c.ended_reason,
   summary: c.summary, callType: c.call_type, mode: c.meta?.mode ?? null, usd: c.meta?.usd ?? null, turns: c.turns ?? null, savedNoteId: c.note_id ?? null,
-  userName: c.user_name ?? null, title: c.recap?.title ?? c.recap_title ?? null,
+  userName: c.user_name ?? null, title: c.recap?.title ?? c.recap_title ?? null, goal: c.meta?.goal ?? [], rehearsalOf: c.meta?.rehearsalOf?.name ?? null,
   ...(c.timeline ? { events: c.timeline, transcript: c.transcript, note: c.note ?? c.extraction ?? null, cost: c.meta?.cost ?? null, recap: c.recap ?? null } : {}),
 });
 
@@ -306,8 +306,10 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
             if (t) changed.updated.push(taskOut(t));
           }
 
-          if (framework && result.discovery) {
-            const { discovery, storage } = await loadResearch(q, user);
+          // The demo has no research (loadResearch gives nothing): its calls' findings aren't kept.
+          const research = framework && result.discovery ? await loadResearch(q, user) : null;
+          if (research) {
+            const { discovery, storage } = research;
             changed.discovery = discovery.apply(result.discovery, { callId, date });
             for (const f of changed.discovery.findings) {
               await q.query("insert into facts (org_id, user_id, subject, kind, text, quote, tags, source_call_id) values ($1, $2, 'user', $3, $4, $5, $6, $7)",
@@ -410,29 +412,38 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
     ensureDemoUser,
 
     /** Everything one call needs from memory, read once when it connects; the call's row starts here. */
-    async openCall({ callId, from = null, to = null, userId = null, direction = "inbound", source = "", at = new Date() }) {
+    /**
+     * A call begins. `rehearsalOf`: a rehearsal (Max tries out a call to someone on his own phone):
+     * the call is kept under its own user (the demo), but Toni knows what she knows about that
+     * person, and nothing of it goes into his memory: his objectives come along as copies.
+     */
+    async openCall({ callId, from = null, to = null, userId = null, direction = "inbound", source = "", at = new Date(), rehearsalOf = null }) {
       const started = performance.now();
       // An outbound call knows whom it called; an inbound one goes by caller ID.
       const user = isUuid(userId) ? (await db.query("select * from users where id = $1", [userId]))[0] ?? null : await callerUser(from);
       if (!user) return emptyScope();
-      await db.query("insert into calls (id, org_id, user_id, direction, source, from_e164, to_e164, started_at) values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (id) do nothing",
-        [callId, user.org_id, user.id, direction, source, e164(from), e164(to), at.toISOString()]);
-      const [data, research, found, [{ talked }]] = await Promise.all([contextData(user, at), loadResearch(db, user), objectives.forCall(user, { direction, at }),
-        db.query("select exists (select 1 from calls where user_id = $1 and id <> $2 and jsonb_array_length(transcript) > 2) talked", [user.id, callId])]);
-      const pending = await withLastCall(found);
+      const subject = isUuid(rehearsalOf) ? (await db.query("select * from users where id = $1", [rehearsalOf]))[0] ?? null : user;
+      if (!subject) return emptyScope();
+      const rehearsal = subject.id !== user.id;
+      await db.query("insert into calls (id, org_id, user_id, direction, source, from_e164, to_e164, started_at, meta) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (id) do nothing",
+        [callId, user.org_id, user.id, direction, source, e164(from), e164(to), at.toISOString(), json(rehearsal ? { rehearsalOf: { id: subject.id, name: subject.name } } : {})]);
+      const [data, research, found, [{ talked }]] = await Promise.all([contextData(subject, at), loadResearch(db, subject), objectives.forCall(subject, { direction, at }),
+        db.query("select exists (select 1 from calls where user_id = $1 and id <> $2 and jsonb_array_length(transcript) > 2) talked", [subject.id, callId])]);
+      const pending = (await withLastCall(found)).map(o => (rehearsal ? { ...o, stored: false } : o));
       const ctx = buildContext(data, { budget });
       return {
-        user: { id: user.id, orgId: user.org_id, name: user.name, lang: user.lang, timezone: user.timezone, profile: user.profile },
+        user: { id: subject.id, orgId: subject.org_id, name: subject.name, lang: subject.lang, timezone: subject.timezone, profile: subject.profile },
+        rehearsal: rehearsal ? { of: subject.name } : null,
         context: ctx.text,
         hidden: ctx.hidden,
         firstCall: !talked, // he's never really talked with Toni before
         stats: { ...ctx.stats, ms: Math.round(performance.now() - started) },
         discovery: research?.discovery ?? null,
         objectives: pending,
-        search: query => search(user, query),
-        /** The stored objectives this call's agenda took on. */
-        async setAgenda(objectiveIds) {
-          await db.query("update calls set objective_ids = $2 where id = $1", [callId, objectiveIds]);
+        search: query => search(subject, query),
+        /** The stored objectives this call's agenda took on, and what all its items were for (the dashboard shows it). */
+        async setAgenda(objectiveIds, goal = []) {
+          await db.query("update calls set objective_ids = $2, meta = meta || $3::jsonb where id = $1", [callId, objectiveIds, json({ goal })]);
         },
         /** The call so far (after every turn and note): if this instance dies, nothing is lost. */
         async checkpoint({ turns = [], extraction = null, extractionTurns = 0, lang = null } = {}) {
@@ -465,7 +476,7 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       if (!user) return null;
       const research = await loadResearch(db, user);
       return {
-        call: { id: c.id, direction: c.direction, source: c.source, from: c.from_e164, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at, recap: c.recap ?? null, noteSentAt: c.meta?.noteSentAt ?? null },
+        call: { id: c.id, direction: c.direction, source: c.source, from: c.from_e164, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at, recap: c.recap ?? null, noteSentAt: c.meta?.noteSentAt ?? null, rehearsalOf: c.meta?.rehearsalOf?.name ?? null },
         user: { ...userOut(user), profile: user.profile ?? {} },
         objectives: await objectives.byIds(c.objective_ids ?? []),
         discovery: research?.discovery ?? null,

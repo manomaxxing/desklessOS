@@ -93,11 +93,11 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
 
     /**
      * The agenda for one call. `objectives`: stored objectives picked for this call
-     * (src/memory/pg.mjs), best first. `discovery`: the research state, if the
+     * (src/memory/pg.mjs), best first; `stored: false` ones (a rehearsal's) aren't written back. `discovery`: the research state, if the
      * persona researches. At most MAX_OBJECTIVES of the agent's own items per call.
      */
     createAgenda({ objectives = [], discovery = null, direction = "inbound", user = null } = {}) {
-      const own = objectives.map(o => ({ id: o.id, key: o.id, template: byId(o.template), params: o.params, stored: true, previous: o.result || o.lastCall ? { ...(o.result ?? {}), lastCall: o.lastCall ?? null } : null, questionLang: o.lang ?? locales.guess(o.params.questions?.map(q => q.ask).join(" ") ?? "") ?? profile.lang }));
+      const own = objectives.map(o => ({ id: o.id, key: o.id, template: byId(o.template), params: o.params, stored: o.stored !== false, previous: o.result || o.lastCall ? { ...(o.result ?? {}), lastCall: o.lastCall ?? null } : null, questionLang: o.lang ?? locales.guess(o.params.questions?.map(q => q.ask).join(" ") ?? "") ?? profile.lang }));
       const always = standing.filter(t => discovery || !t.steps.some(s => s.primitive === "research")).map(t => ({ id: t.id, key: t.id.replace(/\W/g, "_"), template: t, params: {}, stored: false }));
       // A call the agent makes is for its errand only, and a "standalone" item (a whole conversation,
       // like his day) is the call's own item too: no standing items (research) on top.

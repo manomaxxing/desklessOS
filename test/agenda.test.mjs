@@ -166,3 +166,24 @@ test("a tool's instructions only on a call that has the tool: no promise it can'
   const withTool = agenda.prompt({ lang: "de", tools: ["quote_send"] });
   assert.match(withTool, /- QUOTE \(the job has work to quote\): .*"Soll ich dir das als Angebot auf WhatsApp schicken\?"/);
 });
+
+test("what he told before: in a call Toni makes (no research item), not twice in his own calls", () => {
+  const skill = loadSkillFromTemplates("pilot");
+  const discovery = createDiscovery({ framework: skill.framework });
+  discovery.apply({ findings: [{ area: skill.framework.areas[1].id, kind: "fact", text: "Anfragen kommen meistens per Anruf." }] }, { callId: "c0", date: "2026-10-14" });
+  const out = skill.createAgenda({ objectives: [{ id: "errand_1", template: "discovery.day", params: {}, stored: false }], discovery, direction: "outbound" }).prompt({});
+  assert.match(out, /WHAT HE TOLD YOU IN EARLIER CALLS[^]*Anfragen kommen meistens per Anruf\./);
+  const inbound = skill.createAgenda({ discovery }).prompt({});
+  assert.doesNotMatch(inbound, /WHAT HE TOLD YOU IN EARLIER CALLS/, "his own calls have the research block");
+  assert.match(inbound, /Anfragen kommen meistens per Anruf\./);
+  assert.doesNotMatch(skill.createAgenda({ objectives: [{ id: "errand_1", template: "discovery.day", params: {}, stored: false }], discovery: createDiscovery({ framework: skill.framework }), direction: "outbound" }).prompt({}), /EARLIER CALLS/, "nothing told yet: no block");
+});
+
+test("a focus: a call Toni makes leads with it; in his own calls it waits until it comes up", () => {
+  const skill = loadSkillFromTemplates("pilot");
+  const objectives = [{ id: "errand_1", template: "discovery.day", params: { focus: "how his last quote went" }, stored: false }];
+  assert.match(skill.createAgenda({ objectives, direction: "outbound" }).prompt({}), /THIS CALL'S FOCUS \(why you called\): how his last quote went\./);
+  const inbound = skill.createAgenda({ objectives }).prompt({});
+  assert.match(inbound, /If it comes up naturally, Max is especially curious about: how his last quote went\./);
+  assert.doesNotMatch(inbound, /THIS CALL'S FOCUS/);
+});

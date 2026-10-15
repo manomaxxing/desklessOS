@@ -147,6 +147,7 @@
         "confirm": "xx:Sound right?",
         "offerQuote": "xx:Want me to send that to your WhatsApp as a quote?",
         "echoName": "xx:Huber in Allensbach, oki.",
+        "knownBefore": "xx:You said most inquiries come by phone. How was the last one?",
         "selfName": "xx:your AI assistant",
         "notedOn": "xx:On October third you said …",
         "briefTriggers": [

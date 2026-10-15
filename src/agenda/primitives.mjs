@@ -181,7 +181,10 @@ const conversation = {
       : "";
     return [
       c.r(s.instructions),
-      c.params.focus ? `If it comes up naturally, Max is especially curious about: ${c.params.focus}.` : "",
+      // A call Toni makes for a focus leads with it: "how was your day" gets "okay", the last concrete case gets a story.
+      c.params.focus && c.outbound
+        ? `THIS CALL'S FOCUS (why you called): ${c.params.focus}. This comes before his day in general: your one sentence why you're calling is this focus, in a few plain words, linked to what he told before if it fits (${c.r("{{q ex.knownBefore}}")}). Once he has time, ask straight away about the last concrete case of it (when it was, what happened next), and follow that story. His day in general only afterwards, if there's time.`
+        : c.params.focus ? `If it comes up naturally, Max is especially curious about: ${c.params.focus}.` : "",
       prev?.open_thread || covered.length || last
         ? `FROM EARLIER CALLS: ${covered.length ? `he already told you about: ${covered.join("; ")}. ` : ""}${prev?.open_thread ? `It stopped while: ${prev.open_thread}. ` : ""}\n${last}If it stopped in the middle of something, pick up from there, naming what he actually told you (in the form of ${c.r("{{q ex.dayPickUp}}")}, the … being his topic); don't start over and don't ask about what's covered again.`
         : "",

@@ -138,7 +138,7 @@ test("HTTP: the session cookie, owner-only routes, JSON-only POSTs, logout; the 
 test("summary prompt: who said what, without the engine's notes", () => {
   assert.equal(spokenText("Erledigt. [did order_execute: {\"ok\":true}]"), "Erledigt.");
   assert.equal(spokenText("Also das war [interrupted by the caller; not heard: \"…\"]"), "Also das war");
-  const p = recapPrompt({ turns: [{ role: "user", text: "Hallo" }, { role: "model", text: "[called memory_search]" }, { role: "model", text: "Hi!" }], name: "Niko", agent: "Toni", date: "2026-10-14" });
+  const p = recapPrompt({ turns: [{ role: "user", text: "(You called him. He picked up; …)" }, { role: "user", text: "Hallo" }, { role: "model", text: "[called memory_search]" }, { role: "model", text: "Hi!" }, { role: "user", text: "(Silence: the caller has said nothing for a few seconds.)" }], name: "Niko", agent: "Toni", date: "2026-10-14" });
   assert.equal(p, "The call was on 2026-10-14.\n\nTranscript:\nNiko: Hallo\nToni: Hi!");
 });
 

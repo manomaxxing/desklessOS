@@ -108,6 +108,7 @@
         "confirm": "Passt das?",
         "offerQuote": "Soll ich dir das als Angebot auf WhatsApp schicken?",
         "echoName": "Huber in Allensbach, okay.",
+        "knownBefore": "Du hast ja erzählt, die Anfragen kommen meistens per Anruf. Wie war das bei der letzten?",
         "selfName": "deine KI-Assistentin",
         "notedOn": "Am dritten Oktober hast du gesagt …",
         "briefTriggers": ["ich fahr zu …", "was war bei …"],
