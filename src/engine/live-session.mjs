@@ -15,7 +15,7 @@ import WebSocket from "ws";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { liveTarget } from "./live-endpoint.mjs";
-import { extractJsonResilient } from "./gemini.mjs";
+import { extractJsonResilient, FALLBACK_MODEL } from "./gemini.mjs";
 import { createTypist } from "./ambience.mjs";
 import { createMeter, geminiCost } from "./cost.mjs";
 import { createVad } from "./vad.mjs";
@@ -27,14 +27,14 @@ import { callTools } from "../tools/index.mjs";
 const MARK_EVERY_MS = 800; // playback checkpoints, to know how much the caller actually heard
 
 /** `openSocket(url, options)`: the WebSocket to Gemini (tests pass a fake). */
-export function createLiveSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, extractModel, memory = null, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null, openSocket = (url, options) => new WebSocket(url, options) }) {
+export function createLiveSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, extractModel, memory = null, assets = {}, config = {}, log = () => {}, onEvent = () => {}, onEnd = () => {}, onFatal = () => {}, recordDir = null, tools: extraTools = [], firstCall = false, openSocket = (url, options) => new WebSocket(url, options) }) {
   const cfg = { liveModel: "vertex-eu:gemini-3.8-live", liveVoice: "Kore", mask: "typing", ...config };
   // Live answers fast, but thinks before longer replies (the wrap-up summary): type meanwhile.
   const typist = assets.typing && cfg.mask === "typing" ? createTypist(assets.typing, chunk => send({ type: "media", payload: chunk.toString("base64") })) : null;
   let typingTimer = null;
   const stopTyping = () => { clearTimeout(typingTimer); typist?.stop(); };
   const target = liveTarget(cfg.liveModel);
-  const runner = createToolRunner({ tools: callTools({ engine: "live", memory, allow: agenda.tools() }) });
+  const runner = createToolRunner({ tools: callTools({ engine: "live", memory, allow: agenda.tools(), extra: extraTools }) });
   const meter = createMeter();
   const debug = (event, data = {}) => { onEvent({ event, ...data }); if (dev) send({ type: "debug", event, ...data, t: Date.now() }); };
   const fail = (where, err) => { log(`${where} error`, err.message); debug("error", { where, message: err.message }); };
@@ -99,7 +99,8 @@ export function createLiveSession({ send, dev = false, skill, agenda = skill.cre
   async function connect() {
     const headers = target.vertex ? { Authorization: (await endpoint.headers()).authorization } : {};
     gem = openSocket(target.url, { headers });
-    const greeting = locales().persona(lang, skill.PERSONA)?.greeting ?? "";
+    const lines = locales().persona(lang, skill.PERSONA) ?? {};
+    const greeting = (firstCall && lines.firstGreeting) || lines.greeting || "";
     gem.on("open", () => {
       gem.send(JSON.stringify({
         setup: {
@@ -108,7 +109,7 @@ export function createLiveSession({ send, dev = false, skill, agenda = skill.cre
             responseModalities: ["AUDIO"],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: cfg.liveVoice } }, ...(target.vertex ? { languageCode: locales().bcp47(lang) } : {}) },
           },
-          systemInstruction: { parts: [{ text: agenda.prompt({ engine: "live", note, missing, memory: memory?.context ?? "", lang }) }] },
+          systemInstruction: { parts: [{ text: agenda.prompt({ engine: "live", note, missing, memory: memory?.context ?? "", lang, tools: runner.declarations().map(d => d.name) }) }] },
           realtimeInputConfig: {
             automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: "START_SENSITIVITY_LOW", endOfSpeechSensitivity: "END_SENSITIVITY_LOW", prefixPaddingMs: 100, silenceDurationMs: Number(process.env.LIVE_SILENCE_MS || 800) },
             activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
@@ -263,7 +264,7 @@ export function createLiveSession({ send, dev = false, skill, agenda = skill.cre
   function extractNote({ hedgeMs }) {
     const seq = ++noteSeq;
     const snapshot = turns.slice();
-    return extractJsonResilient({ endpoint, models: [extractModel, process.env.FALLBACK_MODEL || "gemini-2.5-flash"], hedgeMs, system: agenda.extractSystem(lang), prompt: agenda.extractPrompt({ turns: snapshot, lang }), schema: agenda.schema(), onUsage: u => record("note", u, null, extractModel) })
+    return extractJsonResilient({ endpoint, models: [extractModel, FALLBACK_MODEL], hedgeMs, system: agenda.extractSystem(lang), prompt: agenda.extractPrompt({ turns: snapshot, lang }), schema: agenda.schema(), onUsage: u => record("note", u, null, extractModel) })
       .then(updated => {
         if (seq < noteApplied) return note;
         noteApplied = seq;

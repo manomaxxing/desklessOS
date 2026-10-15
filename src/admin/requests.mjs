@@ -35,7 +35,8 @@ export function createRequests({ memory, skill, auth, llm, queue = null, notifie
    */
   async function planConversation({ userId = null, focus = "", mode = "outbound", by = "admin" } = {}) {
     const users = await memory.listUsers();
-    const user = users.find(u => u.id === userId) ?? (users.length === 1 ? users[0] : null);
+    const people = users.filter(u => !u.demo); // "the only one" means the only real person
+    const user = users.find(u => u.id === userId) ?? (people.length === 1 ? people[0] : null);
     if (!user) throw Object.assign(new Error("who should Toni talk to? (userId)"), { status: 400 });
     let params;
     try { params = skill.objectiveParams("discovery.day", { focus }); } catch (err) { throw Object.assign(err, { status: 400 }); }

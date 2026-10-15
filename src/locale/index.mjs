@@ -31,6 +31,10 @@ function compileLexicon(lex = {}) {
     // A reply that is only a backchannel ("Mhm." / "Okay, weiter.").
     agentBackchannel: lex.agentBackchannel?.length ? new RegExp(`^\\s*(${alternation(lex.agentBackchannel)})[.!,…]*\\s*((${alternation(lex.goOn ?? []) || "(?!)"})[.!…]*)?\\s*$`, "i") : never,
     stopwords: new Set((lex.stopwords ?? []).map(w => w.toLowerCase())),
+    // A yes, and anything that takes it back ("ja, aber…", "nee, warte"): for actions that need his yes.
+    affirm: lex.affirm?.length ? new RegExp(`(^|[^\\p{L}])(${alternation(lex.affirm)})(?=$|[^\\p{L}])`, "iu") : never,
+    send: lex.send?.length ? new RegExp(`(^|[^\\p{L}])(${alternation(lex.send)})`, "iu") : never, // "schick", "WhatsApp": a yes is about sending something
+    negate: lex.negate?.length ? new RegExp(`(^|[^\\p{L}])(${alternation(lex.negate)})(?=$|[^\\p{L}])`, "iu") : never,
     letters: lex.letters ?? "",
     unclear: lex.unclear ?? [],
   };
@@ -62,6 +66,10 @@ export function loadLocales(dir = LOCALES_DIR, { only = process.env.LANGS, fallb
     bcp47: id => get(id).bcp47,
     lexicon: id => get(id).lex,
     unclear,
+    /** A document's texts in this language (documents.<name>: the quote PDF), else the default language's. */
+    document(id, name) {
+      return get(id).documents?.[name] ?? packs.get(defaultId).documents?.[name] ?? null;
+    },
     /** Persona lines and examples in this language (the default language's if this one lacks the persona). */
     persona(id, persona) {
       return get(id).personas?.[persona] ?? packs.get(defaultId).personas?.[persona] ?? null;

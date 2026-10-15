@@ -2,19 +2,22 @@
 // job (kind "after_call", queued in the same transaction that ends the call). Works from
 // the call's row alone, so it runs on any instance, and again after a crash:
 //   1. the final note: the extraction again if the last turns aren't in it yet
-//   2. his note saved (one per call)
+//   2. his note saved (one per call); if he confirmed it on a WhatsApp call and has note_whatsapp,
+//      it goes into his chat (once; a failed send doesn't stop the rest)
 //   3. the agenda's objectives recorded (each call counts once), their requests closed
 //   4. an outbound call's outcome back to the scheduler (retry, call later, done)
 //   5. long-term memory: customers, to-dos, research findings (once per call)
 //   6. the call's summary for the dashboard (src/calls/recap.mjs), unless it has one
 // Every step is idempotent, so the job can be retried from the top.
 
-import { extractJsonResilient } from "../engine/gemini.mjs";
+import { extractJsonResilient, FALLBACK_MODEL } from "../engine/gemini.mjs";
 import { consolidateCall } from "../engine/consolidate.mjs";
 import { geminiCost } from "../engine/cost.mjs";
 import { locales } from "../locale/index.mjs";
+import { hasFeature } from "../features.mjs";
+import { noteMessage } from "./note-message.mjs";
 
-export function createAfterCall({ memory, skill, endpoint, model, fallbackModel = process.env.FALLBACK_MODEL || "gemini-2.5-flash", writeRecap = null, requests = null, scheduler = null, monitor = null, log = () => {} }) {
+export function createAfterCall({ memory, skill, endpoint, model, fallbackModel = FALLBACK_MODEL, writeRecap = null, whatsapp = null, requests = null, scheduler = null, monitor = null, log = () => {} }) {
   return async function afterCall({ callId }) {
     const state = await memory.afterCall(callId);
     if (!state) return { skipped: true }; // done already, still open, or an unknown caller
@@ -22,7 +25,7 @@ export function createAfterCall({ memory, skill, endpoint, model, fallbackModel 
     const tag = `[${callId.slice(-6)}]`;
     let usd = 0;
     const onUsage = step => u => { usd += geminiCost(model, u, step).usd ?? 0; };
-    const agenda = skill.createAgenda({ objectives, discovery, direction: call.direction });
+    const agenda = skill.createAgenda({ objectives, discovery, direction: call.direction, user });
     const { turns, lang } = call;
     const spoke = turns.some(t => t.role === "user" && !locales().unclear.test(t.text));
     const date = new Date(call.startedAt).toISOString().slice(0, 10);
@@ -41,6 +44,20 @@ export function createAfterCall({ memory, skill, endpoint, model, fallbackModel 
 
     // 2. His note.
     const saved = agenda.worthSaving(note) ? await scope.saveNote({ ...note, lang: lang ?? "" }) : null;
+    let noteSent = null;
+    if (saved && note.confirmed === true && whatsapp && call.source === "whatsapp" && call.from && !call.noteSentAt && hasFeature(user, "note_whatsapp")) {
+      const text = noteMessage(note, lang ?? locales().defaultId);
+      if (text) {
+        try {
+          const { messageId } = await whatsapp.sendText({ to: call.from, text });
+          await state.noteSent(messageId);
+          noteSent = messageId;
+        } catch (err) {
+          log(`${tag} note to WhatsApp not sent: ${err.message}`);
+          monitor?.system(`call ${callId}: note to WhatsApp not sent: ${err.message}`, "warn");
+        }
+      }
+    }
 
     // 3. What the agent brought: answers recorded, requests closed (and Max told).
     const changed = await scope.recordObjectives(agenda.results());
@@ -64,12 +81,12 @@ export function createAfterCall({ memory, skill, endpoint, model, fallbackModel 
       await state.saveRecap(recap);
     }
 
-    const events = [...(saved ? [{ event: "saved", id: saved.id }] : []), ...(memoryResult ? [{ event: "memory", ...memoryResult }] : []), ...(recap ? [{ event: "recap", title: recap.title }] : [])];
+    const events = [...(saved ? [{ event: "saved", id: saved.id }] : []), ...(noteSent ? [{ event: "note_sent", messageId: noteSent }] : []), ...(memoryResult ? [{ event: "memory", ...memoryResult }] : []), ...(recap ? [{ event: "recap", title: recap.title }] : [])];
     await state.addEvents(events);
     for (const ev of events) monitor?.event(callId, ev);
     if (usd) await state.addCost(usd);
     await state.done();
-    log(`${tag} after-call done: ${saved ? "note saved" : "no note"}${memoryResult ? `, memory: ${memoryResult.callType}, +${memoryResult.added.length} to-dos, ${memoryResult.completed.length} done` : ""}${changed.length ? `, ${changed.length} objective(s)` : ""}${recap ? ", summary written" : ""}`);
+    log(`${tag} after-call done: ${saved ? "note saved" : "no note"}${memoryResult ? `, memory: ${memoryResult.callType}, +${memoryResult.added.length} to-dos, ${memoryResult.completed.length} done` : ""}${changed.length ? `, ${changed.length} objective(s)` : ""}${recap ? ", summary written" : ""}${noteSent ? ", note sent to WhatsApp" : ""}`);
     return { noteId: saved?.id ?? null, objectives: changed.length, memory: Boolean(memoryResult) };
   };
 }

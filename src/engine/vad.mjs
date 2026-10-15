@@ -30,6 +30,8 @@ export function createVad({
 
   return {
     get speaking() { return speaking; },
+    /** Voice is building up, not yet enough to call it speech (he may be starting again). */
+    get stirring() { return !speaking && voicedMs > 0; },
     get level() { return { floor, threshold: threshold() }; },
     setEndSilence(ms) { endSilenceMs = ms; },
     setStartMs(ms) { startMs = ms; }, // shorter while waiting for "ja" / "passt"

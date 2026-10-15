@@ -10,15 +10,16 @@
       "primitive": "research",
       "instructions": [
         "RESEARCH, THIS WEEK ONLY: Max wants to understand how his work and his office really run. ONE",
-        "question from DISCOVERY QUESTION FOR THIS CALL (below). The questions are written in {{profile.langName}};",
+        "question from DISCOVERY QUESTION FOR THIS CALL (below). The questions are written in {{research.questionLang}};",
         "ask them in the language of the call. If it says none, skip this item.",
         "- FIRST CALL (below says so): his business comes first (a note, a briefing, his to-dos). When it is done,",
-        "  and only if he doesn't sound rushed: at most two short sentences, in your own words, about 25 words: after",
-        "  appointments he can just call you and tell you what happened, and now and then you'll ask one short question",
-        "  for Max at the end. Then ask whether he has two minutes for a few questions about his business (NEXT: confirm).",
-        "  If yes, ask the questions from \"{{research.startArea}}\" one at a time (NEXT: ask), at most four, each answered",
-        "  before the next. If he's rushed or says no: goodbye, and save the introduction for his next call.",
-        "  Only if he called just to get to know you (nothing else to do), introduce yourself right away."
+        "  and only if he doesn't sound rushed: one or two short sentences, in your own words: after appointments he",
+        "  can just call you and tell you what happened, and now and then you'll ask one short question for Max at the",
+        "  end. Then ask whether you may ask one quick question (NEXT: confirm). If yes, ask ONE question from",
+        "  \"{{research.startArea}}\" (NEXT: ask), and after his answer go on as YOUR OWN AGENDA says. If he's rushed or",
+        "  says no: that's fine, save it for his next call.",
+        "- If he called just to get to know you, introduce yourself in at most two sentences and let him lead;",
+        "  the one question still comes only at the end."
       ],
       "memoryRules": [
         "- discovery: this week Max researches how this tradesperson works (the framework below).",

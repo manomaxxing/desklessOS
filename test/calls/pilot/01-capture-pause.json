@@ -7,6 +7,6 @@
     "Ja, passt.",
     "Nee, heute keine Zeit. Tschüss."
   ],
-  "must": [{ "saved": true }, { "note": "Weber|Radolfzell" }, { "heard": "Bad" }],
-  "should": [{ "heardNext": "wait" }, { "hangup": true }, { "noEvent": "error" }, { "maxFirstAudioMs": 4000 }]
+  "must": [{ "saved": true }, { "note": "Weber|Radolfzell" }, { "heard": "Bad" }, { "hangupOnlyAfterBye": "tschüss|ciao|das war's|nein|nee" }],
+  "should": [{ "heardNext": "wait" }, { "hangup": true }, { "noEvent": "error" }, { "maxFirstAudioMs": 4000 }, { "maxQuestionsPerTurn": 1 }]
 }

@@ -25,9 +25,19 @@
         "- WRAP-UP: when he signals he's done ({{qs ex.doneSignals}}), give ONE summary, the only one in the",
         "  whole call: at most three short sentences with who/where, the essentials of the job (numbers exactly",
         "  as he said them) and the next step with its date. Then ask {{q ex.confirm}} (NEXT: confirm). If he",
-        "  corrects something: acknowledge, and confirm only the corrected detail. If he says yes: go on to",
-        "  YOUR OWN AGENDA if it has an item for this call, otherwise a very short goodbye (NEXT: hangup)."
+        "  corrects something: acknowledge, and confirm only the corrected detail. If he says yes: QUOTE below",
+        "  if there is such a section, then YOUR OWN AGENDA if it has an item for this call, otherwise ask briefly",
+        "  whether there's anything else ({{q ex.anythingElse}}) (NEXT: confirm)."
       ],
+      "toolInstructions": {
+        "quote_send": [
+          "- QUOTE (the job has work to quote): once he has confirmed the summary, offer it once: {{q ex.offerQuote}}",
+          "  (NEXT: confirm). If he says yes, or asked for it himself, call quote_send with the customer, the address",
+          "  and the line items as he said them (what, quantity, unit); a unit price only if he said one. Never make",
+          "  up a price. Then tell him in one short sentence that it's in his WhatsApp (or, if it wasn't sent, that",
+          "  it's saved), and go on."
+        ]
+      },
       "fields": {
         "customer_name": {
           "type": "STRING"
@@ -150,5 +160,5 @@
       }
     }
   ],
-  "tools": []
+  "tools": ["quote_send"]
 }

@@ -1,5 +1,9 @@
 // Gemini 3.x ignores thinkingBudget: 0 and takes thinkingLevel instead (MINIMAL
 // measured 1.4–1.7 s to first text vs 1.6–3.7 s with the budget setting).
+// The backup model everywhere (hedged turns, notes, memory, summaries, the planner). Not 2.5
+// Flash: Vertex retires gemini-2.5-flash and -flash-lite on 2026-10-20.
+export const FALLBACK_MODEL = process.env.FALLBACK_MODEL || "gemini-3.5-flash-lite";
+
 export function thinkingConfig(model, budget = 0) {
   return /^gemini-3/.test(model) ? { thinkingLevel: budget ? "LOW" : "MINIMAL" } : { thinkingBudget: budget };
 }
@@ -60,6 +64,28 @@ export async function* streamTurn({ endpoint, model, system, history = [], audio
   }
   if (usage) onUsage(usage);
   yield { type: "end", parts };
+}
+
+/**
+ * His words, written down from the audio and nothing else: an independent check when the
+ * turn's own transcript came back empty (Gemini sometimes answers a turn with only a tool
+ * call). Resolves to "" when it can't.
+ */
+export async function transcribe({ endpoint, model, audio, signal, timeoutMs = 3000 }) {
+  try {
+    const response = await fetch(endpoint.url(model, "generateContent"), {
+      method: "POST",
+      headers: await endpoint.headers(),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ inlineData: { mimeType: "audio/wav", data: Buffer.from(audio).toString("base64") } }, { text: "Write down exactly what is said in this audio, word for word, in the language spoken. Only the words; nothing if nothing is said." }] }],
+        generationConfig: { maxOutputTokens: 200, thinkingConfig: thinkingConfig(model) },
+      }),
+    });
+    if (!response.ok) return "";
+    const body = await response.json();
+    return (body?.candidates?.[0]?.content?.parts ?? []).map(p => (p.thought ? "" : p.text ?? "")).join("").trim();
+  } catch { return ""; }
 }
 
 // A one-token request so the model's first real turn isn't the cold one.

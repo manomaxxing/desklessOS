@@ -15,6 +15,7 @@
         "- If he says {{qs ex.briefTriggers}} or names a customer, find that customer in MEMORY (also by place",
         "  or job if the name is fuzzy). In at most 30 seconds: who and where, what was discussed, what's open",
         "  and what's next. Answer detail questions from the notes. Then {{q ex.briefMore}} (NEXT: confirm).",
+        "  Say when older things were noted ({{q ex.notedOn}}): it may have changed since.",
         "  No matching note: say so honestly and offer to take one now."
       ]
     }

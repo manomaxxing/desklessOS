@@ -15,6 +15,15 @@ export function dangling(heard, lex) {
 }
 
 /**
+ * He said yes, plainly: a yes word, and nothing that takes it back ("ja, aber erst morgen",
+ * "nee, warte"). What an action with consequences needs before it runs (a quote sent).
+ */
+export function affirmed(heard, lex) {
+  const t = String(heard ?? "").trim();
+  return Boolean(t) && Boolean(lex?.affirm.test(t)) && !lex?.negate.test(t);
+}
+
+/**
  * He asked the agent to hold on ("Moment", "warte mal", "hold on"): as a clause
  * of its own or at the end, but not inside a sentence ("im Moment hab ich viel zu tun").
  */

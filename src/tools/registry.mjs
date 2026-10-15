@@ -3,7 +3,10 @@
 //   name, description, parameters   what the model sees (Gemini schema)
 //   effect                          "read" looks something up, "write" changes something
 //                                   outside the call (a request, an email), "call" steers the call
-//   requiresConfirm                 only right after he said yes to a recap (ctx.confirmed)
+//   requiresConfirm                 only right after he said yes to a recap (ctx.confirmed: a boolean,
+//                                   or a function(tool) → Promise<boolean>, asked only when such a tool is called)
+//   confirmAbout?                   "send": the yes must be to sending (the question he answered, or his
+//                                   own words, are about sending: the locale's send words)
 //   timeoutMs                       how long to wait for it
 //   available?(ctx)                 offered on this call at all?
 //   prepare?(args, ctx) → input     no side effects, may be abandoned (e.g. wait for the latest draft)
@@ -68,8 +71,8 @@ export function createToolRunner({ tools, onRun = () => {} }) {
       return outcome;
     };
     if (!tool) return finish("unknown", { error: `there is no tool called ${call.name}` });
-    if (tool.requiresConfirm && !ctx.confirmed) {
-      return finish("rejected", { error: "He hasn't confirmed a recap yet. Give him one short recap and ask whether to go ahead (NEXT: confirm); call this only after he says yes." });
+    if (tool.requiresConfirm && !(typeof ctx.confirmed === "function" ? await ctx.confirmed(tool) : ctx.confirmed)) {
+      return finish("rejected", { done: false, error: "NOT DONE: nothing was sent or changed, because he hasn't clearly said yes. Do not say it was done. Ask him once, briefly, whether you should go ahead (NEXT: confirm); call this again only after a plain yes." });
     }
     try {
       const input = tool.prepare ? await unlessAborted(withTimeout(Promise.resolve(tool.prepare(call.args ?? {}, ctx)), tool.timeoutMs), ctx.signal) : call.args ?? {};

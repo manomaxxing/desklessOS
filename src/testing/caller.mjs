@@ -262,6 +262,9 @@ export function describeEvent(f) {
     case "dangling": return `↩  stopped mid-sentence: keep listening${f.by ? ` (${f.by})` : ""}`;
     case "turn": return `🎚  Smart Turn: ${f.complete ? "done" : "not done"} (${f.probability}, ${f.ms} ms)`;
     case "backchannel": return "… mhm (backchannel)";
+    case "heard_check": return `👂 his words written down separately (no transcript came back): ${f.text || "(nothing)"}`;
+    case "prepared_dropped": return "↩  he went on: the prepared answer was dropped unheard";
+    case "note_sent": return "💬 note sent to his WhatsApp";
     case "nudge": return `⏲  ${f.kind}`;
     case "tool": return f.ignored ? `🛠  tool call ignored (${f.reason}): ${f.ignored.join(", ")}` : `🛠  ${f.name} ${f.status} (${f.ms} ms)${f.summary ? `: ${f.summary}` : ""}`;
     case "tool_latency": return `⏱  answer after tool: ${f.hopMs} ms after the call, ${f.totalMs} ms after he stopped`;

@@ -79,7 +79,7 @@ if (process.argv.includes("--synthesize")) {
   const { extractJsonResilient } = await import("../src/engine/gemini.mjs");
   const S = { type: "STRING" };
   const result = await extractJsonResilient({
-    endpoint: geminiEndpoint(), models: [process.env.GEMINI_MODEL || "gemini-3.5-flash", "gemini-2.5-flash"], timeoutMs: 60000,
+    endpoint: geminiEndpoint(), models: [process.env.GEMINI_MODEL || "gemini-3.5-flash", process.env.FALLBACK_MODEL || "gemini-3.5-flash-lite"], timeoutMs: 60000,
     system: `You are a management consultant writing the executive summary of a one-week field study with one
 tradesperson. Use only the evidence given; say so where it is thin. Behaviour (usage) outweighs opinions.
 Call a hypothesis supported or contradicted only with at least two findings from different calls; else open.

@@ -102,6 +102,11 @@
   .member + .member { border-top: 1px solid var(--sep); }
   .member .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .hide { display: none !important; }
+  .quotes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .quote { display: inline-flex; gap: 6px; align-items: center; background: var(--bg2); box-shadow: var(--shadow); border-radius: 10px; padding: 7px 12px; font-size: 14px; color: var(--ink); }
+  .quote:hover { box-shadow: 0 0 0 1px var(--sep), var(--shadow); }
+  .quote .st { color: var(--muted); } .quote .st.sent { color: var(--green); } .quote .st.failed { color: var(--red); }
+  details.biz { margin-top: 10px; } details.biz summary { cursor: pointer; font-size: 14px; color: var(--muted); }
   @media (max-width: 520px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } .bar { padding: 0 16px; gap: 10px; } .brand span, .hide-s { display: none; } .doc { padding: 16px; } .tabs { gap: 16px; } .icon .lbl { display: none; } }
 </style>
 </head>
@@ -362,6 +367,11 @@ $("planBtn").onclick = async () => {
 };
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+// What Toni does for someone beyond notes, briefings and to-dos (src/features.mjs): one at a time.
+const FEATURES = [
+  ["note_whatsapp", "The note on WhatsApp after each call", "only what he confirmed, after WhatsApp calls"],
+  ["quotes", "Quotes as a PDF on WhatsApp", "offered after he confirms a job, on WhatsApp calls"],
+];
 function renderPeople(users, outbound) {
   $("people").innerHTML = users.map(u => {
     const w = { days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", ...(u.callWindow || {}) };
@@ -375,6 +385,19 @@ function renderPeople(users, outbound) {
         <div><label>until</label><input type="text" name="to" value="${esc(w.to)}"></div>
       </div>
       <div class="days">${DAYS.map((d, i) => `<label><input type="checkbox" name="day" value="${i + 1}" ${w.days.includes(i + 1) ? "checked" : ""}>${d}</label>`).join("")}</div>
+      <div style="margin-top:12px;font-size:14px;font-weight:600">What Toni does for ${esc(u.name)}</div>
+      <div class="muted small">Notes, briefings and to-dos always. Switch on the rest one at a time: Toni mentions a new one once, at the end of the next call.</div>
+      ${FEATURES.map(([id, label, sub]) => `<label class="check"><input type="checkbox" name="f_${id}" ${u.features?.[id] ? "checked" : ""}> ${esc(label)} <span class="muted small">(${esc(sub)}${u.features?.[id] ? `, on since ${esc(new Date(u.features[id]).toLocaleDateString())}` : ""})</span></label>`).join("")}
+      <details class="biz"><summary>Business details for quotes${u.business?.name ? `: ${esc(u.business.name)}` : " (without them, quotes are drafts)"}</summary>
+        <div class="grid2">
+          <div><label>Business name</label><input type="text" name="b_name" value="${esc(u.business?.name)}" placeholder="Fliesen Muster GmbH"></div>
+          <div><label>Address</label><input type="text" name="b_address" value="${esc(u.business?.address)}" placeholder="Hafenstraße 1, 78462 Konstanz"></div>
+          <div><label>Phone</label><input type="text" name="b_phone" value="${esc(u.business?.phone)}"></div>
+          <div><label>Email</label><input type="text" name="b_email" value="${esc(u.business?.email)}"></div>
+          <div><label>VAT no.</label><input type="text" name="b_taxId" value="${esc(u.business?.taxId)}" placeholder="DE123456789"></div>
+          <div><label>VAT % · currency</label><div style="display:flex;gap:6px"><input type="text" name="b_vatRate" value="${esc(u.business?.vatRate ?? "")}" placeholder="19"><input type="text" name="b_currency" value="${esc(u.business?.currency)}" placeholder="EUR"></div></div>
+        </div>
+      </details>
       <label class="check"><input type="checkbox" name="consent" ${u.consentOutboundAt ? "checked" : ""}> Agreed to be called by the assistant${u.consentOutboundAt ? ` (since ${esc(new Date(u.consentOutboundAt).toLocaleDateString())})` : ""}</label>
       <label class="check"><input type="checkbox" name="paused" ${u.outboundPaused ? "checked" : ""}> Pause calls to ${esc(u.name)}</label>
       <div class="row"><button class="btn" data-save-user="${esc(u.id)}">Save</button>${outbound ? "" : '<span class="muted small">Outbound calls are off on this server.</span>'}</div>
@@ -388,6 +411,8 @@ function renderPeople(users, outbound) {
       phone: v("phone").value.trim(), timezone: v("timezone").value.trim(),
       callWindow: { days: [...card.querySelectorAll("[name=day]:checked")].map(x => Number(x.value)), from: v("from").value.trim(), to: v("to").value.trim() },
       consentOutbound: v("consent").checked, outboundPaused: v("paused").checked,
+      business: Object.fromEntries(["name", "address", "phone", "email", "taxId", "vatRate", "currency"].map(k => [k, v(`b_${k}`).value.trim()])),
+      features: Object.fromEntries(FEATURES.map(([id]) => [id, v(`f_${id}`).checked])),
     };
     const was = users.find(u => u.id === b.dataset.saveUser);
     if (Boolean(was.consentOutboundAt) === patch.consentOutbound) delete patch.consentOutbound; // keep the original date
@@ -542,7 +567,7 @@ const ICON_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 
 async function loadCall(id) {
   const c = await api(`/api/calls/${encodeURIComponent(id)}`);
-  const changed = JSON.stringify([c.endedAt, c.recap, turnsOf(c).length]) !== JSON.stringify([current?.endedAt, current?.recap, current && turnsOf(current).length]) || current?.id !== c.id;
+  const changed = JSON.stringify([c.endedAt, c.recap, turnsOf(c).length, c.quotes]) !== JSON.stringify([current?.endedAt, current?.recap, current && turnsOf(current).length, current?.quotes]) || current?.id !== c.id;
   if (current?.id !== c.id) tab = null;
   current = c;
   if (changed) renderCall();
@@ -553,6 +578,7 @@ function renderCall() {
   $("view-call").innerHTML = `<a href="#calls" class="back">‹ Calls</a>
     <h1>${c.endedAt ? "" : '<span class="livedot" style="vertical-align:middle;margin-right:8px"></span>'}${esc(callTitle(c))}</h1>
     <div class="muted small" style="margin-top:6px">${callMeta(c).map(esc).join(" · ")} · <a href="${callLink(c.id)}" target="_blank">timeline</a></div>
+    ${quotesHtml(c)}
     <div class="tabs">
       <button class="tab ${tab === "transcript" ? "on" : ""}" data-tab="transcript">Transcript</button>
       <button class="tab ${tab === "summary" ? "on" : ""}" data-tab="summary">✦ Summary</button>
@@ -571,6 +597,13 @@ function renderCall() {
     try { const { recap } = await api(`/api/calls/${encodeURIComponent(c.id)}/recap`, {}); current = { ...c, recap }; tab = "summary"; renderCall(); }
     catch (e) { write.disabled = false; write.textContent = "Try again"; $("recapErr").textContent = e.message; }
   };
+}
+// Quotes made in this call (quote_send): the PDF, made again from its data.
+const money = (n, currency) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(n); } catch { return `${n} ${currency}`; } };
+const QUOTE_STATUS = { sent: "sent to WhatsApp", saved: "saved", failed: "not sent" };
+function quotesHtml(c) {
+  if (!c.quotes?.length) return "";
+  return `<div class="quotes">${c.quotes.map(q => `<a class="quote" href="${withDev(`/api/quotes/${encodeURIComponent(q.id)}/pdf`)}" target="_blank" title="${esc(q.error || "Open the PDF")}">📄 ${q.draft ? "Draft quote" : "Quote"} ${esc(q.number)}${q.customer ? ` · ${esc(q.customer)}` : ""}${q.gross != null ? ` · ${esc(money(q.gross, q.currency))}` : ""} <span class="st ${esc(q.status)}">· ${esc(QUOTE_STATUS[q.status] ?? q.status)}</span></a>`).join("")}</div>`;
 }
 function summaryHtml(c) {
   const r = c.recap;

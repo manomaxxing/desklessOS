@@ -1,0 +1,12 @@
+{
+  "lang": "de",
+  "says": [
+    "Hallo, hier ist Niko.",
+    "Erzähl du doch mal, was kannst du denn so?",
+    "Ah okay. Ja klar, frag ruhig.",
+    "Hauptsächlich Firmenkunden, also Kliniken und so.",
+    "Nee, das war's erstmal. Tschüss."
+  ],
+  "must": [{ "maxQuestionsPerTurn": 1 }, { "hangupOnlyAfterBye": "tschüss|ciao|das war's|nein|nee" }],
+  "should": [{ "noEvent": "error" }, { "hangup": true }, { "notSaid": "Dann machen wir das ab jetzt|kann ich dir .*Kostenvoranschlag" }]
+}

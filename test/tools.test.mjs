@@ -29,7 +29,7 @@ test("unknown tools and unconfirmed writes are refused, never run", async () => 
   assert.equal((await runner.run({ name: "nope" }, ctx())).status, "unknown");
   const o = await runner.run({ name: "send", args: {} }, ctx({ confirmed: false }));
   assert.equal(o.status, "rejected");
-  assert.match(o.result.error, /recap/);
+  assert.match(o.result.error, /NOT DONE: nothing was sent/);
   assert.equal(ran, 0);
 });
 
@@ -115,4 +115,14 @@ test("memory_search: offered only when the prompt can't show everyone; passes hi
   assert.deepEqual(queries, ["Kowalsky in Radolfzell"]);
   assert.equal(found.result.results[0].name, "Familie Kowalski");
   assert.equal(found.summary, "found Familie Kowalski");
+});
+
+test("a write that needs his yes: the check may be asked late (his words written down only then)", async () => {
+  let ran = 0, asked = 0;
+  const runner = createToolRunner({ tools: [defineTool({ name: "send_it", description: "x", effect: "write", requiresConfirm: true, run: () => { ran++; return { ok: true }; } })] });
+  const no = await runner.run({ name: "send_it", args: {} }, { callId: "c", confirmed: async () => { asked++; return false; } });
+  assert.equal(no.status, "rejected");
+  assert.equal(no.result.done, false);
+  const yes = await runner.run({ name: "send_it", args: {} }, { callId: "c", confirmed: async () => { asked++; return true; } });
+  assert.deepEqual([yes.status, ran, asked], ["ok", 1, 2]);
 });

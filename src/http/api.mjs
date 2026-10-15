@@ -16,6 +16,9 @@ import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual } from "node:crypto";
+import { renderQuotePdf, quoteFileName } from "../quotes/pdf.mjs";
+import { FEATURES } from "../features.mjs";
+import { locales } from "../locale/index.mjs";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "web");
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg" };
@@ -28,7 +31,7 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 const COOKIE = "deskless_session";
 const cookieOf = req => (req.headers.cookie ?? "").split(/;\s*/).find(c => c.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1) ?? "";
 
-export function createApi({ cfg, skill, memory, queue, requests, auth, team = null, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap = null, log }) {
+export function createApi({ cfg, skill, memory, queue, requests, auth, team = null, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap = null, quotes = null, log }) {
   const open = !cfg.devToken && !auth.enabled;
   /** Who's asking: { dev } for DEV_TOKEN (or a local run with no login at all), { session } for an admin session. */
   async function identify(req, url) {
@@ -120,9 +123,17 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
       return { member: m };
     }],
     ["GET", "/api/users", "admin", async () => ({ users: await memory.listUsers(), outbound: Boolean(scheduler) })],
-    ["POST", /^\/api\/users\/([\w-]+)$/, "admin", async ({ params: [id], body }) => {
+    ["POST", /^\/api\/users\/([\w-]+)$/, "admin", async ({ params: [id], body, who }) => {
+      const before = await memory.getUser(id);
       const u = await memory.updateUser(id, body);
       if (!u) throw fail(404, "no such person");
+      // A feature just switched on: Toni tells him once, at the end of his next call (src/features.mjs).
+      for (const f of FEATURES.filter(f => u.features[f] && !before?.features?.[f])) {
+        const message = locales().persona(u.lang, skill.PERSONA)?.features?.[f];
+        if (!message) continue;
+        const o = await memory.objectives.create({ template: "feature.intro", params: { feature: f, message }, userId: u.id, lang: u.lang, createdBy: who.session?.n ?? "admin" });
+        monitor.system(`${u.name}: ${f} on; Toni tells him in his next call (${o.id})`);
+      }
       monitor.system(`person ${u.name}: phone ${u.phone || "-"}, outbound calls ${u.consentOutboundAt ? "agreed" : "not agreed"}${u.outboundPaused ? " (paused)" : ""}`);
       return { user: u };
     }],
@@ -176,7 +187,7 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
       phone: { engine: cfg.engine, model: cfg.model, mask: cfg.mask, liveModel: cfg.liveModel, liveVoice: cfg.liveVoice },
       modes: {
         engines: ["cascade", "live"],
-        models: ["gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+        models: ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"],
         masks: ["typing", "filler", "none"],
         // Probed 2026-10-11 (npm run live-probe): vertex-eu keeps audio in the EU and runs on the Vertex credits.
         liveModels: [...new Set([cfg.liveModel, "vertex-eu:gemini-3.8-live", "vertex@us-central1:gemini-3.8-live", "vertex@europe-west4:gemini-live-2.5-flash-native-audio"])],
@@ -187,7 +198,13 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
     ["GET", /^\/api\/calls\/([^/]+)$/, "user", async ({ params: [id] }) => {
       const call = await monitor.get(id);
       if (!call) throw fail(404, "unknown call");
-      return call;
+      return { ...call, quotes: quotes ? await quotes.forCall(id) : [] };
+    }],
+    // A quote's PDF, made again from its data (nothing is stored as a file).
+    ["GET", /^\/api\/quotes\/([\w-]+)\/pdf$/, "user", async ({ params: [id] }) => {
+      const q = quotes && (await quotes.get(id));
+      if (!q) throw fail(404, "no such quote");
+      return { bytes: await renderQuotePdf(q.data, { agent: skill.persona?.agentLabel }), type: "application/pdf", filename: quoteFileName(q.data) };
     }],
     // The call's summary, written now: for a call that ended without one, or again.
     ["POST", /^\/api\/calls\/([^/]+)\/recap$/, "admin", async ({ params: [id] }) => {
@@ -211,6 +228,7 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
     const base = { "cache-control": "no-store", ...(cookies.length ? { "set-cookie": cookies } : {}) };
     if (out?.html) { res.writeHead(status, { ...base, "content-type": "text/html; charset=utf-8" }); return res.end(out.html); }
     if (out?.file) { res.writeHead(status, { ...base, "content-type": out.type }); return res.end(readFileSync(out.file)); }
+    if (out?.bytes) { res.writeHead(status, { ...base, "content-type": out.type, "content-disposition": `inline; filename="${out.filename.replace(/[^\w.-]/g, "_")}"` }); return res.end(Buffer.from(out.bytes)); }
     res.writeHead(status, { ...base, "content-type": "application/json" });
     res.end(JSON.stringify(out ?? null));
   };

@@ -36,3 +36,13 @@ test("hold on: at the start, mid-utterance or the end, in German and English", (
     assert.equal(holdOn(t, de), false, t);
   }
 });
+
+test("a plain yes, for actions with consequences: a yes word and nothing that takes it back", async () => {
+  const { affirmed } = await import("../src/engine/endpointing.mjs");
+  const { locales } = await import("../src/locale/index.mjs");
+  const de = locales().lexicon("de"), en = locales().lexicon("en");
+  for (const t of ["Ja, schick's mir.", "Genau so.", "ja bitte", "Passt, ne?", "Okay, mach."]) assert.equal(affirmed(t, de), true, t);
+  for (const t of ["Ja, aber erst morgen", "Nee, warte mal", "Schick es nicht", "Moment", "", "(not transcribed)", "Hm."]) assert.equal(affirmed(t, de), false, t);
+  assert.equal(affirmed("Sure, send it", en), true);
+  assert.equal(affirmed("Yeah, but wait", en), false);
+});

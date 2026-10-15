@@ -5,7 +5,7 @@ import { geminiEndpoint } from "../src/engine/gemini-endpoint.mjs";
 import { createFish } from "../src/engine/fish.mjs";
 import { wav, durationMs } from "../src/engine/audio.mjs";
 
-const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const endpoint = geminiEndpoint();
 console.log("gemini door:", endpoint?.door ?? "none", "model:", model);
 

@@ -1,0 +1,14 @@
+{
+  "lang": "de",
+  "before": [{ "user": { "features": { "quotes": true } } }],
+  "says": [
+    "Hallo, ich komm grad von der Familie Huber in Allensbach, Seestraße vier. Die wollen das Bad neu gefliest haben.",
+    "Alte Fliesen raus, achtzehn Quadratmeter, da nehm ich zweiundzwanzig Euro. Und neue Wandfliesen, zweiunddreißig Quadratmeter, fünfundsechzig Euro der Quadratmeter.",
+    "Das Angebot soll bis Freitag raus.",
+    "Ja, genau so passt das.",
+    "Ja, schick's mir bitte rüber.",
+    "Nee, heute keine Zeit mehr. Danke, tschüss."
+  ],
+  "must": [{ "tool": "quote_send" }],
+  "should": [{ "count": { "tool": 1 } }, { "said": "WhatsApp|gespeichert|Dashboard" }, { "noEvent": "error" }]
+}

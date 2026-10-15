@@ -17,7 +17,7 @@ export function loadConfig(env = process.env) {
     port: Number(env.PORT || 8787),
     dataDir, // local runs only: PGlite's files, recorded call audio
     databaseUrl: env.DATABASE_URL?.trim() || `pglite:${path.join(dataDir, "pg")}`,
-    model: env.GEMINI_MODEL || "gemini-2.5-flash",
+    model: env.GEMINI_MODEL || "gemini-3.5-flash",
     plannerModel: env.PLANNER_MODEL || "",
     // Phone calls: "cascade" (Gemini hears, Fish speaks) or "live" (Gemini Live hears and speaks)
     engine: env.ENGINE || "cascade",

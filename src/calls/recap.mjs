@@ -3,7 +3,7 @@
 // Written once by the after-call job (src/calls/after-call.mjs), or on demand from the
 // admin page for a call that has none (POST /api/calls/:id/recap). Stored in calls.recap.
 
-import { extractJsonResilient } from "../engine/gemini.mjs";
+import { extractJsonResilient, FALLBACK_MODEL } from "../engine/gemini.mjs";
 import { locales } from "../locale/index.mjs";
 
 const S = { type: "STRING" };
@@ -46,7 +46,7 @@ const clean = r => ({
 });
 
 /** writeRecap({ turns, name, lang, startedAt }) → the summary, with when and by which model it was written. */
-export function createRecapWriter({ endpoint, model, fallbackModel = process.env.FALLBACK_MODEL || "gemini-2.5-flash", agent = "Toni" }) {
+export function createRecapWriter({ endpoint, model, fallbackModel = FALLBACK_MODEL, agent = "Toni" }) {
   return async function writeRecap({ turns, name, lang = null, startedAt = null, onUsage }) {
     const L = locales();
     const langName = lang && L.ids.includes(lang) ? L.name(lang) : "the language of the conversation";

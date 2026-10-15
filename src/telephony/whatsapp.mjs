@@ -56,6 +56,43 @@ export function sdpSummary(sdp = "") {
   ].join(" · ");
 }
 
+/**
+ * Messages from the business number (not calls): a text or a document into his chat. Free while his
+ * chat window is open, and his call opens it (accepted or not), so a PDF sent during the call
+ * costs nothing. Null without WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID.
+ */
+export function whatsappSender({ env = process.env, fetchImpl = fetch } = {}) {
+  const token = env.WHATSAPP_TOKEN?.trim();
+  const phoneNumberId = env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+  if (!token || !phoneNumberId) return null;
+  const base = `${GRAPH}/${env.WHATSAPP_GRAPH?.trim() || "v26.0"}/${phoneNumberId}`;
+  async function graph(path, init) {
+    const res = await fetchImpl(`${base}/${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...init.headers }, signal: AbortSignal.timeout(10000) });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`whatsapp ${path} ${res.status}: ${out.error?.message ?? "failed"}${out.error?.error_data?.details ? ` (${out.error.error_data.details})` : ""}`);
+    return out;
+  }
+  const send = async (to, message) => {
+    const sent = await graph("messages", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: String(to).replace(/\D/g, ""), ...message }),
+    });
+    return { messageId: sent.messages?.[0]?.id ?? null };
+  };
+  return {
+    /** sendText({ to: "+49…", text }) → { messageId } */
+    sendText: ({ to, text }) => send(to, { type: "text", text: { body: text, preview_url: false } }),
+    /** sendDocument({ to: "+49…", bytes, filename, caption }) → { messageId } */
+    async sendDocument({ to, bytes, filename, caption = "", type = "application/pdf" }) {
+      const form = new FormData();
+      form.append("messaging_product", "whatsapp");
+      form.append("type", type);
+      form.append("file", new Blob([bytes], { type }), filename);
+      const { id } = await graph("media", { method: "POST", body: form });
+      return send(to, { type: "document", document: { id, filename, caption } });
+    },
+  };
+}
 
 export function whatsappAdapter({ host, env = process.env, monitor = null, log = () => {}, fetchImpl = fetch, peerFactory = createAudioPeer }) {
   const token = env.WHATSAPP_TOKEN?.trim();

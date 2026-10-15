@@ -178,7 +178,11 @@ function items(call) {
       }
       case "agent_audio": { const a = agentByTurn.get(e.turn); if (a) { a.audio = e.audio; a.interrupted = e.interrupted; } break; }
       case "turn_start": out.push({ t, kind: "chip", text: e.text ? `turn ${e.turn} · ${e.text}` : `turn ${e.turn} · ${(e.utteranceMs / 1000).toFixed(1)} s speech${e.merged > 1 ? ` · ${e.merged} pieces merged` : ""}` }); break;
-      case "latency": out.push({ t, kind: "chip", cls: latClass(e.firstAudioMs), text: `first audio ${(e.firstAudioMs / 1000).toFixed(2)} s · Gemini ${(e.firstTokenMs / 1000).toFixed(2)} s · Fish ${e.fishFirstByteMs ?? "?"} ms${turnCost[e.turn] != null ? " · " + usd(turnCost[e.turn]) : ""}` }); break;
+      case "latency": out.push({ t, kind: "chip", cls: latClass(e.sinceSpeechMs ?? e.firstAudioMs), text: `${e.prepared ? "prepared answer, played " : ""}first audio ${(e.firstAudioMs / 1000).toFixed(2)} s${e.sinceSpeechMs != null ? ` (${(e.sinceSpeechMs / 1000).toFixed(2)} s after his last word)` : ""} · Gemini ${(e.firstTokenMs / 1000).toFixed(2)} s · Fish ${e.fishFirstByteMs ?? "?"} ms${turnCost[e.turn] != null ? " · " + usd(turnCost[e.turn]) : ""}` }); break;
+      case "heard_check": out.push({ t, kind: "chip", text: `his words, written down separately for his yes: ${e.text || "(nothing)"}` }); break;
+      case "prepared_dropped": out.push({ t, kind: "chip", text: "he went on: the prepared answer was dropped unheard" }); break;
+      case "note_sent": out.push({ t, kind: "chip", cls: "good", text: "note sent to his WhatsApp" }); break;
+      case "recap": out.push({ t, kind: "chip", cls: "good", text: `summary written · ${e.title ?? ""}` }); break;
       case "filler": out.push({ t, kind: "chip", text: "filler" }); break;
       case "retry": out.push({ t, kind: "chip", cls: "warn", text: `Gemini retry${e.next ? " → " + e.next : ""} · ${e.reason}` }); break;
       case "recovered": out.push({ t, kind: "chip", cls: "good", text: `recovered on ${e.model} (attempt ${e.attempt})` }); break;

@@ -1,5 +1,5 @@
 // Is every locale pack complete? The reference is the default pack: every key
-// it has (lexicon lists, persona lines, examples) must exist in
+// it has (lexicon lists, persona lines, examples, document texts) must exist in
 // every other enabled pack, with the same type. Extra keys are fine.
 
 const REQUIRED_TOP = ["id", "name", "bcp47", "status", "countryCodes", "voices", "lexicon", "personas"];
@@ -31,6 +31,7 @@ export function checkLocales(locales) {
     if (id !== ref.id) {
       list.push(...missingKeys(ref.lexicon, pack.lexicon, "lexicon.").filter(k => k !== "lexicon.letters"));
       list.push(...missingKeys(ref.personas, pack.personas, "personas."));
+      list.push(...missingKeys(ref.documents, pack.documents, "documents."));
     }
     if (list.length) problems[id] = list;
   }

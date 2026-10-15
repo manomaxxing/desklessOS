@@ -17,6 +17,43 @@
   "format": {
     "numberLocale": "en-US"
   },
+  "documents": {
+    "quote": {
+      "title": "xx:Quote",
+      "draftTitle": "xx:Draft quote",
+      "number": "xx:No.",
+      "date": "xx:Date",
+      "validUntil": "xx:Valid until",
+      "for": "xx:For",
+      "intro": "xx:We are pleased to quote for the following work:",
+      "pos": "xx:Item",
+      "description": "xx:Description",
+      "quantity": "xx:Qty",
+      "unit": "xx:Unit",
+      "unitPrice": "xx:Unit price",
+      "total": "xx:Amount",
+      "net": "xx:Net",
+      "vat": "xx:VAT {rate}%",
+      "gross": "xx:Total",
+      "noVat": "xx:No VAT charged.",
+      "noPrice": "xx:to follow",
+      "incomplete": "xx:Items without a price are still to be added.",
+      "closing": "xx:We look forward to working with you.",
+      "draftNote": "xx:Draft from the call with {agent}. Please check before passing it on.",
+      "phone": "xx:Phone",
+      "email": "xx:Email",
+      "taxId": "xx:VAT no.",
+      "page": "xx:Page {n} of {of}",
+      "fileName": "xx:Quote",
+      "caption": "{title} {number} for {customer}",
+      "captionNoCustomer": "{title} {number}"
+    },
+    "note": {
+      "title": "xx:Noted",
+      "next": "xx:Next",
+      "footer": "xx:Something wrong? Just give me a quick call and I'll fix it."
+    }
+  },
   "lexicon": {
     "digits": ["xzero", "xone", "xtwo", "xthree", "xfour", "xfive", "xsix", "xseven", "xeight", "xnine"],
     "dangling": [
@@ -37,6 +74,9 @@
       "hmm",
       "oki"
     ],
+    "affirm": ["xa", "xa xa"],
+    "send": ["xs"],
+    "negate": ["xo"],
     "goOn": [
       "mor"
     ],
@@ -54,6 +94,7 @@
   "personas": {
     "notebook": {
       "greeting": "xx:Hi, this is your notebook. Coming from an appointment, or heading to one?",
+      "firstGreeting": "xx:Hi, this is Toni, your AI assistant on the phone. Just tell me what's up.",
       "wrapUp": "xx:We're almost at the time limit. I'm saving everything I have. Talk soon!",
       "backchannel": "xx:Mhm.",
       "fillers": [
@@ -69,6 +110,10 @@
       "working": "xx:On it.",
       "looking": "xx:Let me check.",
       "outboundGreeting": "xx:Hi, it's your notebook.",
+      "features": {
+        "note_whatsapp": "xx:From now on, after each call I'll send you the note on WhatsApp, just as you confirmed it, so you have it in writing.",
+        "quotes": "xx:When you give me a job with quantities and prices, I can send you a quote as a PDF on WhatsApp right away."
+      },
       "examples": {
         "dayWhy": "xx:Max just wants to understand how your working days go. Got a few minutes?",
         "dayMorning": "xx:How was yesterday? Or what's on today?",
@@ -100,6 +145,10 @@
           "xx:nothing else"
         ],
         "confirm": "xx:Sound right?",
+        "offerQuote": "xx:Want me to send that to your WhatsApp as a quote?",
+        "echoName": "xx:Huber in Allensbach, oki.",
+        "selfName": "xx:your AI assistant",
+        "notedOn": "xx:On October third you said …",
         "briefTriggers": [
           "xx:I'm heading to …",
           "xx:what was the deal with …"

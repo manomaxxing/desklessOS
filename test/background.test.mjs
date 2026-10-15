@@ -201,3 +201,50 @@ test("routes: who may call what", async () => {
     assert.equal(await status("/nope"), 404);
   } finally { server.close(); }
 });
+
+test("after a WhatsApp call: the note he confirmed goes into his chat, once; never unconfirmed, never without the feature", async () => {
+  const [user] = await memory.listUsers();
+  const sent = [];
+  const whatsapp = { sendText: async m => { if (m.to === "+491709990000") throw new Error("whatsapp messages 400: window closed"); sent.push(m); return { messageId: `wamid.${sent.length}` }; } };
+  const turns = [{ role: "user", text: "Familie Huber, Allensbach, Bad neu, achtzehn Quadratmeter. Angebot bis Freitag." }, { role: "model", text: "Passt das?" }, { role: "user", text: "Ja, passt." }];
+  const note = { mode: "capture", customer_name: "Familie Huber", place: "Allensbach", work: [{ area: "Bad", description: "neu fliesen", quantity: "18 m²", material: "" }], next_steps: [{ what: "Angebot schreiben", due: "Freitag" }], summary: "Bad Huber.", confirmed: true };
+  const call = async (callId, { from = "+491701234567", source = "whatsapp", extraction = note } = {}) => {
+    const scope = await memory.openCall({ callId, from, source });
+    await scope.endCall({ turns, extraction, extractionTurns: turns.length, reason: "caller_hangup", lang: "de" });
+  };
+  const gemini = stubGemini({ note, memoryResult: { call_type: "capture", call_summary: "Bad Huber.", customer: { name: "Familie Huber", place: "Allensbach", summary_update: "Bad neu." }, new_actions: [], completed_action_ids: [] } });
+  const system = [];
+  const afterCall = createAfterCall({ memory, skill, endpoint, model: "gemini-2.5-flash", whatsapp, monitor: { system: (t, l) => system.push([l, t]), event() {} } });
+  try {
+    await call("wa-off");
+    await afterCall({ callId: "wa-off" });
+    assert.equal(sent.length, 0, "the feature is off");
+
+    await memory.updateUser(user.id, { features: { note_whatsapp: true } });
+    await call("wa-1");
+    await afterCall({ callId: "wa-1" });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].to, "+491701234567");
+    assert.equal(sent[0].text, "*Notiert* ✅ Familie Huber, Allensbach\n• Bad: neu fliesen (18 m²)\nAls Nächstes: Angebot schreiben (Freitag)\n\n_Stimmt was nicht? Ruf mich kurz an, dann korrigier ich's._");
+    await db.query("update calls set after_call_at = null where id = 'wa-1'");
+    await afterCall({ callId: "wa-1" });
+    assert.equal(sent.length, 1, "a retried job doesn't send it twice");
+
+    await call("wa-unconfirmed", { extraction: { ...note, confirmed: false } });
+    await call("phone-line", { source: "twilio" });
+    await afterCall({ callId: "wa-unconfirmed" });
+    await afterCall({ callId: "phone-line" });
+    assert.equal(sent.length, 1, "not confirmed, or not a WhatsApp call: nothing goes out");
+
+    // WhatsApp refuses: the rest of the after-call work is done all the same.
+    await db.query("update users set phone_e164 = null");
+    await call("wa-refused", { from: "+491709990000" });
+    await afterCall({ callId: "wa-refused" });
+    const [row] = await db.query("select after_call_at is not null done, meta->>'noteSentAt' sent from calls where id = 'wa-refused'");
+    assert.deepEqual([row.done, row.sent], [true, null]);
+    assert.ok(system.some(([level, text]) => level === "warn" && /note to WhatsApp not sent/.test(text)));
+  } finally {
+    gemini.restore();
+    await memory.updateUser(user.id, { features: { note_whatsapp: false } });
+  }
+});

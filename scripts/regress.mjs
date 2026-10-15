@@ -16,6 +16,10 @@
 //   {"heard": "regex"} {"heardNext": "wait"} {"said": "regex"} {"note": "regex"}
 //   {"falseStart": true} {"maxFirstAudioMs": 4000}
 //   {"tool": "memory_search"}  the tool ran (status ok)    {"count": {"tool": 1}}  exactly n such events
+//   {"notSaid": "regex"}  never said    {"maxQuestionsPerTurn": 1}  no turn of the agent asks more
+//   {"hangupOnlyAfterBye": "regex"}  the agent hangs up only after his goodbye: his last words match, or
+//                                    (the transcript of a last line can be off) every line of his was spoken
+//   {"maxReplyGapMs": {"line": 1, "ms": 6500}}  the agent speaks within ms of the end of his line n
 //   {"api": {"path": "/api/objectives", "match": "regex"}}  what the server says after the call
 // "before": [{ "post": "/api/objectives", "body": {…} }] runs before the call (e.g. Max's question);
 //   [{ "adminRequest": "Frag Niko, …" }] plans it like the admin page and approves the card;
@@ -44,7 +48,7 @@ const re = s => new RegExp(s, "i");
 
 // `saved` is the note the server stored for this call (fetched after its after-call job):
 // the call's socket is closed by then, so its "saved" event never reaches the caller.
-function check(spec, events, saved, api = {}) {
+function check(spec, events, saved, api = {}, scenario = null) {
   const of = name => events.filter(e => e.event === name);
   const said = of("say").filter(e => !e.note?.startsWith("stage")).map(e => e.text).join(" ");
   const lastNote = saved ?? of("note").at(-1)?.note;
@@ -57,6 +61,26 @@ function check(spec, events, saved, api = {}) {
     case "heard": return of("heard").some(e => re(value).test(e.text ?? ""));
     case "heardNext": return of("heard").some(e => e.next === value) || (value === "wait" && of("dangling").length > 0);
     case "said": return re(value).test(said);
+    case "notSaid": return !re(value).test(said);
+    case "maxQuestionsPerTurn": {
+      const perTurn = new Map();
+      for (const e of of("say")) if (e.turn != null && !e.note?.startsWith("stage")) perTurn.set(e.turn, `${perTurn.get(e.turn) ?? ""} ${e.text}`);
+      return [...perTurn.values()].every(t => (t.match(/\?/g) ?? []).length <= value);
+    }
+    case "maxReplyGapMs": {
+      const line = of("caller_line").find(e => e.line === value.line);
+      if (!line) return false;
+      const end = line.at + line.seconds;
+      const reply = of("say").find(e => e.at > end && !e.note?.startsWith("stage"));
+      return Boolean(reply) && (reply.at - end) * 1000 <= value.ms;
+    }
+    case "hangupOnlyAfterBye": {
+      const hangup = of("end_call")[0];
+      if (!hangup) return true;
+      const lines = of("caller_line");
+      const allSpoken = lines.length > 0 && lines.length === lines.at(-1).line && lines.length === (scenario?.says?.length ?? -1) && hangup.at >= lines.at(-1).at;
+      return allSpoken || re(value).test(of("heard").at(-1)?.text ?? "");
+    }
     case "note": return Boolean(lastNote) && re(value).test(JSON.stringify(lastNote));
     case "falseStart": return of("barge_in").some(e => e.falseStart) === value;
     case "maxFirstAudioMs": { const p50 = median(of("latency").map(e => e.firstAudioMs)); return p50 != null && p50 <= value; }
@@ -172,8 +196,8 @@ for (const folder of folders) {
           } while (Date.now() < until);
         }
       } catch (err) { error = err; }
-      const must = (sc.must ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved, api) }));
-      const should = (sc.should ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved, api) }));
+      const must = (sc.must ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved, api, sc) }));
+      const should = (sc.should ?? []).map(spec => ({ spec, ok: !error && check(spec, events, saved, api, sc) }));
       const p50 = median(events.filter(e => e.event === "latency").map(e => e.firstAudioMs));
       const failed = Boolean(error) || must.some(m => !m.ok);
       results.push({ name, failed, must, should, p50, error });
@@ -183,7 +207,7 @@ for (const folder of folders) {
       for (const s of should.filter(s => !s.ok)) console.log(`   should ~ ${JSON.stringify(s.spec)}`);
       if (failed || show) {
         // The conversation, so a failure can be read without rerunning it.
-        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "objective", "retry", "turn", "dangling", "end_call", "barge_in", "nudge"].includes(e.event))) {
+        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "objective", "retry", "turn", "dangling", "end_call", "barge_in", "nudge", "heard_check", "prepared_dropped", "note_sent"].includes(e.event))) {
           console.log(`   ${e.at.toFixed(1).padStart(5)}s ${describeEvent(e) ?? e.event}`);
         }
       }

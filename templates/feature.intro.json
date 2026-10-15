@@ -1,0 +1,25 @@
+{
+  "id": "feature.intro",
+  "version": 1,
+  "kind": "objective",
+  "title": "NEW FOR HIM",
+  "description": "Tell him once about something Toni now does for him (a feature switched on on his People card).",
+  "priority": 0,
+  "modes": [
+    "next_inbound"
+  ],
+  "params": {
+    "feature": "the feature's id",
+    "message": "what to tell him, in his language"
+  },
+  "limits": {
+    "attempts": 3
+  },
+  "steps": [
+    {
+      "primitive": "tell",
+      "title": "NEW FOR HIM"
+    }
+  ],
+  "tools": []
+}

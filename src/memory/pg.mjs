@@ -15,6 +15,7 @@ import { createDiscovery, memoryStorage } from "./research.mjs";
 import { mergeResult, MODES_FOR } from "./objectives.mjs";
 import { toVector } from "../engine/embed.mjs";
 import { randomUUID } from "node:crypto";
+import { FEATURES, allFeatures } from "../features.mjs";
 
 const QUERY_EMBED_MS = 1200; // search waits this long for the query's vector, then goes on with names only
 const EMBED_PAUSE_MS = 5 * 60 * 1000; // after a late one, searches skip vectors for a while
@@ -39,8 +40,16 @@ const noteOut = n => ({ ...n.data, id: n.id, lang: n.lang || n.data?.lang || "",
 const userOut = u => u && ({
   id: u.id, orgId: u.org_id, name: u.name, phone: u.phone_e164 ?? "", lang: u.lang, role: u.role, timezone: u.timezone,
   callWindow: u.call_window ?? {}, consentOutboundAt: u.consent_outbound_at ? new Date(u.consent_outbound_at).toISOString() : null, outboundPaused: Boolean(u.outbound_paused),
-  demo: Boolean(u.demo),
+  demo: Boolean(u.demo), business: u.profile?.business ?? {}, features: u.profile?.features ?? {},
 });
+// His business, for quotes (src/quotes/quote.mjs): only these fields, as text; VAT as a number.
+const BUSINESS_FIELDS = ["name", "address", "phone", "email", "taxId", "currency", "vatRate"];
+const businessIn = b => Object.fromEntries(BUSINESS_FIELDS.filter(k => b?.[k] !== undefined && b[k] !== null && String(b[k]).trim() !== "").map(k => {
+  const v = String(b[k]).trim().slice(0, 200);
+  if (k === "vatRate") { const n = Number(v.replace(",", ".")); if (!(n >= 0 && n <= 50)) throw Object.assign(new Error("VAT: a percentage between 0 and 50"), { status: 400 }); return [k, n]; }
+  if (k === "currency") { if (!/^[A-Za-z]{3}$/.test(v)) throw Object.assign(new Error("currency: a three-letter code like EUR"), { status: 400 }); return [k, v.toUpperCase()]; }
+  return [k, v];
+}));
 const requestOut = r => r && ({
   id: r.id, userId: r.user_id, instruction: r.instruction, plan: r.plan, planHash: r.plan_hash, card: r.card, turns: r.turns, status: r.status,
   objectiveId: r.objective_id, result: r.result, createdBy: r.created_by, createdAt: new Date(r.created_at).toISOString(),
@@ -97,7 +106,7 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
     const lang = skill.profile?.lang ?? skill.DEFAULT_LANG;
     const [org] = await db.query("insert into orgs (name) values ('Demo') returning id");
     await db.query("insert into users (org_id, name, lang, timezone, demo, profile) values ($1, 'Demo', $2, $3, true, $4)",
-      [org.id, lang, skill.profile?.timezone ?? "Europe/Berlin", json({ name: "Demo", lang, demo: true })]);
+      [org.id, lang, skill.profile?.timezone ?? "Europe/Berlin", json({ name: "Demo", lang, demo: true, features: allFeatures() })]);
     log("memory: created the demo user");
   }
 
@@ -408,13 +417,15 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       if (!user) return emptyScope();
       await db.query("insert into calls (id, org_id, user_id, direction, source, from_e164, to_e164, started_at) values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict (id) do nothing",
         [callId, user.org_id, user.id, direction, source, e164(from), e164(to), at.toISOString()]);
-      const [data, research, found] = await Promise.all([contextData(user, at), loadResearch(db, user), objectives.forCall(user, { direction, at })]);
+      const [data, research, found, [{ talked }]] = await Promise.all([contextData(user, at), loadResearch(db, user), objectives.forCall(user, { direction, at }),
+        db.query("select exists (select 1 from calls where user_id = $1 and id <> $2 and jsonb_array_length(transcript) > 2) talked", [user.id, callId])]);
       const pending = await withLastCall(found);
       const ctx = buildContext(data, { budget });
       return {
         user: { id: user.id, orgId: user.org_id, name: user.name, lang: user.lang, timezone: user.timezone, profile: user.profile },
         context: ctx.text,
         hidden: ctx.hidden,
+        firstCall: !talked, // he's never really talked with Toni before
         stats: { ...ctx.stats, ms: Math.round(performance.now() - started) },
         discovery: research?.discovery ?? null,
         objectives: pending,
@@ -454,14 +465,15 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       if (!user) return null;
       const research = await loadResearch(db, user);
       return {
-        call: { id: c.id, direction: c.direction, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at, recap: c.recap ?? null },
-        user: userOut(user),
+        call: { id: c.id, direction: c.direction, source: c.source, from: c.from_e164, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at, recap: c.recap ?? null, noteSentAt: c.meta?.noteSentAt ?? null },
+        user: { ...userOut(user), profile: user.profile ?? {} },
         objectives: await objectives.byIds(c.objective_ids ?? []),
         discovery: research?.discovery ?? null,
         scope: callScope(user, callId),
         saveExtraction: (extraction, extractionTurns) => db.query("update calls set extraction = $2, extraction_turns = $3 where id = $1", [callId, json(extraction), extractionTurns]),
         addEvents: events => (events.length ? db.query("update calls set timeline = timeline || $2::jsonb where id = $1", [callId, json(events.map(e => ({ t: Date.now(), ...e })))]) : null),
         saveRecap: recap => db.query("update calls set recap = $2 where id = $1", [callId, json(recap)]),
+        noteSent: messageId => db.query("update calls set meta = meta || $2::jsonb where id = $1", [callId, json({ noteSentAt: new Date().toISOString(), noteMessageId: messageId })]),
         addCost: usd => db.query("update calls set meta = jsonb_set(meta, '{usd}', to_jsonb(coalesce((meta->>'usd')::float8, 0) + $2)) where id = $1", [callId, usd]),
         done: () => db.query("update calls set after_call_at = now() where id = $1", [callId]),
       };
@@ -556,6 +568,16 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       if ("callWindow" in patch) set("call_window", json(patch.callWindow ?? {}));
       if ("consentOutbound" in patch) set("consent_outbound_at", patch.consentOutbound ? new Date().toISOString() : null);
       if ("outboundPaused" in patch) set("outbound_paused", Boolean(patch.outboundPaused));
+      // In the profile: his business (for quotes), and the features (src/features.mjs).
+      const profile = {};
+      if ("business" in patch) profile.business = businessIn(patch.business);
+      // Features: { id: true | false }; one switched on keeps the date it was first switched on.
+      if ("features" in patch) {
+        const [cur] = await db.query("select profile->'features' f from users where id = $1", [id]);
+        const now = new Date().toISOString();
+        profile.features = Object.fromEntries(FEATURES.map(f => [f, f in (patch.features ?? {}) ? (patch.features[f] ? cur?.f?.[f] ?? now : null) : cur?.f?.[f] ?? null]).filter(([, v]) => v));
+      }
+      if (Object.keys(profile).length) { values.push(json(profile)); sets.push(`profile = profile || $${values.length}::jsonb`); }
       if (!sets.length) return this.getUser(id);
       const [u] = await db.query(`update users set ${sets.join(", ")} where id = $1 returning *`, values);
       return userOut(u);

@@ -39,14 +39,15 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
     const ctx = slotContext(lang);
     return (text, extra) => render(text, extra ? { ...ctx, ...extra } : ctx, where);
   };
-  const stepContext = (item, lang) => ({
+  const stepContext = (item, lang, tools = []) => ({
     r: renderer(lang, item ? `templates/${item.template.id}` : `personas/${persona.id}`),
     lang, locales, discovery, framework,
     params: item?.params ?? {}, key: item?.key, questionLang: item?.questionLang ?? null,
     previous: item?.previous ?? null, // what this objective got in earlier calls (its stored result)
     agentLabel: persona.agentLabel ?? "Agent",
+    tools,
   });
-  const stepsText = (t, item, lang) => t.steps.map(s => P(s).prompt?.(s, stepContext(item, lang)) ?? "").filter(Boolean).join("\n");
+  const stepsText = (t, item, lang, tools) => t.steps.map(s => P(s).prompt?.(s, stepContext(item, lang, tools)) ?? "").filter(Boolean).join("\n");
 
   function missing(note) {
     if (!note) return [];
@@ -71,7 +72,7 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
     prompt({ engine = "cascade", lang = profile.lang, note = {}, missing: miss = missing(note), memory = "", tools = [], now = new Date(), today = promptDate(now) }) {
       const r = renderer(lang, `personas/${persona.id}`);
       const section = name => r(persona.sections[name]);
-      const jobs = capabilities.map((t, i) => `${LETTERS[i]}) ${r(t.title)}\n${stepsText(t, null, lang)}`);
+      const jobs = capabilities.map((t, i) => `${LETTERS[i]}) ${r(t.title)}\n${stepsText(t, null, lang, tools)}`);
       const live = engine === "live";
       const intro = live
         ? "You speak directly; keep it brief and natural.\nWhen he pauses mid-thought, stay silent and let him continue."

@@ -12,20 +12,20 @@ import { loadFramework } from "../memory/research.mjs";
 import { locales as sharedLocales, promptWeekday } from "../locale/index.mjs";
 
 const PERSONA_OF = { pilot: "notebook", admin: "admin" };
-const MAX_OBJECTIVES = 2; // the agent's own items per call, always after his business
+const MAX_OBJECTIVES = 1; // the agent's own items per call, always after his business: one extra per call, never more
 const S = { type: "STRING" };
 
-// Who the persona serves ({{profile.*}}): the pilot participant, or Max on his own line.
+// Who the persona serves ({{profile.*}}): the pilot participant (the default), the caller
+// (his users row, per call), or Max on his own line.
+const described = (who, L) => ({
+  ...who,
+  langName: L.name(who.lang),
+  accentNote: who.accent ? ` (${who.accent})` : "",
+  tradeNoun: who.trade ? `a ${who.trade}` : "a tradesperson (his trade isn't known yet; it comes out in a call)",
+  inPlace: who.place ? ` in ${who.place}` : "",
+});
 function profileFor(persona, framework, L) {
-  if (persona.profile === "participant") {
-    const who = framework.participant;
-    return {
-      ...who,
-      langName: L.name(who.lang),
-      accentNote: who.accent ? ` (${who.accent})` : "",
-      tradeNoun: who.trade ? `a ${who.trade}` : "a tradesperson (his trade isn't known yet; it comes out in the first call)",
-    };
-  }
+  if (persona.profile === "participant") return described(framework.participant, L);
   if (persona.profile === "admin") {
     // Max, on his own line (ADMIN_PHONE): ADMIN_NAME, ADMIN_LANG.
     const lang = L.isEnabled?.(process.env.ADMIN_LANG) ? process.env.ADMIN_LANG : L.defaultId;
@@ -46,6 +46,12 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
   const usesResearch = standing.some(t => t.steps.some(s => s.primitive === "research"));
   const framework = usesResearch ? loadFramework() : null;
   const profile = profileFor(persona, framework, locales);
+  // The caller as his users row knows him: trade, place, accent, language, time zone (nothing borrowed from the pilot's).
+  const profileOf = user => {
+    const p = user.profile ?? {};
+    const lang = locales.isEnabled?.(user.lang) ? user.lang : profile.lang;
+    return described({ ...profile, name: user.name ?? p.name ?? profile.name, lang, place: p.place ?? "", trade: p.trade ?? "", accent: p.accent ?? "", timezone: user.timezone || p.timezone || profile.timezone }, locales);
+  };
 
   // ---------- after the call: long-term memory (customers, to-dos) plus what standing objectives file ----------
   const memoryCtx = { r: text => render(text, { profile, ex: {}, lines: {}, exAll: {}, lang: { id: profile.lang, name: profile.langName }, langs: { names: locales.enabled().map(locales.name) } }, `personas/${persona.id}`), framework, locales, params: {} };
@@ -90,14 +96,14 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
      * (src/memory/pg.mjs), best first. `discovery`: the research state, if the
      * persona researches. At most MAX_OBJECTIVES of the agent's own items per call.
      */
-    createAgenda({ objectives = [], discovery = null, direction = "inbound" } = {}) {
+    createAgenda({ objectives = [], discovery = null, direction = "inbound", user = null } = {}) {
       const own = objectives.map(o => ({ id: o.id, key: o.id, template: byId(o.template), params: o.params, stored: true, previous: o.result || o.lastCall ? { ...(o.result ?? {}), lastCall: o.lastCall ?? null } : null, questionLang: o.lang ?? locales.guess(o.params.questions?.map(q => q.ask).join(" ") ?? "") ?? profile.lang }));
       const always = standing.filter(t => discovery || !t.steps.some(s => s.primitive === "research")).map(t => ({ id: t.id, key: t.id.replace(/\W/g, "_"), template: t, params: {}, stored: false }));
       // A call the agent makes is for its errand only, and a "standalone" item (a whole conversation,
       // like his day) is the call's own item too: no standing items (research) on top.
       const standalone = own.some(o => o.template.standalone);
       const items = direction === "outbound" || standalone ? own : [...own, ...always];
-      return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile, locales, discovery, framework, direction });
+      return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile: user ? profileOf(user) : profile, locales, discovery, framework, direction });
     },
 
     /** Checks an objective's params against its template; returns them normalised (throws on bad input). */

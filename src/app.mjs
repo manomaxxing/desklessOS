@@ -16,7 +16,7 @@ import { WebSocketServer } from "ws";
 import { loadConfig } from "./config.mjs";
 import { createLogger } from "./log.mjs";
 import { geminiEndpoint } from "./engine/gemini-endpoint.mjs";
-import { warmModel, extractJsonResilient } from "./engine/gemini.mjs";
+import { warmModel, extractJsonResilient, FALLBACK_MODEL } from "./engine/gemini.mjs";
 import { createFish } from "./engine/fish.mjs";
 import { createTurnDetector } from "./engine/turn-detector.mjs";
 import { openDb, openMemory } from "./memory/index.mjs";
@@ -39,7 +39,8 @@ import { createCallHost } from "./telephony/host.mjs";
 import { dialAdapter } from "./telephony/dial.mjs";
 import { twilioAdapter } from "./telephony/twilio.mjs";
 import { fakeAdapter } from "./telephony/fake.mjs";
-import { whatsappAdapter } from "./telephony/whatsapp.mjs";
+import { whatsappAdapter, whatsappSender } from "./telephony/whatsapp.mjs";
+import { createQuoteStore } from "./quotes/store.mjs";
 import { createApi } from "./http/api.mjs";
 
 const RECONNECT_GRACE_MS = 20000; // Dial re-dials for ~15 s after a drop
@@ -70,7 +71,7 @@ export async function createApp(env = process.env) {
     memory, skill, auth, queue, notifier, publicUrl: cfg.publicUrl, log,
     onCancel: objectiveId => scheduler?.cancelFor(objectiveId),
     outbound: () => Boolean(scheduler),
-    llm: args => extractJsonResilient({ endpoint, models: [cfg.plannerModel, cfg.model, "gemini-2.5-flash"], think: true, timeoutMs: 45000, retries429: 2, ...args }),
+    llm: args => extractJsonResilient({ endpoint, models: [cfg.plannerModel, cfg.model, FALLBACK_MODEL], think: true, timeoutMs: 45000, retries429: 2, ...args }),
   });
 
   // ---------- calls ----------
@@ -80,7 +81,10 @@ export async function createApp(env = process.env) {
   // Smart Turn v3 (TURN_DETECTOR=smart-turn): hears in his voice whether he's done.
   const turnDetector = cfg.turnDetector ? await createTurnDetector({ log }) : null;
   let background = null;
-  const startCall = createCallStarter({ cfg, skill, adminSkill, memory, monitor, clips, endpoint, fish, turnDetector, requests, auth, background: { kick: () => background.kick() }, log });
+  // Quotes made in a call (quote_send), sent as a PDF into his WhatsApp chat.
+  const quotes = createQuoteStore({ db });
+  const whatsappOut = whatsappSender({ env }); // messages into his chat: quotes, the note after a call
+  const startCall = createCallStarter({ cfg, skill, adminSkill, memory, monitor, clips, endpoint, fish, turnDetector, requests, auth, quotes, whatsapp: whatsappOut, background: { kick: () => background.kick() }, log });
   const host = createCallHost({ startCall, monitor, log, graceMs: RECONNECT_GRACE_MS });
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
   const devAllowed = token => (!cfg.devToken && !auth.enabled) || (cfg.devToken && token === cfg.devToken) || Boolean(auth.session(token));
@@ -96,14 +100,14 @@ export async function createApp(env = process.env) {
 
   // ---------- background work ----------
   const writeRecap = createRecapWriter({ endpoint, model: cfg.model, agent: skill.persona.agentLabel });
-  const afterCall = createAfterCall({ memory, skill, endpoint, model: cfg.model, writeRecap, requests, scheduler, monitor, log });
+  const afterCall = createAfterCall({ memory, skill, endpoint, model: cfg.model, writeRecap, whatsapp: whatsappOut, requests, scheduler, monitor, log });
   background = createBackground({
     queue, memory, scheduler: () => scheduler, mode: cfg.background, publicUrl: cfg.publicUrl, token: cfg.tickToken, intervalMs: cfg.tickMs, log,
     handlers: { after_call: afterCall, notify: payload => requests.sendNotification(payload) },
   });
 
   // ---------- HTTP ----------
-  const api = createApi({ cfg, skill, memory, queue, requests, auth, team, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap, log });
+  const api = createApi({ cfg, skill, memory, queue, requests, auth, team, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap, quotes, log });
   const server = http.createServer((req, res) => {
     api.handle(req, res).catch(err => { log("http error", req.url, err.message); if (!res.headersSent) res.writeHead(500).end(); });
   });

@@ -96,6 +96,8 @@ flowchart LR
 | Job queue | `src/jobs/queue.mjs` | all background work, at least once, retried, dead letters |
 | Background tick | `src/jobs/background.mjs` | lost calls, due jobs, outbound calls, embeddings |
 | Outbound | `src/jobs/scheduler.mjs`, `windows.mjs` | errands, guard (consent, window, cap, on a call), retries |
+| Features | `src/features.mjs`, `templates/feature.intro.json` | what Toni does per person beyond notes, briefings and to-dos (People card switches): the confirmed note into his WhatsApp chat after a call (`src/calls/note-message.mjs`, from the after-call job), quotes; a switched-on one is mentioned once (`tell` primitive) |
+| Quotes | `src/quotes/*`, `src/tools/quote.mjs` | `quote_send` in the call (after his yes): line items → totals in code → PDF (locale pack texts) → his WhatsApp chat (`whatsappSender`: media upload, document message) |
 | Admin | `src/admin/*`, `src/notify.mjs`, `web/admin.html` | the team's logins (`team.mjs`) and the owner's code + TOTP, calls (summary, transcript, Markdown), planner, cards, approval, notifications |
 | Bus | `src/bus.mjs` | messages between instances (Postgres NOTIFY) |
 | Monitor | `src/monitor.mjs`, `web/monitor.html` | live timelines (all instances), call log from Postgres |
@@ -159,7 +161,7 @@ tries the question moves to his next inbound call and Max is told.
 ## 5. Data model
 
 All tables carry `org_id` (multi-tenant ready). Row level security is on with no policies:
-only the server's service role reads and writes. Schema: `src/db/migrations/` (`001_schema.sql`, then `002_team_and_recap.sql`).
+only the server's service role reads and writes. Schema: `src/db/migrations/` (`001_schema.sql`, then `002_team_and_recap.sql`, `003_demo_user.sql`, `004_quotes.sql`).
 
 | Table | Holds | Notes |
 |---|---|---|
@@ -175,6 +177,7 @@ only the server's service role reads and writes. Schema: `src/db/migrations/` (`
 | `outbound_calls` | outbound errands and their tries | only ever dials a `users` row |
 | `jobs` | the queue | `key` unique (idempotent enqueue), lease, backoff, `dead` |
 | `voice_clips` | pre-recorded lines | keyed by hash of model, voice and text |
+| `quotes` | quotes made in calls | numbered per org and year (`unique (org_id, number)`); `data` is the whole quote, so the PDF is made again exactly; sent / saved / failed with WhatsApp's message id |
 | `members` | who can log in to the admin page | email, role (owner/member), scrypt password hash, invite as a SHA-256 of its token, `session_version` |
 | `tool_runs` | audit trail of tools that changed something | |
 
@@ -186,7 +189,7 @@ One table in `src/http/api.mjs`; each route has an access level.
 |---|---|---|
 | public | anyone | `/healthz`, `/api/health`, `/admin` (page), `/api/admin/login`, `/api/admin/logout`, `/api/team/invite-info`, `/api/team/accept` (the invite token is the key), `/` (test phone page) |
 | signed | the carrier | `/twilio/voice`, `/twilio/status`, `/twilio/amd` (Twilio signature); `/whatsapp/webhook` (Meta's `X-Hub-Signature-256`); WebSocket `/dial/<id>` (Dial signature) and `/twilio/stream` (our stream token) |
-| user | `DEV_TOKEN` or an admin session | `/monitor`, `/api/calls[/:id]`, `/api/memory`, `/api/notes`, `/api/discovery`, `/api/actions/:id`, `/api/config`, WebSocket `/monitor-ws`, test-phone calls |
+| user | `DEV_TOKEN` or an admin session | `/monitor`, `/api/calls[/:id]`, `/api/quotes/:id/pdf`, `/api/memory`, `/api/notes`, `/api/discovery`, `/api/actions/:id`, `/api/config`, WebSocket `/monitor-ws`, test-phone calls |
 | admin | an admin session: a team member's, or the owner's code (+ TOTP) | `/api/users`, `/api/requests[...]`, `/api/objectives[...]`, `/api/jobs`, `/api/team`, `POST /api/calls/:id/recap` |
 | owner | an owner's session | `POST /api/team/invite`, `POST /api/team/:id/remove` |
 | tick | `X-Tick-Token` | `POST /internal/tick` |
@@ -327,32 +330,37 @@ is a `pg_dump` of the schema.
 
 ## 11. Open points, ranked
 
-1. **Vertex quota:** on the first live call `gemini-3.5-flash` answered 429 (resource
-   exhausted) and stalled; the backup model carried two of three turns. Ask for a higher
-   quota in `mano-games`, or make 2.5 Flash the main model until then.
-2. **Load test:** calls per instance before raising concurrency (CPU per call: VAD,
+1. **Vertex 429s and data residency:** `gemini-3.5-flash` answers 429 (resource exhausted) now
+   and then; the backup model carries the turn. It's shared capacity, not our quota. Options:
+   Priority PayGo headers on live turns (~1.8× price, about €0.10 per call), and `eu` instead of
+   `global` (`GOOGLE_CLOUD_LOCATION`) for EU data residency, which has its own, smaller pools.
+   The backup is `gemini-3.5-flash-lite` (2.5 Flash retires on 2026-10-20).
+2. **Fish's free model** (`s2.1-pro-free`): no uptime guarantee, requests may be used for
+   training (customer names and addresses go through it). Paid `s2.1-pro`: $15 per million
+   characters.
+3. **Load test:** calls per instance before raising concurrency (CPU per call: VAD,
    resampling, Smart Turn when on).
-3. **A deploy during a live call:** test what Cloud Run does with an open WebSocket on the
+4. **A deploy during a live call:** test what Cloud Run does with an open WebSocket on the
    old revision. Until then, deploy outside call hours.
-4. **Data residency:**
-   - Vertex runs at `GOOGLE_CLOUD_LOCATION=global`; check whether `gemini-3.5-flash` is
-     served from an EU region and pin it.
+5. **Data residency:**
+   - Vertex runs at `GOOGLE_CLOUD_LOCATION=global` (no EU guarantee); `eu` is possible for
+     `gemini-3.5-flash` (see 1).
    - Fish Audio's processing location is unknown.
    - Both belong in the GDPR record.
-5. **Retention:** transcripts and timelines are kept forever. Set a period (e.g. 90 days for
+6. **Retention:** transcripts and timelines are kept forever. Set a period (e.g. 90 days for
    timelines) and a per-user delete.
-6. **Own Supabase project:** the database shares the Mano App project (the free plan allows
+7. **Own Supabase project:** the database shares the Mano App project (the free plan allows
    two active projects per owner). Move it out (`pg_dump --schema=deskless`) when either app
    needs the room, or when the org goes to Pro.
-7. **Tests against real Postgres:** unit and regression tests run on PGlite. The first deploy
+8. **Tests against real Postgres:** unit and regression tests run on PGlite. The first deploy
    found a difference: postgres.js JSON-encoded jsonb values a second time (fixed in
    `src/db/client.mjs`, with a test). Add a test run against a throwaway Supabase schema.
-8. **Alerting:** a log-based alert on `severity>=ERROR` and on dead jobs (Cloud Monitoring, free tier).
-9. **Postgres down mid-call:** the call's end write is lost. Keep the final state in the
+9. **Alerting:** a log-based alert on `severity>=ERROR` and on dead jobs (Cloud Monitoring, free tier).
+10. **Postgres down mid-call:** the call's end write is lost. Keep the final state in the
    job payload, or retry the end write.
-10. **Fish has no fallback voice** since Gemini TTS was cut. Accepted for now; a second Fish
+11. **Fish has no fallback voice** since Gemini TTS was cut. Accepted for now; a second Fish
    model or voice is the cheap fix.
-11. Login lockout counts per instance (in memory); move it to Postgres if more than one
+12. Login lockout counts per instance (in memory); move it to Postgres if more than one
    instance serves the admin page.
 
 ## 12. Audit: what changed and why

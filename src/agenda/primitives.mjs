@@ -11,9 +11,10 @@
 //   validate(step, params)     checks and normalises an objective's params; throws on bad input
 //   memory(step, ctx)          what the post-call memory step adds { schema, rules, prompt(snapshot) }
 // ctx: { r(text, extra?) renders {{slots}}, lang, params, key, agentLabel, discovery, framework, locales,
-//        previous (an objective's result from earlier calls) }.
+//        previous (an objective's result from earlier calls), tools (the tool names this call has) }.
 // Primitives: capture (a note), inform (answer from what's known), ask (Max's questions),
-// research (the pilot week's questions), conversation (his day, a listening conversation).
+// tell (one thing to tell him, once), research (the pilot week's questions), conversation
+// (his day, a listening conversation).
 
 const S = { type: "STRING" };
 const filled = v => (Array.isArray(v) ? v.length > 0 : typeof v === "string" ? v.trim() !== "" : v !== undefined && v !== null && v !== false);
@@ -21,7 +22,9 @@ const lines = v => [].concat(v ?? []);
 
 // He tells, the agent takes a structured note. Fields, rules and what's required come from the template.
 const capture = {
-  prompt: (s, c) => c.r(s.instructions),
+  // A tool's instructions only when the call has that tool: a rule about a tool it doesn't have
+  // would have the agent claim to do what it can't ("it's on its way to your WhatsApp").
+  prompt: (s, c) => [c.r(s.instructions), ...Object.entries(s.toolInstructions ?? {}).filter(([name]) => c.tools?.includes(name)).map(([, text]) => c.r(text))].join("\n"),
   fields: s => ({ properties: s.fields ?? {}, required: s.required ?? [] }),
   rules: (s, c) => lines(s.rules).map(l => c.r(l)),
   missing: (s, note) => lines(s.missing).filter(g => !g.anyOf.some(k => filled(note?.[k]))).map(g => g.label),
@@ -31,6 +34,22 @@ const capture = {
 // Answers from what's known (a briefing, the agenda): instructions only, nothing to extract.
 const inform = {
   prompt: (s, c) => c.r(s.instructions),
+};
+
+// One thing to tell him, once, at the end of a call (a feature just switched on for him).
+// Done once the extraction sees it was said, in any wording.
+const tell = {
+  validate(s, params = {}) {
+    const message = String(params.message ?? "").trim();
+    if (message.length < 3 || message.length > 400) throw new Error("message: what to tell him, up to 400 characters");
+    return { feature: String(params.feature ?? "").slice(0, 40), message };
+  },
+  prompt: (s, c) => `${c.r(s.title ?? "TELL HIM")}: news for him, not a question. Once, as a short heads-up in one or two sentences of your own (don't read it out word for word, don't start with "Kurze Frage", don't ask whether he likes it): "${c.params.message}" If he already used it in this call, skip it: it counts as told.`,
+  output: () => ({ type: "OBJECT", properties: { told: { type: "BOOLEAN" } }, required: ["told"] }),
+  rules: (s, c) => [`- agenda.${c.key}: told = true once the ${c.agentLabel.toLowerCase()} has told him this, in any wording, or he already used it in this call: "${c.params.message}".`],
+  isDone: (s, out) => Boolean(out?.told),
+  status: (s, out, c) => `${c.r(s.title ?? "TELL HIM")}: ${out?.told ? "told, don't repeat it" : "not told yet"}`,
+  result: (s, out) => ({ told: Boolean(out?.told) }),
 };
 
 // The agent asks questions someone gave it ("find out X"): 1–5 questions with an optional follow-up each.
@@ -97,7 +116,7 @@ const ask = {
 // The pilot week's research (config/discovery.json): one question per call from the
 // framework, chosen by the discovery store. Findings are filed by the post-call step.
 const research = {
-  prompt: (s, c) => `${c.r(s.instructions, { research: { startArea: c.framework.areas.find(a => a.phase === "start")?.title ?? "the business" } })}\n\n${c.discovery.context()}`,
+  prompt: (s, c) => `${c.r(s.instructions, { research: { startArea: c.framework.areas.find(a => a.phase === "start")?.title ?? "the business", questionLang: c.locales.name(c.framework.participant?.lang ?? c.lang) } })}\n\n${c.discovery.context()}`,
   status: () => "",
   memory: (s, c) => ({
     schema: {
@@ -211,4 +230,4 @@ const conversation = {
   },
 };
 
-export const primitives = { capture, inform, ask, research, conversation };
+export const primitives = { capture, inform, ask, tell, research, conversation };

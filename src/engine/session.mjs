@@ -17,12 +17,12 @@
 
 import { createVad } from "./vad.mjs";
 import { createReplyParser } from "./reply.mjs";
-import { streamTurn, extractJsonResilient, warmModel, userContent, historyContents } from "./gemini.mjs";
+import { streamTurn, extractJsonResilient, warmModel, userContent, historyContents, transcribe, FALLBACK_MODEL } from "./gemini.mjs";
 import { wav, silence, frames, durationMs } from "./audio.mjs";
 import { writeFileSync } from "node:fs";
 import { createMeter, geminiCost, ttsCost } from "./cost.mjs";
 import { createTypist } from "./ambience.mjs";
-import { dangling, holdOn } from "./endpointing.mjs";
+import { dangling, holdOn, affirmed } from "./endpointing.mjs";
 import { locales, pickLanguage } from "../locale/index.mjs";
 import { createToolRunner } from "../tools/registry.mjs";
 import { callTools } from "../tools/index.mjs";
@@ -34,9 +34,11 @@ import path from "node:path";
 const END_SILENCE = { listen: 800, ask: 1000, wait: 800, confirm: 600, hangup: 600 };
 const START_MS = { listen: 200, ask: 200, wait: 200, confirm: 120, hangup: 200 }; // a crisp "Passt." is ~160 ms voiced
 // After a "wait", if he stays quiet: a soft "mhm" (he keeps the floor), then the
-// answer. "Moment" / "warte mal" holds the floor much longer, without the "mhm".
-const WAIT_MHM_MS = 2000;
-const WAIT_DONE_MS = 4000;
+// answer, both counted from his last word. The answer is prepared right away and held,
+// so it plays at once when the time is up (not one model round trip later); if he goes
+// on, it's dropped unheard. "Moment" / "warte mal" holds the floor much longer, without the "mhm".
+const WAIT_MHM_MS = 2500;
+const WAIT_DONE_MS = 5000;
 const HOLD_MS = 15000;
 // He talks again right after the agent started: he wasn't done. Stop on a shorter
 // burst of speech, forget the reply, and answer both parts as one thought.
@@ -49,7 +51,13 @@ const TURN_DEADLINE_MS = 12000; // give up and say sorry
 const IDLE_MS = { listen: 9000, ask: 10000, confirm: 7000, wait: 0, hangup: 0 };
 const BACKCHANNEL_IDLE_MS = 3000;
 const STAGE_DIRECTION = /^\s*[[(][^\])]*[\])]\s*$/; // "[Silence]", "(wartet)": never read out loud
+// Two replies that start alike (the same first five words, ignoring case and punctuation).
+const words = s => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+const sameStart = (a, b) => { const x = words(a).slice(0, 5), y = words(b).slice(0, x.length); return x.length >= 2 && y.length === x.length && x.every((w, i) => w === y[i]); };
 const INTERRUPT_MS = Number(process.env.INTERRUPT_MIN_MS || 500); // loud speech needed to cut the agent off
+// While the greeting plays, a "Hallo?" said over it (people do, the moment a call connects) mustn't
+// cut it off; only a longer stretch of speech does.
+const GREETING_INTERRUPT_MS = Number(process.env.GREETING_INTERRUPT_MS || 1200);
 const TYPING_AFTER_MS = 250; // typing starts almost at once, like someone writing it down
 // A call the agent made: it greets after his "Hallo?", or after this much silence.
 const OUTBOUND_GREET_MS = 1500;
@@ -62,11 +70,11 @@ const pick = (arr, i) => (Array.isArray(arr) ? arr[i % arr.length] : arr);
 
 // `onEvent` feeds the monitor (every call); dev callers also get the events inline.
 // `recordDir(callId)` → directory for per-turn audio, or null to not record.
-export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, memory = null, assets, config = {}, initialTurns = [], initialLang = null, turnDetector = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null, tools: extraTools = [] }) {
+export function createCallSession({ send, dev = false, skill, agenda = skill.createAgenda(), endpoint, model, extractModel, fish, memory = null, assets, config = {}, initialTurns = [], initialLang = null, turnDetector = null, log = () => {}, onEvent = () => {}, onEnd = () => {}, recordDir = null, tools: extraTools = [], firstCall = false }) {
   const cfg = { model, mask: "typing", ...Object.fromEntries(Object.entries(config).filter(([, v]) => v)) };
   const fastModel = cfg.model;
   const slowModel = extractModel || model; // notes and memory stay on one model so modes compare fairly
-  const fallbackModel = process.env.FALLBACK_MODEL || (fastModel === "gemini-2.5-flash" ? "gemini-3.5-flash" : "gemini-2.5-flash");
+  const fallbackModel = fastModel === FALLBACK_MODEL ? "gemini-3.5-flash" : FALLBACK_MODEL;
   // The tools this call's templates may use (src/tools/).
   const runner = createToolRunner({ tools: callTools({ memory, allow: agenda.tools(), extra: extraTools }) });
   let toolDecls = null;
@@ -92,6 +100,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
   let note = {};
   let missing = agenda.missing(note);
   let pendingUser = []; // caller audio not yet answered
+  let lastReply = ""; // what the agent said last turn (to catch it repeating itself)
   let current = null; // the turn being answered
   let turnSeq = 0;
   let markSeq = 0;
@@ -139,6 +148,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     send({ type: "clear" });
     marks.clear();
     vad.setStrict(false);
+    vad.setInterruptMs(INTERRUPT_MS);
   }
 
   // A clip that starts synthesising now (Fish, streamed) and can be drained later, in order.
@@ -262,22 +272,39 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
   }
 
   // After a "wait" (he paused mid-thought): if he stays quiet, a soft "mhm" says
-  // we're still listening; if he's still quiet after that, answer the whole
-  // dictation as one turn. After "Moment" he gets HOLD_MS and no "mhm".
-  function armWait({ hold = false } = {}) {
+  // we're still listening; if he's still quiet after that, the answer to the whole
+  // dictation, prepared meanwhile, plays. After "Moment" he gets HOLD_MS and no "mhm".
+  // `lastVoice`: when he stopped talking (performance.now()).
+  function armWait({ hold = false, lastVoice = performance.now() } = {}) {
     clearTimeout(waitTimer);
-    const answer = () => {
-      if (ended || current || !pendingUser.length) return;
-      if (vad.speaking) return armWait({ hold });
-      debug("nudge", { kind: hold ? "hold_done" : "dictation_done" });
-      runTurn({ force: true }).catch(err => fail("turn", err));
-    };
-    if (hold) { waitTimer = setTimeout(answer, HOLD_MS); return; }
+    if (hold) {
+      const answer = () => {
+        if (ended || current || !pendingUser.length) return;
+        if (vad.speaking) return armWait({ hold });
+        debug("nudge", { kind: "hold_done" });
+        runTurn({ force: true }).catch(err => fail("turn", err));
+      };
+      waitTimer = setTimeout(answer, HOLD_MS);
+      return;
+    }
+    if (ended || current || !pendingUser.length) return;
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    const after = ms => Math.max(0, lastVoice + ms - performance.now());
+    runTurn({ force: true, held }).catch(err => fail("turn", err));
+    const prepared = current;
     waitTimer = setTimeout(() => {
-      if (ended || current || !pendingUser.length || vad.speaking) return;
+      if (ended || current !== prepared || vad.speaking) return;
       backchannel();
-      waitTimer = setTimeout(answer, WAIT_DONE_MS - WAIT_MHM_MS);
-    }, WAIT_MHM_MS);
+      const tryRelease = () => {
+        if (ended || current !== prepared) return;
+        // He's starting again (voice building up, not yet speech): wait; onSpeechStart drops it if it is.
+        if (vad.speaking || vad.stirring) { waitTimer = setTimeout(tryRelease, 200); return; }
+        debug("nudge", { kind: "dictation_done" });
+        release();
+      };
+      waitTimer = setTimeout(tryRelease, after(WAIT_DONE_MS));
+    }, after(WAIT_MHM_MS));
   }
 
   // A quiet "mhm" that doesn't take the floor: no mark, so his speech isn't a
@@ -296,6 +323,18 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     clearTimeout(idleTimer);
     clearTimeout(waitTimer);
     debug("vad", { speaking: true });
+    // He goes on after a pause: the answer prepared meanwhile was never heard. Drop it, from
+    // the history too, and put his audio back, so all of it is answered as one thought.
+    if (current?.held && !current.released) {
+      const t = current;
+      current = null;
+      t.dropped = true;
+      t.abort.abort();
+      if (t.turnsBefore != null) turns.splice(t.turnsBefore);
+      if (t.userAudio) pendingUser = [...t.userAudio, ...pendingUser];
+      debug("prepared_dropped", { turn: t.id });
+      return;
+    }
     const agentTalking = marks.size > 0 || (current && current.audioSent);
     if (agentTalking) {
       // Not once a tool changed something in that turn: then it stands, and this is a normal barge-in.
@@ -337,11 +376,13 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     runTurn().catch(err => fail("turn", err));
   }
 
-  async function runTurn({ text, force = false } = {}) {
+  // `held`: an answer prepared while he pauses (armWait): nothing of it is heard, and no tool
+  // changes anything, until it resolves.
+  async function runTurn({ text, force = false, held = null } = {}) {
     clearTimeout(idleTimer);
-    clearTimeout(waitTimer);
+    if (!held) clearTimeout(waitTimer);
     if (!text && !force && pendingUser.reduce((n, p) => n + durationMs(p), 0) > MAX_PENDING_MS) force = true;
-    const turn = { id: ++turnSeq, abort: new AbortController(), audioSent: false, fillerPlayed: false, endpointAt: performance.now(), marks: [], prevNext: lastNext, toolNotes: [], retryable: text ? retryable : (r => (retryable = false, r))(retryable) };
+    const turn = { id: ++turnSeq, abort: new AbortController(), audioSent: false, fillerPlayed: false, endpointAt: performance.now(), marks: [], prevNext: lastNext, toolNotes: [], retryable: text ? retryable : (r => (retryable = false, r))(retryable), held: Boolean(held), released: !held };
     current = turn;
     const signal = turn.abort.signal;
     const heardPcm = text ? null : Buffer.concat(pendingUser.flatMap((p, i) => (i ? [silence(300), p] : [p])));
@@ -366,8 +407,19 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     let drained = 0; // clips fully sent
 
     // Latency mask while Gemini thinks: keyboard typing (default), a spoken filler, or nothing.
+    // Not while an answer is held: he's mid-thought, and typing would say the agent is answering.
     let filler = null;
-    if (!text && cfg.mask === "typing" && typist) {
+    if (held) {
+      held.then(() => {
+        if (signal.aborted) return;
+        turn.released = true;
+        turn.endpointAt = performance.now(); // its latency counts from here: he's done now
+        for (const text of turn.unsaid ?? []) debug("say", { turn: turn.id, text });
+        turn.unsaid = null;
+        if (!turn.firstAudioAt && cfg.mask === "typing" && typist && !typist.running) { typist.start(); debug("mask", { kind: "typing", for: "prepared" }); }
+        wakePlayer?.();
+      });
+    } else if (!text && cfg.mask === "typing" && typist) {
       filler = setTimeout(() => { if (!signal.aborted && !turn.firstAudioAt) { typist.start(); debug("mask", { kind: "typing" }); } }, TYPING_AFTER_MS);
     } else if (!text && cfg.mask === "filler") {
       filler = setTimeout(() => {
@@ -392,6 +444,11 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
           wakePlayer = null;
           continue;
         }
+        // A prepared answer waits for its release (he's done) before he hears any of it.
+        if (!turn.released) {
+          await Promise.race([held, new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }))]);
+          if (signal.aborted) return;
+        }
         const index = n++;
         const clip = clips[index];
         for await (const chunk of drain(clip)) {
@@ -406,7 +463,9 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
               clearTimeout(falseStartTimer);
               falseStartTimer = setTimeout(() => vad.setInterruptMs(INTERRUPT_MS), FALSE_START_MS);
             }
-            if (!text) debug("latency", { turn: turn.id, firstAudioMs: Math.round(turn.firstAudioAt - turn.endpointAt), firstTokenMs: Math.round(turn.firstTokenAt - turn.endpointAt), fishFirstByteMs: fish?.stream.lastFirstByteMs ?? null });
+            // firstAudioMs counts from the end of his turn (the silence that ended it already passed);
+            // sinceSpeechMs from his last word, which is what he actually waits.
+            if (!text) debug("latency", { turn: turn.id, firstAudioMs: Math.round(turn.firstAudioAt - turn.endpointAt), sinceSpeechMs: turn.held ? null : Math.round(turn.firstAudioAt - turn.endpointAt + (END_SILENCE[turn.prevNext] ?? END_SILENCE.listen)), firstTokenMs: Math.round(turn.firstTokenAt - turn.endpointAt), fishFirstByteMs: fish?.stream.lastFirstByteMs ?? null, ...(turn.held ? { prepared: true } : {}) });
           }
           if (turn.followFrom != null && index >= turn.followFrom && !turn.followAudioAt) {
             // The answer after the tool: typing stops, and how long the tool hop took goes to the monitor.
@@ -431,6 +490,15 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     const onSentence = sentence => {
       if (signal.aborted || turn.waiting) return;
       if (STAGE_DIRECTION.test(sentence)) { debug("say", { turn: turn.id, text: sentence, note: "stage direction, not spoken" }); return; }
+      // Nothing transcribed, and the reply starts like the last one: it didn't catch him and is
+      // repeating itself. Say once that it didn't come through, instead of the same answer again.
+      if (!reply && !text && turn.heardEmpty && sameStart(sentence, lastReply)) {
+        debug("say", { turn: turn.id, text: sentence, note: "repeat after an empty transcript, not spoken" });
+        turn.abort.abort();
+        if (current === turn) current = null; // his next words are a new turn; the question he was asked still stands (lastNext)
+        speakCached(pick(assets[lang]?.oops, 2), "oops");
+        return;
+      }
       // A filler already said "Mhm": don't say it twice.
       if (turn.fillerPlayed && !reply && lex().fillerPrefix.test(sentence)) {
         const rest = sentence.replace(lex().fillerPrefix, "");
@@ -442,7 +510,9 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       reply += (reply ? " " : "") + sentence;
       clips.push(startClip(sentence, signal, lang));
       wakePlayer?.();
-      debug("say", { turn: turn.id, text: sentence });
+      // A prepared answer is on the monitor only once it plays (if he goes on, it never does).
+      if (turn.released) debug("say", { turn: turn.id, text: sentence });
+      else (turn.unsaid ??= []).push(sentence);
     };
 
     const parser = createReplyParser({
@@ -461,6 +531,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         }
         next = n;
         if (l) lang = l;
+        turn.heardEmpty = !text && (!String(heard ?? "").trim() || locales().unclear.test(String(heard).trim()));
         turn.hold = !text && holdOn(heard, lex(l || lang));
         if (n === "wait") {
           // Unfinished thought: say nothing, keep his audio, and answer it all once he's done.
@@ -484,6 +555,9 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     // A write waits until he can't take the turn back any more, FALSE_START_MS after
     // the agent started talking ("Yes… no wait, make it Thursday" must not file the request).
     async function writeWindow() {
+      // A prepared answer changes nothing until he's done: he might still take it all back.
+      if (!turn.released) await Promise.race([held, new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }))]);
+      if (signal.aborted) return false;
       const t0 = performance.now();
       while (clips.length && !turn.firstAudioAt && !signal.aborted && performance.now() - t0 < 4000) await sleep(50);
       const until = (turn.firstAudioAt ?? t0) + FALSE_START_MS;
@@ -496,8 +570,29 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       signal,
       // He answered a yes/no question, and this answer isn't itself asking one (a recap that
       // calls the tool in the same breath would ride on an earlier yes, e.g. to the email read-back).
-      // …or a write failed in the turn before and the agent offered to try again.
-      confirmed: (turn.prevNext === "confirm" || turn.retryable) && next !== "confirm" && next !== "ask",
+      // …or a write failed in the turn before and the agent offered to try again. And his words
+      // say yes, plainly: no "ja, aber…", no "nee, warte" (checked in code, not left to the model:
+      // a phantom yes must never send anything). Gemini sometimes answers with only the tool call,
+      // no transcript: then his audio is written down separately and checked. A reply counts as
+      // asking only if it has a question mark (the model sometimes labels "Mach ich." as confirm).
+      confirmed: async tool => {
+        if (!(turn.prevNext === "confirm" || turn.retryable)) return false;
+        if ((next === "confirm" || next === "ask") && reply.includes("?")) return false;
+        let words = turn.userEntry?.text ?? "";
+        if (audio && (!words.trim() || locales().unclear.test(words.trim()))) {
+          words = await transcribe({ endpoint, model: FALLBACK_MODEL, audio, signal });
+          debug("heard_check", { turn: turn.id, text: words });
+          if (words && turn.userEntry) turn.userEntry.text = words;
+        }
+        if (!affirmed(words, lex(lang))) return false;
+        // Sending something: the yes must be to sending, not to the summary before it.
+        if (tool?.confirmAbout === "send") {
+          const asked = turns[turns.indexOf(turn.userEntry) - 1];
+          const aboutSending = text => lex(lang).send.test(String(text ?? ""));
+          if (!(asked?.role === "model" && aboutSending(asked.text)) && !aboutSending(words)) return false;
+        }
+        return true;
+      },
       latestNote: freshNote, // the draft, his latest words included
       memory,
       emit: (event, data) => debug(event, { turn: turn.id, ...data }),
@@ -611,12 +706,13 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     if (turn.waiting) {
       if (current === turn) current = null;
       lastNext = "wait";
-      armWait({ hold: turn.hold });
+      armWait({ hold: turn.hold, lastVoice: turn.endpointAt - (END_SILENCE[turn.prevNext] ?? END_SILENCE.listen) });
       return;
     }
     // What a tool did stays in the history, between the preface and the answer.
     const said = turn.toolNotes.length ? [reply.slice(0, turn.prefaceLength), ...turn.toolNotes, reply.slice(turn.prefaceLength)].map(s => s.trim()).filter(Boolean).join(" ") : reply;
     if (said) turns.push({ role: "model", text: said });
+    if (reply) lastReply = reply;
     checkpoint();
     if (current === turn) current = null;
     lastNext = next;
@@ -629,7 +725,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     // Keep only what the caller actually heard (marks that came back), so the
     // model can pick up where it was cut off instead of assuming it said it all.
     function finishAborted() {
-      if (turn.falseStart) return;
+      if (turn.falseStart || turn.dropped) return; // a false start, or a prepared answer he never heard
       const heard = turn.marks.filter(m => m && markText.get(m)?.heard).map(m => markText.get(m).text);
       const unsaid = clips.map(c => c.text).slice(heard.length).join(" ");
       if (reply || turn.toolNotes.length) turns.push({ role: "model", text: [...heard, ...turn.toolNotes, `[interrupted by the caller${unsaid ? `; not heard: "${unsaid.slice(0, 160)}"` : ""}]`].join(" ") });
@@ -745,7 +841,8 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
           if (!msg.reconnect && msg.direction === "outbound") {
             outbound = { greeted: false, timer: setTimeout(() => greetOutbound({ heardHello: false }), OUTBOUND_GREET_MS) };
             debug("outbound", { user: msg.user_id ?? null });
-          } else if (!msg.reconnect) speakCached(assets[lang]?.greeting, "greet");
+          // His first call: the greeting says Toni is an AI assistant (EU AI Act, Art. 50) and how it works.
+          } else if (!msg.reconnect && speakCached((firstCall && assets[lang]?.firstGreeting) || assets[lang]?.greeting, "greet")) vad.setInterruptMs(GREETING_INTERRUPT_MS);
           warmModel({ endpoint, model: fastModel }); // Vertex's first request is slow; take that hit during the greeting
           debug("connected", { formats: msg.formats, lang, config: cfg });
           break;
@@ -754,6 +851,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
           break;
         case "mark":
           marks.delete(msg.name);
+          if (msg.name.startsWith("greet-")) vad.setInterruptMs(INTERRUPT_MS); // the greeting is out: the usual barge-in again
           if (markText.has(msg.name)) markText.get(msg.name).heard = true;
           if (!marks.size) { vad.setStrict(false); if (!current) armIdle(); }
           if (msg.name === hangupMark) {

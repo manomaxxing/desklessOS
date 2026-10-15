@@ -6,15 +6,19 @@
 // (src/engine/live-session.mjs: Gemini Live). If Live fails mid-call, the cascade takes
 // the call over. Calls we make and Max's own line always run on the cascade.
 // Max on his own line (ADMIN_PHONE) gets the admin persona instead, and keeps nothing.
+// A WhatsApp call can send him a quote PDF into his chat (quote_send, once his "quotes"
+// feature is on); the online test phone saves it for the dashboard only; other lines don't offer it.
 
 import { createCallSession } from "../engine/session.mjs";
 import { createLiveSession } from "../engine/live-session.mjs";
 import { adminTools } from "../tools/admin.mjs";
+import { quoteSend } from "../tools/quote.mjs";
+import { hasFeature } from "../features.mjs";
 import { emptyScope, e164 } from "../memory/pg.mjs";
 
 export const describeMode = c => (c.engine === "live" ? `Gemini Live · ${c.liveModel} · ${c.liveVoice}` : `${c.model} + Fish · ${c.mask}`);
 
-export function createCallStarter({ cfg, skill, adminSkill = null, memory, monitor, clips, endpoint, fish, turnDetector = null, requests, auth, background, log }) {
+export function createCallStarter({ cfg, skill, adminSkill = null, memory, monitor, clips, endpoint, fish, turnDetector = null, requests, auth, background, quotes = null, whatsapp = null, log }) {
   const adminPhones = new Set(cfg.adminPhones.map(e164).filter(Boolean));
   const phoneConfig = { engine: cfg.engine, model: cfg.model, mask: cfg.mask, liveModel: cfg.liveModel, liveVoice: cfg.liveVoice };
   const callLog = id => (...a) => log(`[${id.slice(-6)}]`, ...a);
@@ -46,13 +50,18 @@ export function createCallStarter({ cfg, skill, adminSkill = null, memory, monit
       .catch(err => { log(`call ${id}: memory error, going on without it: ${err.message}`); monitor.system(`call ${id}: memory unavailable (${err.message})`, "error"); return emptyScope(); });
     if (scope.stats) monitor.event(id, { event: "context", ...scope.stats });
     if (!scope.user) monitor.system(`call ${id}: unknown caller ${msg.from ?? "?"}: empty memory, nothing saved`, "warn");
-    const agenda = skill.createAgenda({ objectives: scope.objectives, discovery: scope.discovery, direction: outbound ? "outbound" : "inbound" });
+    const agenda = skill.createAgenda({ objectives: scope.objectives, discovery: scope.discovery, direction: outbound ? "outbound" : "inbound", user: scope.user });
     const stored = agenda.objectives.filter(o => o.stored).map(o => o.id);
     if (stored.length) await scope.setAgenda(stored);
     if (agenda.objectives.length) monitor.system(`call ${id}: agenda ${agenda.objectives.map(o => (o.stored ? `${o.template.id} ${o.id}` : o.template.id)).join(", ")}`);
 
+    const viaWhatsApp = source === "whatsapp" && Boolean(whatsapp) && Boolean(msg.from);
+    const tools = quotes && scope.user && !outbound && (viaWhatsApp || dev) && hasFeature(scope.user, "quotes")
+      ? [quoteSend({ memory: scope, quotes, sender: viaWhatsApp ? whatsapp : null, to: viaWhatsApp ? msg.from : null, agent: skill.persona.agentLabel, log: callLog(id) })]
+      : [];
     const common = {
-      send, dev, skill, agenda, endpoint, extractModel: cfg.model, memory: scope, assets: assets[skill.PERSONA], recordDir, log: callLog(id),
+      send, dev, skill, agenda, endpoint, extractModel: cfg.model, memory: scope, assets: assets[skill.PERSONA], recordDir, log: callLog(id), tools,
+      firstCall: !outbound && scope.firstCall !== false,
       onEvent: ev => monitor.event(id, ev),
       async onEnd(reason, final) {
         const record = monitor.end(id, reason);

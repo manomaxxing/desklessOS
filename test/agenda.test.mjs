@@ -77,18 +77,18 @@ test("the pilot agenda: the note works as before (missing, saving, schema)", () 
   const schema = agenda.schema();
   assert.deepEqual(schema.properties.mode.enum, ["capture", "brief", "agenda", "unclear"]);
   assert.equal(schema.properties.agenda, undefined, "nothing to extract for the agent's own items");
-  assert.deepEqual(agenda.tools(), ["memory_search"]);
+  assert.deepEqual(agenda.tools(), ["quote_send", "memory_search"]);
 });
 
 test("an inquiry on the agenda: asked at the end, extracted, done in code, answer kept", () => {
   const skill = loadSkillFromTemplates("pilot");
   const objectives = [{ id: "obj_1", ...question, params: skill.objectiveParams("inquiry", question.params) }];
   const agenda = skill.createAgenda({ objectives, discovery: createDiscovery({ framework: loadFramework() }) });
-  assert.deepEqual(agenda.objectives.map(o => o.template.id), ["inquiry", "research.discovery"], "Max's question first, research after");
+  assert.deepEqual(agenda.objectives.map(o => o.template.id), ["inquiry"], "one extra per call: Max's question, research waits for another call");
   const prompt = agenda.prompt({ lang: "de" });
   assert.match(prompt, /1\. MAX'S QUESTION \(how long quotes take\): ask this\. They are written in German/);
   assert.match(prompt, /q1: "Wie lange hast du an deinem letzten Angebot gesessen\?" If his answer is vague, one follow-up: "Ungefähr reicht\."/);
-  assert.match(prompt, /2\. RESEARCH, THIS WEEK ONLY/);
+  assert.doesNotMatch(prompt, /RESEARCH, THIS WEEK ONLY/, "no research question in the same call");
   assert.match(prompt, /Your own agenda so far: MAX'S QUESTION: q1 not asked yet/);
   assert.match(agenda.extractSystem("de"), /agenda\.obj_1: the questions under "MAX'S QUESTION"/);
   const schema = agenda.schema();
@@ -109,12 +109,19 @@ test("an inquiry on the agenda: asked at the end, extracted, done in code, answe
   assert.equal(r.result.questions[0].quote, "so zwei Stunden, Sonntagabend halt");
 });
 
-test("at most two of the agent's own items per call; research needs its store", () => {
+test("one extra per call: the agent's own items, best first; research needs its store", () => {
   const skill = loadSkillFromTemplates("pilot");
   const params = skill.objectiveParams("inquiry", question.params);
-  const two = skill.createAgenda({ objectives: [{ id: "a", template: "inquiry", params }, { id: "b", template: "inquiry", params }], discovery: createDiscovery({ framework: loadFramework() }) });
-  assert.deepEqual(two.objectives.map(o => o.id), ["a", "b"]);
+  const discovery = createDiscovery({ framework: loadFramework() });
+  const two = skill.createAgenda({ objectives: [{ id: "a", template: "inquiry", params }, { id: "b", template: "inquiry", params }], discovery });
+  assert.deepEqual(two.objectives.map(o => o.id), ["a"], "never two extras in one call");
+  assert.deepEqual(skill.createAgenda({ discovery }).objectives.map(o => o.template.id), ["research.discovery"], "nothing queued: the research question");
   assert.deepEqual(skill.createAgenda().objectives, [], "no discovery store: no research item");
+  const intro = { id: "f", template: "feature.intro", params: skill.objectiveParams("feature.intro", { feature: "note_whatsapp", message: "Ab jetzt kommt die Notiz auf WhatsApp." }) };
+  const told = skill.createAgenda({ objectives: [intro], discovery });
+  assert.deepEqual(told.objectives.map(o => o.template.id), ["feature.intro"], "a new feature to mention is the call's one extra");
+  assert.match(told.prompt({ lang: "de" }), /NEW FOR HIM: news for him, not a question\. .*"Ab jetzt kommt die Notiz auf WhatsApp\." If he already used it in this call, skip it/);
+  assert.equal(told.update({ agenda: { f: { told: true } } }).changes?.[0]?.done ?? told.objectives[0].done, true, "done once it was said");
 });
 
 test("his day: a conversation by his time of day, picking up where the last call stopped", () => {
@@ -150,4 +157,12 @@ test("his day: a conversation by his time of day, picking up where the last call
   assert.deepEqual(r2.result.days, ["Bad in Allensbach.", "Heute Küche."]);
   assert.equal(r2.result.open_thread, "");
   assert.match(r2.result.questions.at(-1).ask, /^Idea: Bestellungen per Anruf/);
+});
+
+test("a tool's instructions only on a call that has the tool: no promise it can't keep", () => {
+  const skill = loadSkillFromTemplates("pilot");
+  const agenda = skill.createAgenda();
+  assert.doesNotMatch(agenda.prompt({ lang: "de" }), /quote_send|als Angebot auf WhatsApp/, "no quote tool: not a word about sending quotes");
+  const withTool = agenda.prompt({ lang: "de", tools: ["quote_send"] });
+  assert.match(withTool, /- QUOTE \(the job has work to quote\): .*"Soll ich dir das als Angebot auf WhatsApp schicken\?"/);
 });

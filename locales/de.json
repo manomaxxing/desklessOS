@@ -10,6 +10,43 @@
   },
   "testing": { "callerVoice": "a20517d0d23048319e4ced960899187e", "from": "+4915100000000" },
   "format": { "numberLocale": "de-DE" },
+  "documents": {
+    "quote": {
+      "title": "Angebot",
+      "draftTitle": "Angebotsentwurf",
+      "number": "Nr.",
+      "date": "Datum",
+      "validUntil": "Gültig bis",
+      "for": "Für",
+      "intro": "Gerne bieten wir Ihnen folgende Leistungen an:",
+      "pos": "Pos.",
+      "description": "Leistung",
+      "quantity": "Menge",
+      "unit": "Einheit",
+      "unitPrice": "Einzelpreis",
+      "total": "Gesamt",
+      "net": "Nettobetrag",
+      "vat": "zzgl. {rate} % MwSt.",
+      "gross": "Gesamtbetrag",
+      "noVat": "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.",
+      "noPrice": "offen",
+      "incomplete": "Positionen ohne Preis werden noch ergänzt.",
+      "closing": "Wir freuen uns auf Ihren Auftrag.",
+      "draftNote": "Entwurf aus dem Gespräch mit {agent}. Bitte vor dem Weitergeben prüfen.",
+      "phone": "Tel.",
+      "email": "E-Mail",
+      "taxId": "USt-IdNr.",
+      "page": "Seite {n} von {of}",
+      "fileName": "Angebot",
+      "caption": "{title} {number} für {customer}",
+      "captionNoCustomer": "{title} {number}"
+    },
+    "note": {
+      "title": "Notiert",
+      "next": "Als Nächstes",
+      "footer": "Stimmt was nicht? Ruf mich kurz an, dann korrigier ich's."
+    }
+  },
   "lexicon": {
     "digits": ["null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun"],
     "dangling": [
@@ -27,6 +64,9 @@
     "holdTail": ["lass mich überlegen", "lass mich kurz überlegen", "lass mich nachdenken", "lass mich kurz nachdenken", "lass mich schauen", "lass mich kurz schauen"],
     "fillerWords": ["mhm", "okay", "ok", "alles klar"],
     "agentBackchannel": ["mhm", "okay", "ok"],
+    "affirm": ["ja", "jo", "jap", "jep", "jawohl", "genau", "passt", "gerne", "gern", "okay", "ok", "klar", "logo", "sicher", "mach", "machen", "schick", "schicken", "bitte", "super", "perfekt", "richtig", "stimmt", "auf jeden fall", "unbedingt"],
+    "send": ["schick", "schicken", "schickst", "senden", "sende", "whatsapp", "rüber"],
+    "negate": ["nein", "nee", "nö", "nicht", "kein", "keine", "warte", "wart", "moment", "stopp", "halt", "aber", "später", "doch nicht", "lieber nicht"],
     "goOn": ["weiter"],
     "unclear": ["unklar"],
     "stopwords": ["und", "ich", "ist", "das", "die", "der", "nicht", "ja", "nein", "auch", "mit", "noch"],
@@ -35,13 +75,18 @@
   "personas": {
     "notebook": {
       "greeting": "Hallo, hier ist Toni. Was gibt's?",
+      "firstGreeting": "Hallo, hier ist Toni, deine KI-Assistentin fürs Telefon. Erzähl einfach, ich hör zu und schreib mit.",
       "wrapUp": "Wir sind gleich am Zeitlimit. Ich speichere alles, was ich habe. Bis später!",
       "backchannel": "Mhm.",
       "fillers": ["Mhm.", "Okay.", "Alles klar."],
-      "oops": ["Sorry, da hat's gerade kurz gehakt. Sag's bitte nochmal?", "Moment, die Leitung war kurz weg. Was hast du gesagt?", "Entschuldige, das ist nicht angekommen. Nochmal bitte?"],
+      "oops": ["Sorry, bei mir hat's gerade kurz gehakt. Sag's bitte nochmal?", "Entschuldige, bei mir hängt's grad kurz. Was hast du gesagt?", "Sorry, das ist bei mir nicht angekommen. Nochmal bitte?"],
       "working": "Mach ich.",
       "looking": "Moment, ich schau nach.",
       "outboundGreeting": "Hallo, hier ist Toni.",
+      "features": {
+        "note_whatsapp": "Ab jetzt schick ich dir nach jedem Anruf die Notiz auf WhatsApp, so wie du sie mir bestätigt hast. Dann hast du's schwarz auf weiß.",
+        "quotes": "Wenn du mir einen Auftrag mit Mengen und Preisen durchgibst, kann ich dir daraus direkt ein Angebot als PDF auf WhatsApp schicken."
+      },
       "examples": {
         "dayWhy": "Max will einfach besser verstehen, wie dein Arbeitsalltag so läuft. Hast du ein paar Minuten?",
         "dayMorning": "Wie war's gestern? Oder was steht heute an?",
@@ -61,6 +106,10 @@
         "anythingElse": "Noch was?",
         "doneSignals": ["das war's", "nein, sonst nichts"],
         "confirm": "Passt das?",
+        "offerQuote": "Soll ich dir das als Angebot auf WhatsApp schicken?",
+        "echoName": "Huber in Allensbach, okay.",
+        "selfName": "deine KI-Assistentin",
+        "notedOn": "Am dritten Oktober hast du gesagt …",
         "briefTriggers": ["ich fahr zu …", "was war bei …"],
         "briefMore": "Soll ich noch was vorlesen?",
         "agendaAsk": "Was steht an?",

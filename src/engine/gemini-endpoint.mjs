@@ -73,7 +73,8 @@ export function geminiEndpoint(env = process.env) {
   const studioKey = env.GEMINI_API_KEY?.trim();
   if (project && env.GEMINI_BACKEND !== "studio") {
     const location = env.GOOGLE_CLOUD_LOCATION?.trim() || "global";
-    const host = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
+    // global; the multi-regions ("eu", "us": EU data residency is "eu") on their own hosts; or a region.
+    const host = location === "global" ? "aiplatform.googleapis.com" : /^(eu|us)$/.test(location) ? `aiplatform.${location}.rep.googleapis.com` : `${location}-aiplatform.googleapis.com`;
     const key = env.VERTEX_API_KEY?.trim();
     return {
       door: "vertex",

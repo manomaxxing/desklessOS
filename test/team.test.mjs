@@ -141,3 +141,32 @@ test("summary prompt: who said what, without the engine's notes", () => {
   const p = recapPrompt({ turns: [{ role: "user", text: "Hallo" }, { role: "model", text: "[called memory_search]" }, { role: "model", text: "Hi!" }], name: "Niko", agent: "Toni", date: "2026-10-14" });
   assert.equal(p, "The call was on 2026-10-14.\n\nTranscript:\nNiko: Hallo\nToni: Hi!");
 });
+
+test("a feature switched on: Toni mentions it once, in his next call; switching it again doesn't repeat it", async () => {
+  const auth = createAuth(ENV);
+  const api = createApi({
+    cfg: { devToken: "", tickToken: "t", model: "m", mask: "typing", dialSecret: "" }, skill, auth, team: createTeam({ db, auth }), memory, adapters: [], log: () => {},
+    queue: { list: async () => [] }, notifier: { channels: [] }, monitor: { list: async () => [], systemLog: () => [], record: false, system() {} },
+    background: { tick: async () => ({}), mode: "http" }, scheduler: null,
+  });
+  const server = http.createServer((req, res) => api.handle(req, res));
+  await new Promise(r => server.listen(0, r));
+  const base = `http://localhost:${server.address().port}`;
+  const owner = (await fetch(`${base}/api/admin/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: ENV.ADMIN_CODE }) })).headers.get("set-cookie").split(";")[0];
+  const save = patch => fetch(`${base}/api/users/${niko.id}`, { method: "POST", headers: { cookie: owner, "content-type": "application/json" }, body: JSON.stringify(patch) }).then(r => r.json());
+  const niko = (await memory.listUsers()).find(u => !u.demo);
+  const intros = async () => (await memory.objectives.list()).filter(o => o.template === "feature.intro" && o.userId === niko.id);
+  try {
+    const { user } = await save({ features: { note_whatsapp: true } });
+    assert.ok(user.features.note_whatsapp);
+    const [intro] = await intros();
+    assert.equal(intro.params.feature, "note_whatsapp");
+    assert.match(intro.params.message, /^Ab jetzt schick ich dir nach jedem Anruf die Notiz auf WhatsApp/);
+    await save({ features: { note_whatsapp: true }, timezone: "Europe/Berlin" });
+    assert.equal((await intros()).length, 1, "already on: no second intro");
+    const since = (await save({ features: { quotes: true } })).user.features;
+    assert.equal(since.note_whatsapp, user.features.note_whatsapp, "an untouched feature keeps its date");
+    assert.equal((await intros()).length, 2);
+    assert.deepEqual((await save({ features: { note_whatsapp: false, quotes: false } })).user.features, {});
+  } finally { server.close(); }
+});

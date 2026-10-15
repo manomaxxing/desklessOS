@@ -58,6 +58,18 @@ A skill is a persona plus templates, no code of its own (`src/skills/from-templa
   (static first, so the prefix caches), one extraction schema for his note and the
   objectives' answers, and checks in code after every turn which objective is done.
 
+**Quotes, during the call** (`src/tools/quote.mjs`, `src/quotes/`): when he has described a job
+and confirmed Toni's summary, Toni offers to send it as a quote ("Soll ich dir das als Angebot auf
+WhatsApp schicken?"). On his yes, the `quote_send` tool turns the line items into a quote (quantity,
+unit, a net price only where he said one; totals and VAT in code), makes the A4 PDF (pdf-lib, the
+locale pack's `documents.quote` texts, so English or any new language is a pack) and sends it into
+his WhatsApp chat while he's still on the line: free, because his call opened the chat window.
+It's offered on WhatsApp calls only (on the online test phone it's saved for the dashboard).
+Without his business details (People → his card → "Business details for quotes": name, address,
+phone, email, VAT no., VAT %, currency) it's an "Angebotsentwurf"; with them, his letterhead.
+Each quote is numbered per business and year (2026-001), kept as data (`quotes`), and linked on
+the call's page, where its PDF is made again on demand.
+
 **Calls, on the admin page:** `/admin` opens on the calls, newest first (live ones with a red
 dot). A call has two tabs. **Summary** (`src/calls/recap.mjs`, written by the after-call job,
 in the call's language): the gist in a box, the topics with their points and his own words,
@@ -229,17 +241,44 @@ Two engines; phone calls use `ENGINE` (default `cascade`), the browser test phon
 These follow published guidance from Pipecat, LiveKit, Vapi, Retell, OpenAI
 Realtime and Google's Live best practices.
 
-- **Acknowledgements:** one to three words, varied; no parroting. At most one
-  question per turn and two per call, only for missing essentials. One executive
-  summary at the end, then "Passt das?", then goodbye.
+- **Acknowledgements:** one to three words, varied; no parroting (only a new name or place
+  may be echoed, so he can correct it). At most one question per turn and two per call, only
+  for missing essentials. One summary at the end, then "Passt das?", then "Noch was?".
+- **Trust first** (what a first-time user must never meet):
+  - **He ends the call, never Toni:** goodbye only after his goodbye, his "nein, das war's", or
+    the second silence.
+  - **One extra per call, at most:** Max's question, a new feature to mention, or one research
+    question, never more, and always after his own business. On his first call: one question,
+    and only if he says yes to it.
+  - **No promise it can't keep:** a tool's instructions are in the prompt only on calls that have
+    the tool; asked for something it can't do, Toni says so and offers to note it as a to-do.
+  - **A plain yes, checked in code:** anything with consequences (a quote sent) runs only if his
+    words say yes and nothing takes it back ("ja, aber…", "nee, warte"; `affirmed()`, word lists
+    in the locale pack). Gemini sometimes answers such a turn with only the tool call and no
+    transcript: then his audio is written down separately (`transcribe()`, Flash-Lite, ~1 s) and
+    checked. A refused action comes back as "NOT DONE", and Toni must never claim otherwise.
+  - **He knows it's an AI:** his first call's greeting says so ("…deine KI-Assistentin…", EU AI Act
+    Art. 50); asked, Toni says so plainly.
+  - **Unclear audio:** ask for just the missing piece, then offer a best guess, never three times
+    in a row; a transcript that came back empty never gets the last answer repeated (a short
+    "nicht angekommen, nochmal?" instead).
+  - **New things one at a time:** what Toni does beyond notes, briefings and to-dos is switched on
+    per person on the People card (`src/features.mjs`): the confirmed note into his WhatsApp
+    chat after each WhatsApp call (laid out from the note's fields, never written by a model), and
+    quotes. Toni mentions a newly switched-on one once, at the end of the next call (a
+    `feature.intro` objective).
 - **Turn-taking** (Gemini + Fish only; `src/engine/session.mjs`, `endpointing.mjs`):
   - A pause of 0.8 s ends his turn (0.6 s after a yes/no question, 1 s after an
     open one). The model answers `NEXT: wait` when he stopped mid-thought, and a
     word check overrides it when his words stop on "und", "die", "will" and the
     like. The agent then stays silent and keeps his audio.
-  - If he stays quiet, a quiet "Mhm." after 2 s says it's still listening; after
-    4 s it answers the whole thought as one turn. "Moment", "warte mal" or
-    "Sekunde" hold the floor for 15 s, without the "mhm".
+  - If he stays quiet, a quiet "Mhm." 2.5 s after his last word says it's still
+    listening; at 5 s it answers the whole thought as one turn. That answer is
+    prepared right after the "wait" and held (no typing sound, no tool runs), so it
+    plays at once; if he goes on, it's dropped unheard and his parts are answered
+    together. "Moment", "warte mal" or "Sekunde" hold the floor for 15 s, without the "mhm".
+  - The greeting needs 1.2 s of his speech to be cut off: a "Hallo?" said over it
+    (people do, the moment the call connects) doesn't stop it.
   - The model marks its question as yes/no (`NEXT: confirm`, short wait, no
     mid-thought check) or open (`NEXT: ask`, he may pause while answering).
   - False starts: if he goes on talking within 1.5 s of the agent starting, a
@@ -263,12 +302,14 @@ Realtime and Google's Live best practices.
   holds and false starts per pilot week.
 - **Failures:**
   - Gemini: hedged requests; if there's no first token after 2.2 s, the fallback
-    model races it and the first to speak wins.
+    model (`FALLBACK_MODEL`, default `gemini-3.5-flash-lite`; Vertex retires 2.5 Flash on
+    2026-10-20) races it and the first to speak wins.
   - Voice: if Fish fails for a whole answer, a pre-rendered "sorry, say again" plays.
   - After the call: the final note and the memory step run as a job with a fallback
     model; a failed job is retried with backoff (1 min … 6 h), then shown on the admin page.
   - Memory down when a call starts: the call goes on without it.
-  - Spoken: three pre-rendered "sorry, say again" lines per language.
+  - Spoken: three pre-rendered "sorry, say again" lines per language; they own the glitch
+    ("bei mir hat's gehakt"), never blame his line.
 
 ## Memory and cost
 
@@ -400,6 +441,8 @@ src/http/api.mjs           routes and pages, one table with access levels; WebSo
 src/calls/start.mjs        one call's wiring: memory, agenda, engine, its end
 src/calls/after-call.mjs   after the call: final note, objectives, requests, outbound outcome, memory, summary
 src/calls/recap.mjs        the call's summary for the admin page: overview, topics, action items, open questions
+src/quotes/                a quote as data (totals in code), its PDF (pdf-lib, texts from the locale pack), storage
+src/tools/quote.mjs        quote_send: the confirmed job as a PDF into his WhatsApp chat, during the call
 src/calls/voice.mjs        pre-recorded lines, cached in Postgres
 src/engine/session.mjs     one call: VAD → Gemini → Fish, barge-in, fillers, idle nudges, checkpoints
 src/engine/vad.mjs         energy VAD, adaptive noise floor, end-of-turn by state

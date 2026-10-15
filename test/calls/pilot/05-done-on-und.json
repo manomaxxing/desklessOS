@@ -1,0 +1,10 @@
+{
+  "lang": "de",
+  "says": [
+    "Ich war heute bei der Familie Krause in Singen, Küche neu fliesen, so fünfzehn Quadratmeter, und",
+    "Ja, passt.",
+    "Nee, das war's. Tschüss."
+  ],
+  "must": [{ "maxReplyGapMs": { "line": 1, "ms": 7000 } }, { "hangupOnlyAfterBye": "tschüss|ciao|das war's|nein|nee" }],
+  "should": [{ "heardNext": "wait" }, { "maxReplyGapMs": { "line": 1, "ms": 6000 } }, { "noEvent": "error" }]
+}
