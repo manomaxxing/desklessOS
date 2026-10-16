@@ -87,7 +87,17 @@ export function whatsappSender({ env = process.env, fetchImpl = fetch } = {}) {
     });
     return { messageId: sent.messages?.[0]?.id ?? null };
   };
+  const digits = to => String(to).replace(/\D/g, "");
   return {
+    /** Whether Toni may call him: { status: no_permission | temporary | permanent, until (ms) | null, canCall, canAsk }. */
+    async callPermission(to) {
+      const out = await graph(`call_permissions?user_wa_id=${digits(to)}`, { method: "GET" });
+      const can = name => Boolean(out.actions?.find(a => a.action_name === name)?.can_perform_action);
+      const until = out.permission?.expiration_time ?? out.permission?.expiration ?? null;
+      return { status: out.permission?.status ?? "no_permission", until: until ? until * 1000 : null, canCall: can("start_call"), canAsk: can("send_call_permission_request") };
+    },
+    /** Asks him in his chat to allow Toni's calls (a button). Only while his chat is open: he called or wrote in the last 24 h. */
+    requestCallPermission: ({ to, text }) => send(to, { type: "interactive", interactive: { type: "call_permission_request", action: { name: "call_permission_request" }, body: { text } } }),
     /** sendText({ to: "+49…", text }) → { messageId } */
     sendText: ({ to, text }) => send(to, { type: "text", text: { body: text, preview_url: false } }),
     /** sendDocument({ to: "+49…", bytes, filename, caption }) → { messageId } */

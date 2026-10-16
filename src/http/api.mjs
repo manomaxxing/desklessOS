@@ -32,7 +32,7 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 const COOKIE = "deskless_session";
 const cookieOf = req => (req.headers.cookie ?? "").split(/;\s*/).find(c => c.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1) ?? "";
 
-export function createApi({ cfg, skill, memory, queue, requests, auth, team = null, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap = null, quotes = null, log }) {
+export function createApi({ cfg, skill, memory, queue, requests, auth, team = null, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap = null, quotes = null, whatsappOut = null, log }) {
   const open = !cfg.devToken && !auth.enabled;
   /** Who's asking: { dev } for DEV_TOKEN (or a local run with no login at all), { session } for an admin session. */
   async function identify(req, url) {
@@ -67,6 +67,33 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
   const page = name => ({ html: readFileSync(path.join(WEB, name)) });
   const objectiveTemplates = () => [...skill.templates.values()].filter(t => t.kind === "objective" && t.params).map(({ id, version, description, params, modes }) => ({ id, version, description, params, modes }));
 
+  // ---------- calls Toni makes on WhatsApp ----------
+  /** Places it on this instance: only to our own users' numbers. */
+  async function placeHere(body) {
+    const whatsapp = adapters.find(a => a.id === "whatsapp");
+    if (!whatsapp?.dialOut) throw fail(503, "no WhatsApp here");
+    const users = await memory.listUsers();
+    const to = users.find(u => u.phone && u.phone === e164(body.to))?.phone;
+    if (!to) throw fail(400, "to: only our own users' numbers");
+    if (body.rehearsalOf && !users.some(u => u.id === body.rehearsalOf)) throw fail(400, "rehearsalOf: no such user");
+    const objectives = [].concat(body.objectives ?? []).map(o => ({ template: o.template, params: skill.objectiveParams(o.template, o.params ?? {}) }));
+    const placed = await whatsapp.dialOut({ to, extra: { rehearsal_of: body.rehearsalOf ?? null, objectives } })
+      .catch(err => { throw fail(/permission/i.test(err.message) ? 409 : 502, /permission/i.test(err.message) ? "WhatsApp: he hasn't allowed Toni's calls yet" : err.message); });
+    log(`whatsapp: calling ${to}${body.rehearsalOf ? ` (a rehearsal of a call to ${users.find(u => u.id === body.rehearsalOf).name})` : ""}`);
+    return placed;
+  }
+  /** Where the call's audio lives: the WhatsApp service (WHATSAPP_CALLS_URL), or here. */
+  async function placeWhatsAppCall(body) {
+    if (!cfg.whatsappCallsUrl) return placeHere(body);
+    const res = await fetch(`${cfg.whatsappCallsUrl}/internal/whatsapp/call`, {
+      method: "POST", headers: { "content-type": "application/json", "x-tick-token": cfg.tickToken }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw fail(res.status, out.error ?? `the WhatsApp service answered ${res.status}`);
+    return out;
+  }
+  const userOrFail = async id => (await memory.getUser(id)) ?? (() => { throw fail(404, "no such person"); })();
+
   // [method, path (a regex's groups are the handler's params), access, handler({ req, url, params, body }) → JSON | { html } | { file, type }]
   const routes = [
     // ---------- health ----------
@@ -79,21 +106,10 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
     // ---------- background work (Cloud Scheduler, every minute) ----------
     ["POST", "/internal/tick", "tick", () => background.tick()],
 
-    // ---------- a call Toni makes on WhatsApp, now (on the WhatsApp service: it holds the call's audio) ----------
+    // ---------- a call Toni makes on WhatsApp, now (placed on the WhatsApp service: it holds the call's audio) ----------
     // { to: one of our users' numbers, rehearsalOf?: a user id (Max plays that person: his memory, read only),
     //   objectives?: [{ template, params }] (what the call is for) } → { callId }
-    ["POST", "/internal/whatsapp/call", "tick", async ({ body }) => {
-      const whatsapp = adapters.find(a => a.id === "whatsapp");
-      if (!whatsapp?.dialOut) throw fail(503, "no WhatsApp here");
-      const users = await memory.listUsers();
-      const to = users.find(u => u.phone && u.phone === e164(body.to))?.phone;
-      if (!to) throw fail(400, "to: only our own users' numbers");
-      if (body.rehearsalOf && !users.some(u => u.id === body.rehearsalOf)) throw fail(400, "rehearsalOf: no such user");
-      const objectives = [].concat(body.objectives ?? []).map(o => ({ template: o.template, params: skill.objectiveParams(o.template, o.params ?? {}) }));
-      const placed = await whatsapp.dialOut({ to, extra: { rehearsal_of: body.rehearsalOf ?? null, objectives } });
-      log(`whatsapp: calling ${to}${body.rehearsalOf ? ` (a rehearsal of a call to ${users.find(u => u.id === body.rehearsalOf).name})` : ""}`);
-      return placed;
-    }],
+    ["POST", "/internal/whatsapp/call", "tick", ({ body }) => placeHere(body)],
 
     // ---------- pages ----------
     ["GET", "/admin", "public", () => page("admin.html")],
@@ -140,6 +156,45 @@ export function createApi({ cfg, skill, memory, queue, requests, auth, team = nu
       return { member: m };
     }],
     ["GET", "/api/users", "admin", async () => ({ users: await memory.listUsers(), outbound: Boolean(scheduler) })],
+    // Toni calls him on WhatsApp: may she (his permission in WhatsApp), ask him for it, call now.
+    ["GET", /^\/api\/users\/([\w-]+)\/whatsapp$/, "admin", async ({ params: [id] }) => {
+      const u = await userOrFail(id);
+      if (!whatsappOut) return { available: false, why: "WhatsApp isn't set up on this server" };
+      if (!u.phone) return { available: false, why: "no phone number" };
+      return { available: true, ...(await whatsappOut.callPermission(u.phone).catch(err => ({ status: "unknown", error: err.message }))) };
+    }],
+    ["POST", /^\/api\/users\/([\w-]+)\/whatsapp\/ask$/, "admin", async ({ params: [id], who }) => {
+      const u = await userOrFail(id);
+      if (!whatsappOut || !u.phone) throw fail(400, "no WhatsApp for this person");
+      const text = locales().persona(u.lang, skill.PERSONA)?.callPermission;
+      if (!text) throw fail(500, `no callPermission line for ${u.lang}`);
+      await whatsappOut.requestCallPermission({ to: u.phone, text }).catch(err => {
+        throw fail(409, /131047|re-?engagement|24 ?h/i.test(err.message) ? `His WhatsApp chat is closed: ${u.name} has to call or write to Toni first (then it's open for 24 hours).`
+          : /131030/.test(err.message) ? "His number isn't on the test number's recipient list in Meta yet." : err.message);
+      });
+      monitor.system(`asked ${u.name} on WhatsApp to allow Toni's calls (${who.session?.n ?? "dev"})`);
+      return { ok: true };
+    }],
+    // { focus?: what Toni should find out, rehearse?: true → to Max's own phone (the demo's number), as a call to him }
+    ["POST", /^\/api\/users\/([\w-]+)\/call$/, "admin", async ({ params: [id], body, who }) => {
+      const u = await userOrFail(id);
+      if (!u.phone) throw fail(400, `${u.name} has no phone number`);
+      if (u.outboundPaused && !body.rehearse) throw fail(409, `calls to ${u.name} are paused`);
+      if (await memory.userOnCall(u.id)) throw fail(409, `${u.name} is on a call right now`);
+      const focus = String(body.focus ?? "").trim();
+      const objectives = [{ template: "discovery.day", params: focus ? { focus } : {} }];
+      let to = u.phone, rehearsalOf = null;
+      if (body.rehearse) {
+        const demo = (await memory.listUsers()).find(x => x.demo);
+        if (!demo?.phone) throw fail(400, "a rehearsal rings the demo's number: give the demo a phone (yours) first");
+        if (demo.id === u.id) throw fail(400, "this is the demo: just call it");
+        to = demo.phone;
+        rehearsalOf = u.id;
+      }
+      const placed = await placeWhatsAppCall({ to, rehearsalOf, objectives });
+      monitor.system(`${who.session?.n ?? "dev"}: Toni calls ${rehearsalOf ? `the demo's phone, playing a call to ${u.name}` : u.name}${focus ? ` (${focus})` : ""}`);
+      return placed;
+    }],
     ["POST", /^\/api\/users\/([\w-]+)$/, "admin", async ({ params: [id], body, who }) => {
       const before = await memory.getUser(id);
       const u = await memory.updateUser(id, body);

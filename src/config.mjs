@@ -32,6 +32,9 @@ export function loadConfig(env = process.env) {
     tickToken: env.TICK_TOKEN?.trim() || "",
     tickMs: Number(env.TICK_MS || 30000), // BACKGROUND=inline
     outbound: env.OUTBOUND || "twilio", // twilio | fake (tests) | off
+    // Where WhatsApp calls Toni makes are placed: the service that holds their audio (deploy/cloudrun.sh sets it on
+    // the main service; unset: here).
+    whatsappCallsUrl: (env.WHATSAPP_CALLS_URL ?? "").trim().replace(/\/$/, ""),
     adminPhones: (env.ADMIN_PHONE ?? "").split(",").map(s => s.trim()).filter(Boolean),
     turnDetector: env.TURN_DETECTOR === "smart-turn",
     logFormat: env.LOG_FORMAT || (cloudRun ? "json" : "text"),

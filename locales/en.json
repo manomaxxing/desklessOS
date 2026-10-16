@@ -77,6 +77,7 @@
       "working": "On it.",
       "looking": "Let me check.",
       "outboundGreeting": "Hi, it's Toni.",
+      "callPermission": "Hi, it's Toni, your AI assistant on the phone. May I call you now and then? Then tap Allow below.",
       "features": {
         "note_whatsapp": "From now on, after each call I'll send you the note on WhatsApp, just as you confirmed it, so you have it in writing.",
         "quotes": "When you give me a job with quantities and prices, I can send you a quote as a PDF on WhatsApp right away."

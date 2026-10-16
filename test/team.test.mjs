@@ -170,3 +170,82 @@ test("a feature switched on: Toni mentions it once, in his next call; switching 
     assert.deepEqual((await save({ features: { note_whatsapp: false, quotes: false } })).user.features, {});
   } finally { server.close(); }
 });
+
+test("Toni calls him from the People card: WhatsApp's permission, asking for it, call now, a rehearsal on the demo's phone", async () => {
+  const auth = createAuth(ENV);
+  const dialed = [], asked = [];
+  const whatsapp = { id: "whatsapp", dialOut: async o => { dialed.push(o); return { callId: `wacid.${dialed.length}`, carrier: "whatsapp" }; } };
+  const whatsappOut = {
+    callPermission: async to => (to === "+4915100000001" ? { status: "permanent", until: null, canCall: true, canAsk: true } : { status: "no_permission", until: null, canCall: false, canAsk: true }),
+    requestCallPermission: async o => { asked.push(o); return { messageId: "m1" }; },
+  };
+  const monitorLog = [];
+  const api = createApi({
+    cfg: { devToken: "", tickToken: "t", model: "m", mask: "typing", dialSecret: "", whatsappCallsUrl: "" }, skill, auth, team: createTeam({ db, auth }), memory, adapters: [whatsapp], whatsappOut, log: () => {},
+    queue: { list: async () => [] }, notifier: { channels: [] }, monitor: { list: async () => [], systemLog: () => [], record: false, system: t => monitorLog.push(t) },
+    background: { tick: async () => ({}), mode: "http" }, scheduler: null,
+  });
+  const server = http.createServer((req, res) => api.handle(req, res));
+  await new Promise(r => server.listen(0, r));
+  const base = `http://localhost:${server.address().port}`;
+  const owner = (await fetch(`${base}/api/admin/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: ENV.ADMIN_CODE }) })).headers.get("set-cookie").split(";")[0];
+  const call = (path, body) => fetch(`${base}${path}`, { method: body ? "POST" : "GET", headers: { cookie: owner, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }).then(async r => ({ status: r.status, ...(await r.json()) }));
+  await memory.ensureDemoUser();
+  const users = await memory.listUsers();
+  const niko = users.find(u => !u.demo), demo = users.find(u => u.demo);
+  try {
+    await memory.updateUser(niko.id, { phone: "+4915100000001" });
+    await memory.updateUser(demo.id, { phone: "+41780000009" });
+    assert.equal((await call(`/api/users/${niko.id}/whatsapp`)).status, "permanent");
+    assert.equal((await call(`/api/users/${demo.id}/whatsapp`)).status, "no_permission");
+
+    const asking = await call(`/api/users/${demo.id}/whatsapp/ask`, {});
+    assert.equal(asking.ok, true);
+    assert.equal(asked[0].to, "+41780000009");
+    assert.match(asked[0].text, /Darf ich dich ab und zu anrufen/, "in his language, from the locale pack");
+
+    const placed = await call(`/api/users/${niko.id}/call`, { focus: "wie sein letztes Angebot lief" });
+    assert.equal(placed.callId, "wacid.1");
+    assert.equal(dialed[0].to, "+4915100000001");
+    assert.equal(dialed[0].extra.rehearsal_of, null);
+    assert.deepEqual(dialed[0].extra.objectives, [{ template: "discovery.day", params: { focus: "wie sein letztes Angebot lief" } }]);
+
+    await call(`/api/users/${niko.id}/call`, { rehearse: true });
+    assert.equal(dialed[1].to, "+41780000009", "a rehearsal rings the demo's phone");
+    assert.equal(dialed[1].extra.rehearsal_of, niko.id);
+    assert.ok(monitorLog.some(t => /playing a call to/.test(t)));
+
+    await memory.updateUser(niko.id, { outboundPaused: true });
+    const paused = await call(`/api/users/${niko.id}/call`, {});
+    assert.equal(paused.status, 409);
+    assert.equal(dialed.length, 2, "paused: no call");
+    assert.equal((await call(`/api/users/${demo.id}/call`, { rehearse: true })).status, 400, "the demo isn't rehearsed on itself");
+    assert.equal((await call(`/internal/whatsapp/call`, { to: "+4900000000" })).status, 401, "the internal route needs the tick token");
+  } finally {
+    await memory.updateUser(niko.id, { outboundPaused: false, phone: "" });
+    await db.query("delete from users where demo");
+    server.close();
+  }
+});
+
+test("Call now on the main service is placed on the WhatsApp service (it holds the call's audio)", async () => {
+  const auth = createAuth(ENV);
+  const dialed = [];
+  const common = { skill, auth, team: createTeam({ db, auth }), memory, log: () => {}, queue: { list: async () => [] }, notifier: { channels: [] }, monitor: { list: async () => [], systemLog: () => [], record: false, system() {} }, background: { tick: async () => ({}), mode: "http" }, scheduler: null };
+  const cfg = { devToken: "", tickToken: "t", model: "m", mask: "typing", dialSecret: "" };
+  const serve = async api => { const s = http.createServer((req, res) => api.handle(req, res)); await new Promise(r => s.listen(0, r)); return s; };
+  const wa = await serve(createApi({ ...common, cfg: { ...cfg, whatsappCallsUrl: "" }, adapters: [{ id: "whatsapp", dialOut: async o => { dialed.push(o); return { callId: "wacid.wa", carrier: "whatsapp" }; } }] }));
+  const main = await serve(createApi({ ...common, cfg: { ...cfg, whatsappCallsUrl: `http://localhost:${wa.address().port}` }, adapters: [] }));
+  const base = `http://localhost:${main.address().port}`;
+  const niko = (await memory.listUsers()).find(u => !u.demo);
+  try {
+    await memory.updateUser(niko.id, { phone: "+4915100000002" });
+    const owner = (await fetch(`${base}/api/admin/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: ENV.ADMIN_CODE }) })).headers.get("set-cookie").split(";")[0];
+    const out = await (await fetch(`${base}/api/users/${niko.id}/call`, { method: "POST", headers: { cookie: owner, "content-type": "application/json" }, body: "{}" })).json();
+    assert.equal(out.callId, "wacid.wa");
+    assert.equal(dialed[0].to, "+4915100000002");
+  } finally {
+    await memory.updateUser(niko.id, { phone: "" });
+    main.close(); wa.close();
+  }
+});

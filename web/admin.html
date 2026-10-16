@@ -69,6 +69,9 @@
   .grid2 label { font-size: 12px; color: var(--muted); display: block; }
   .check { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 14px; }
   .days { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .callbox { margin-top: 14px; padding: 12px 14px; background: var(--fill); border-radius: 12px; }
+  .callbox input[name=focus] { flex: 1; width: auto; min-width: 200px; }
+  .callbox .btn:not(.primary) { background: var(--bg2); box-shadow: var(--shadow); }
   .days label { display: flex; gap: 3px; align-items: center; font-size: 13px; color: var(--ink); }
   .seg { display: inline-flex; background: var(--fill); border-radius: 9px; padding: 2px; }
   .seg a { padding: 5px 14px; border-radius: 7px; font-size: 13px; font-weight: 500; color: var(--ink); white-space: nowrap; }
@@ -389,6 +392,16 @@ function renderPeople(users, outbound) {
         <div><label>until</label><input type="text" name="to" value="${esc(w.to)}"></div>
       </div>
       <div class="days">${DAYS.map((d, i) => `<label><input type="checkbox" name="day" value="${i + 1}" ${w.days.includes(i + 1) ? "checked" : ""}>${d}</label>`).join("")}</div>
+      <div class="callbox">
+        <div style="font-size:14px;font-weight:600">${esc(agentName())} calls ${esc(u.name)} on WhatsApp</div>
+        <div class="muted small" id="wa-${esc(u.id)}">${u.phone ? "Checking whether WhatsApp lets her call…" : "No phone number yet."}</div>
+        <div class="row"><input type="text" name="focus" placeholder="What should ${esc(agentName())} find out? (optional)" title="e.g. how his last inquiry went until the quote"></div>
+        <div class="row">
+          <button class="btn primary" data-call-now="${esc(u.id)}" ${u.phone ? "" : "disabled"}>Call now</button>
+          ${u.demo ? "" : `<button class="btn" data-rehearse="${esc(u.id)}" title="Rings the demo's number (yours) as if it were a call to ${esc(u.name)}: his memory, read only; the call is kept as the demo's">Rehearse on my phone</button>`}
+          <span class="muted small" id="callOut-${esc(u.id)}"></span>
+        </div>
+      </div>
       <div style="margin-top:12px;font-size:14px;font-weight:600">What Toni does for ${esc(u.name)}</div>
       <div class="muted small">Notes, briefings and to-dos always. Switch on the rest one at a time: Toni mentions a new one once, at the end of the next call.</div>
       ${FEATURES.map(([id, label, sub]) => `<label class="check"><input type="checkbox" name="f_${id}" ${u.features?.[id] ? "checked" : ""}> ${esc(label)} <span class="muted small">(${esc(sub)}${u.features?.[id] ? `, on since ${esc(new Date(u.features[id]).toLocaleDateString())}` : ""})</span></label>`).join("")}
@@ -404,10 +417,25 @@ function renderPeople(users, outbound) {
       </details>
       <label class="check"><input type="checkbox" name="consent" ${u.consentOutboundAt ? "checked" : ""}> Agreed to be called by the assistant${u.consentOutboundAt ? ` (since ${esc(new Date(u.consentOutboundAt).toLocaleDateString())})` : ""}</label>
       <label class="check"><input type="checkbox" name="paused" ${u.outboundPaused ? "checked" : ""}> Pause calls to ${esc(u.name)}</label>
-      <div class="row"><button class="btn" data-save-user="${esc(u.id)}">Save</button>${outbound ? "" : '<span class="muted small">Outbound calls are off on this server.</span>'}</div>
+      <div class="row"><button class="btn" data-save-user="${esc(u.id)}">Save</button>${outbound ? "" : '<span class="muted small">Planned calls (from requests) are off on this server; Call now works.</span>'}</div>
       <div class="err" id="uerr-${esc(u.id)}"></div>
     </div>`;
   }).join("") || '<div class="empty">Nobody yet.</div>';
+  // Toni calls him: whether WhatsApp lets her (he allowed it in his chat), and the buttons.
+  for (const u of users.filter(x => x.phone)) callPermission(u);
+  const callNow = async (b, rehearse) => {
+    const id = b.dataset.callNow ?? b.dataset.rehearse;
+    const out = $(`callOut-${id}`);
+    const focus = b.closest("[data-user]").querySelector("[name=focus]").value.trim();
+    b.disabled = true; out.textContent = "Calling…";
+    try {
+      await api(`/api/users/${id}/call`, { focus, rehearse });
+      out.textContent = rehearse ? "Your phone rings now. The call shows up under Calls." : "It rings now (up to 45 seconds). The call shows up under Calls.";
+    } catch (e) { out.innerHTML = `<span class="err" style="display:inline">${esc(e.message)}</span>`; }
+    setTimeout(() => { b.disabled = false; }, 8000);
+  };
+  for (const b of document.querySelectorAll("[data-call-now]")) b.onclick = () => callNow(b, false);
+  for (const b of document.querySelectorAll("[data-rehearse]")) b.onclick = () => callNow(b, true);
   for (const b of document.querySelectorAll("[data-save-user]")) b.onclick = async () => {
     const card = b.closest("[data-user]");
     const v = n => card.querySelector(`[name=${n}]`);
@@ -421,6 +449,24 @@ function renderPeople(users, outbound) {
     const was = users.find(u => u.id === b.dataset.saveUser);
     if (Boolean(was.consentOutboundAt) === patch.consentOutbound) delete patch.consentOutbound; // keep the original date
     try { await api(`/api/users/${b.dataset.saveUser}`, patch); await refresh(true); } catch (e) { $(`uerr-${b.dataset.saveUser}`).textContent = e.message; }
+  };
+}
+async function callPermission(u) {
+  const el = $(`wa-${u.id}`);
+  if (!el) return;
+  let p;
+  try { p = await api(`/api/users/${u.id}/whatsapp`); } catch (e) { el.textContent = e.message; return; }
+  if (!p.available) { el.textContent = p.why; return; }
+  if (p.status === "permanent" || p.status === "temporary") {
+    el.textContent = `✅ ${u.name} allowed ${agentName()}'s calls${p.until ? ` until ${new Date(p.until).toLocaleDateString()}` : ""}.`;
+    return;
+  }
+  if (p.status !== "no_permission") { el.textContent = `Couldn't check with WhatsApp: ${p.error ?? p.status}`; return; }
+  el.innerHTML = `Not allowed yet: WhatsApp lets ${esc(agentName())} call ${esc(u.name)} only once he allows it.
+    <button class="link" data-ask="${esc(u.id)}">Ask him on WhatsApp</button> <span class="muted">(a message with an Allow button; works if he called or wrote to ${esc(agentName())} in the last 24 hours)</span>`;
+  el.querySelector("[data-ask]").onclick = async () => {
+    try { await api(`/api/users/${u.id}/whatsapp/ask`, {}); el.textContent = `Asked. Once ${u.name} taps Allow, ${agentName()} can call him (reload to check).`; }
+    catch (e) { el.innerHTML += `<div class="err">${esc(e.message)}</div>`; }
   };
 }
 function renderJobs(jobs) {

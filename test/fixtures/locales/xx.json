@@ -110,6 +110,7 @@
       "working": "xx:On it.",
       "looking": "xx:Let me check.",
       "outboundGreeting": "xx:Hi, it's your notebook.",
+      "callPermission": "xx:Hi, it's Toni. May I call you now and then?",
       "features": {
         "note_whatsapp": "xx:From now on, after each call I'll send you the note on WhatsApp, just as you confirmed it, so you have it in writing.",
         "quotes": "xx:When you give me a job with quantities and prices, I can send you a quote as a PDF on WhatsApp right away."

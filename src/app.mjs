@@ -107,7 +107,7 @@ export async function createApp(env = process.env) {
   });
 
   // ---------- HTTP ----------
-  const api = createApi({ cfg, skill, memory, queue, requests, auth, team, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap, quotes, log });
+  const api = createApi({ cfg, skill, memory, queue, requests, auth, team, notifier, monitor, background, scheduler, host, clips, endpoint, fish, adapters, writeRecap, quotes, whatsappOut, log });
   const server = http.createServer((req, res) => {
     api.handle(req, res).catch(err => { log("http error", req.url, err.message); if (!res.headersSent) res.writeHead(500).end(); });
   });

@@ -57,17 +57,19 @@ for v in $(g secrets versions list "$SECRET" --filter "state!=DESTROYED" --sort-
 done
 
 URL="https://$SERVICE-$(g projects describe "$PROJECT" --format 'value(projectNumber)').$REGION.run.app"
+# WhatsApp calls (their audio) live on a second service; the main one places Toni's calls there.
+WA_URL=""
+grep -qE '^WHATSAPP_TOKEN=.+' "$ENV_FILE" && WA_URL="https://$SERVICE-wa-$(g projects describe "$PROJECT" --format 'value(projectNumber)').$REGION.run.app"
 echo "→ Cloud Run service $SERVICE ($URL)"
 g run deploy "$SERVICE" --source . --region "$REGION" \
   --service-account "$SA" --build-service-account "projects/$PROJECT/serviceAccounts/$BUILD_SA" --allow-unauthenticated \
   --execution-environment gen2 --cpu 1 --memory 1Gi --cpu-throttling --cpu-boost \
   --concurrency 20 --min-instances 0 --max-instances "$MAX_INSTANCES" --timeout 3600 \
   --set-secrets "/secrets/env=$SECRET:latest" \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT,PUBLIC_URL=$URL,BACKGROUND=http"
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT,PUBLIC_URL=$URL,BACKGROUND=http${WA_URL:+,WHATSAPP_CALLS_URL=$WA_URL}"
 
-if grep -qE '^WHATSAPP_TOKEN=.+' "$ENV_FILE"; then
+if [ -n "$WA_URL" ]; then
   IMAGE=$(g run services describe "$SERVICE" --region "$REGION" --format 'value(spec.template.spec.containers[0].image)')
-  WA_URL="https://$SERVICE-wa-$(g projects describe "$PROJECT" --format 'value(projectNumber)').$REGION.run.app"
   echo "→ Cloud Run service $SERVICE-wa ($WA_URL), WhatsApp calls"
   g run deploy "$SERVICE-wa" --image "$IMAGE" --region "$REGION" \
     --service-account "$SA" --allow-unauthenticated \
