@@ -1,6 +1,7 @@
 // The note he confirmed, as a WhatsApp message (feature note_whatsapp): laid out from the
 // note's fields, never written by a model, in the call's language (locale pack:
-// documents.note). Null when there's nothing to send.
+// documents.note). What he has to do comes as its own list he can work through: the next
+// steps with their dates, and what's still open to clarify. Null when there's nothing to send.
 
 import { locales as sharedLocales } from "../locale/index.mjs";
 
@@ -20,13 +21,16 @@ export function noteMessage(note, lang, L = sharedLocales()) {
   // What Toni went through on his lists (src/quotes/lists.mjs), and the quality level.
   const measured = [...(note.checklist ?? []), ...(note.site ?? [])].filter(a => clean(a?.item) && clean(a?.answer)).map(a => `${clean(a.item)}: ${clean(a.answer)}`);
   if (clean(note.quality)) measured.push(clean(note.quality));
-  const next = (note.next_steps ?? []).map(n => (clean(n.what) ? `${clean(n.what)}${paren([n.due].map(clean).filter(Boolean))}` : "")).filter(Boolean);
+  const todo = [
+    ...(note.next_steps ?? []).map(n => (clean(n.what) ? `${clean(n.what)}${paren([n.due].map(clean).filter(Boolean))}` : "")),
+    ...(note.open_questions ?? []).map(q => (clean(q) && t.clarify ? `${t.clarify}: ${clean(q)}` : "")),
+  ].filter(Boolean);
   if (!who.length && !work.length) return null;
   return [
     `*${t.title}* ✅${who.length ? ` ${who.join(", ")}` : ""}`,
     ...work,
     ...(measured.length && t.measured ? [`${t.measured}: ${measured.join(" · ")}`] : []),
-    ...(next.length ? [`${t.next}: ${next.join("; ")}`] : []),
+    ...(todo.length ? ["", `*${t.todo}*`, ...todo.map(x => `☐ ${x}`)] : []),
     "",
     `_${t.footer}_`,
   ].join("\n").slice(0, 3500);

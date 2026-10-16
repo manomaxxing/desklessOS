@@ -106,6 +106,7 @@
   .member .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .hide { display: none !important; }
   .goal { margin-top: 12px; background: var(--fill); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+  .goal.wish { box-shadow: inset 3px 0 0 var(--orange); }
   .goal .lbl { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
   .goal ul { margin: 4px 0 0; padding-left: 18px; }
   .turn.hint { color: var(--muted); font-size: 13px; font-style: italic; }
@@ -578,7 +579,7 @@ async function loadCalls() {
   calls = (await api("/api/calls")).calls;
   const shown = calls.filter(c => !c.endedAt || c.turns > 0);
   $("calls").innerHTML = shown.map(c => `<div class="card item${c.endedAt ? "" : " live"}" data-call="${esc(c.id)}">
-      <div class="title">${c.endedAt ? "" : '<span class="livedot"></span>'}${esc(callTitle(c))}</div>
+      <div class="title">${c.endedAt ? "" : '<span class="livedot"></span>'}${esc(callTitle(c))}${c.wishes?.length ? ` <span class="chip draft" title="${esc(c.wishes.map(w => w.what).join(" · "))}">asked for ${c.wishes.length === 1 ? "something new" : `${c.wishes.length} new things`}</span>` : ""}</div>
       <div class="muted small">${callMeta(c).map(esc).join(" · ")}</div>
       ${c.summary ? `<p class="sum">${esc(c.summary)}</p>` : ""}
     </div>`).join("") || '<div class="empty">No calls yet.</div>';
@@ -628,6 +629,13 @@ function goalHtml(c) {
       ${g.description ? `<div class="muted small">${esc(g.description)}</div>` : ""}
       ${g.questions?.length ? `<ul>${g.questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul>` : ""}</div>`).join("")}</div>`;
 }
+// What he asked for that Toni can't do yet: for Max to build.
+const wishesMd = c => (c.wishes?.length ? `## Asked for, ${agentName()} can't do it yet\n\n${c.wishes.map(w => `- **${w.what}**${w.why ? ` (for: ${w.why})` : ""}${w.quote ? ` “${w.quote}”` : ""}`).join("\n")}\n` : "");
+function wishesHtml(c) {
+  if (!c.wishes?.length) return "";
+  return `<div class="goal wish"><div class="lbl">Asked for, ${esc(agentName())} can't do it yet: for you to build</div>
+    ${c.wishes.map(w => `<div style="margin-top:4px"><b>${esc(w.what)}</b>${w.why ? ` <span class="muted">(for: ${esc(w.why)})</span>` : ""}${w.quote ? ` <span class="quote">“${esc(w.quote)}”</span>` : ""}</div>`).join("")}</div>`;
+}
 async function copyText(text, button) {
   try { await navigator.clipboard.writeText(text); } catch {
     const ta = document.createElement("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove();
@@ -637,7 +645,7 @@ async function copyText(text, button) {
   setTimeout(() => { button.innerHTML = was; }, 1400);
 }
 function download(c) {
-  const md = [mdHead(c), goalMd(c), summaryMd(c), transcriptMd(c)].filter(Boolean).join("\n");
+  const md = [mdHead(c), goalMd(c), wishesMd(c), summaryMd(c), transcriptMd(c)].filter(Boolean).join("\n");
   const slug = callTitle(c).toLowerCase().replace(/[äöüß]/g, ch => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[ch]).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([md + "\n"], { type: "text/markdown" })), download: `${new Date(c.startedAt).toISOString().slice(0, 10)}-${slug || "call"}.md` });
   a.click();
@@ -661,6 +669,7 @@ function renderCall() {
     <h1>${c.endedAt ? "" : '<span class="livedot" style="vertical-align:middle;margin-right:8px"></span>'}${esc(callTitle(c))}</h1>
     <div class="muted small" style="margin-top:6px">${callMeta(c).map(esc).join(" · ")} · <a href="${callLink(c.id)}" target="_blank">timeline</a></div>
     ${goalHtml(c)}
+    ${wishesHtml(c)}
     ${quotesHtml(c)}
     <div class="tabs">
       <button class="tab ${tab === "transcript" ? "on" : ""}" data-tab="transcript">Transcript</button>
@@ -672,7 +681,7 @@ function renderCall() {
     </div>
     <div class="doc">${tab === "summary" ? summaryHtml(c) : transcriptHtml(c)}</div>`;
   for (const b of document.querySelectorAll("[data-tab]")) b.onclick = () => { tab = b.dataset.tab; renderCall(); };
-  $("copyTab").onclick = () => copyText([mdHead(c), tab === "summary" ? [goalMd(c), summaryMd(c) || "(no summary yet)"].filter(Boolean).join("\n") : transcriptMd(c)].join("\n"), $("copyTab"));
+  $("copyTab").onclick = () => copyText([mdHead(c), tab === "summary" ? [goalMd(c), wishesMd(c), summaryMd(c) || "(no summary yet)"].filter(Boolean).join("\n") : transcriptMd(c)].join("\n"), $("copyTab"));
   $("downloadMd").onclick = () => download(c);
   const write = $("writeRecap");
   if (write) write.onclick = async () => {

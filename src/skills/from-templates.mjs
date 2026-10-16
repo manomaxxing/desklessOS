@@ -13,7 +13,7 @@ import { locales as sharedLocales, promptWeekday } from "../locale/index.mjs";
 import { parseLists } from "../quotes/lists.mjs";
 
 const PERSONA_OF = { pilot: "notebook", admin: "admin" };
-const MAX_OBJECTIVES = 1; // the agent's own items per call, always after his business: one extra per call, never more
+const MAX_OBJECTIVES = 1; // the agent's own items per call, always after his business (research joins a heads-up, see createAgenda)
 const S = { type: "STRING" };
 
 // Who the persona serves ({{profile.*}}): the pilot participant (the default), the caller
@@ -66,9 +66,11 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
       new_actions: { type: "ARRAY", items: { type: "OBJECT", properties: { text: S, due: S, customer_name: S } } },
       completed_action_ids: { type: "ARRAY", items: S },
       updated_actions: { type: "ARRAY", items: { type: "OBJECT", properties: { id: S, text: S, due: S } } },
+      // What he asked for that the agent can't do yet: Max gets told (src/calls/after-call.mjs).
+      wishes: { type: "ARRAY", items: { type: "OBJECT", properties: { what: S, why: S, quote: S }, required: ["what"] } },
       ...Object.assign({}, ...extras.map(e => e.schema)),
     },
-    required: ["call_type", "call_summary", "customer", "new_actions", "completed_action_ids", ...extras.flatMap(e => e.required ?? [])],
+    required: ["call_type", "call_summary", "customer", "new_actions", "completed_action_ids", "wishes", ...extras.flatMap(e => e.required ?? [])],
   };
   const MEMORY_SYSTEM = [memoryCtx.r(persona.sections.memory), ...extras.map(e => e.rules)].join("\n");
   function memoryPrompt({ turns, note, snapshot }) {
@@ -95,7 +97,7 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
     /**
      * The agenda for one call. `objectives`: stored objectives picked for this call
      * (src/memory/pg.mjs), best first; `stored: false` ones (a rehearsal's) aren't written back. `discovery`: the research state, if the
-     * persona researches. At most MAX_OBJECTIVES of the agent's own items per call.
+     * persona researches. At most MAX_OBJECTIVES of the agent's own items per call, plus the research question when that item only tells him something.
      */
     createAgenda({ objectives = [], discovery = null, direction = "inbound", user = null } = {}) {
       const own = objectives.map(o => ({ id: o.id, key: o.id, template: byId(o.template), params: o.params, stored: o.stored !== false, previous: o.result || o.lastCall ? { ...(o.result ?? {}), lastCall: o.lastCall ?? null } : null, questionLang: o.lang ?? locales.guess(o.params.questions?.map(q => q.ask).join(" ") ?? "") ?? profile.lang }));
@@ -103,10 +105,14 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
       // A call the agent makes is for its errand only, and a "standalone" item (a whole conversation,
       // like his day) is the call's own item too: no standing items (research) on top.
       const standalone = own.some(o => o.template.standalone);
-      const items = direction === "outbound" || standalone ? own : [...own, ...always];
+      // One own item per call; the research question comes along unless that item already asks him
+      // something (Max's questions): a heads-up ("tell") asks nothing, so research is in every call.
+      const first = own.slice(0, MAX_OBJECTIVES);
+      const asks = first.some(o => o.template.steps.some(s => s.primitive !== "tell"));
+      const items = direction === "outbound" || standalone || asks ? first : [...first, ...always];
       // His lists (People card), for templates with a checklist step.
       const lists = user?.profile?.lists ? parseLists(user.profile.lists) : null;
-      return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile: user ? profileOf(user) : profile, locales, discovery, framework, direction, lists });
+      return createAgenda({ persona, capabilities, objectives: items, profile: user ? profileOf(user) : profile, locales, discovery, framework, direction, lists });
     },
 
     /** Checks an objective's params against its template; returns them normalised (throws on bad input). */

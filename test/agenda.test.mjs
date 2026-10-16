@@ -88,7 +88,7 @@ test("an inquiry on the agenda: asked at the end, extracted, done in code, answe
   const prompt = agenda.prompt({ lang: "de" });
   assert.match(prompt, /1\. MAX'S QUESTION \(how long quotes take\): ask this\. They are written in German/);
   assert.match(prompt, /q1: "Wie lange hast du an deinem letzten Angebot gesessen\?" If his answer is vague, one follow-up: "Ungefähr reicht\."/);
-  assert.doesNotMatch(prompt, /RESEARCH, THIS WEEK ONLY/, "no research question in the same call");
+  assert.doesNotMatch(prompt, /RESEARCH, A TINY BIT PER CALL/, "no research question in the same call");
   assert.match(prompt, /Your own agenda so far: MAX'S QUESTION: q1 not asked yet/);
   assert.match(agenda.extractSystem("de"), /agenda\.obj_1: the questions under "MAX'S QUESTION"/);
   const schema = agenda.schema();
@@ -109,7 +109,7 @@ test("an inquiry on the agenda: asked at the end, extracted, done in code, answe
   assert.equal(r.result.questions[0].quote, "so zwei Stunden, Sonntagabend halt");
 });
 
-test("one extra per call: the agent's own items, best first; research needs its store", () => {
+test("one extra per call: the agent's own items, best first; research needs its store, and joins a heads-up", () => {
   const skill = loadSkillFromTemplates("pilot");
   const params = skill.objectiveParams("inquiry", question.params);
   const discovery = createDiscovery({ framework: loadFramework() });
@@ -119,8 +119,8 @@ test("one extra per call: the agent's own items, best first; research needs its 
   assert.deepEqual(skill.createAgenda().objectives, [], "no discovery store: no research item");
   const intro = { id: "f", template: "feature.intro", params: skill.objectiveParams("feature.intro", { feature: "note_whatsapp", message: "Ab jetzt kommt die Notiz auf WhatsApp." }) };
   const told = skill.createAgenda({ objectives: [intro], discovery });
-  assert.deepEqual(told.objectives.map(o => o.template.id), ["feature.intro"], "a new feature to mention is the call's one extra");
-  assert.match(told.prompt({ lang: "de" }), /NEW FOR HIM: news for him, not a question\. .*"Ab jetzt kommt die Notiz auf WhatsApp\." If he already used it in this call, skip it/);
+  assert.deepEqual(told.objectives.map(o => o.template.id), ["feature.intro", "research.discovery"], "a heads-up asks nothing: the research question still comes along");
+  assert.match(told.prompt({ lang: "de" }), /1\. NEW FOR HIM: news for him, not a question\. .*"Ab jetzt kommt die Notiz auf WhatsApp\." If he already used it in this call, skip it[^]*\n2\. RESEARCH, A TINY BIT PER CALL/);
   assert.equal(told.update({ agenda: { f: { told: true } } }).changes?.[0]?.done ?? told.objectives[0].done, true, "done once it was said");
 });
 

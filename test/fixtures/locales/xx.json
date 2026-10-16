@@ -51,7 +51,8 @@
     },
     "note": {
       "title": "xx:Noted",
-      "next": "xx:Next",
+      "todo": "xx:To do",
+      "clarify": "xx:Clarify",
       "measured": "xx:Measured",
       "footer": "xx:Something wrong? Just give me a quick call and I'll fix it."
     }
@@ -154,6 +155,7 @@
         "listAsks": ["xx:Floor?", "xx:And the wall?"],
         "listStop": ["xx:enough"],
         "listAck": "xx:Six, oki.",
+        "cantYet": "xx:Can't yet, I'll tell Max.",
         "listLevel": "xx:Which finish?",
         "listOffer": "xx:List them?",
         "listAvoid": ["xx:noted"],

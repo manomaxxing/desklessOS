@@ -100,7 +100,7 @@ export async function createApp(env = process.env) {
 
   // ---------- background work ----------
   const writeRecap = createRecapWriter({ endpoint, model: cfg.model, agent: skill.persona.agentLabel });
-  const afterCall = createAfterCall({ memory, skill, endpoint, model: cfg.model, writeRecap, whatsapp: whatsappOut, requests, scheduler, monitor, log });
+  const afterCall = createAfterCall({ memory, skill, endpoint, model: cfg.model, writeRecap, whatsapp: whatsappOut, requests, scheduler, monitor, notifier, log });
   background = createBackground({
     queue, memory, scheduler: () => scheduler, mode: cfg.background, publicUrl: cfg.publicUrl, token: cfg.tickToken, intervalMs: cfg.tickMs, log,
     handlers: { after_call: afterCall, notify: payload => requests.sendNotification(payload) },

@@ -80,7 +80,7 @@ const callOut = c => c && ({
   id: c.id, userId: c.user_id, direction: c.direction, source: c.source, from: c.from_e164, to: c.to_e164, lang: c.lang,
   startedAt: new Date(c.started_at).getTime(), endedAt: c.ended_at ? new Date(c.ended_at).getTime() : null, endedReason: c.ended_reason,
   summary: c.summary, callType: c.call_type, mode: c.meta?.mode ?? null, usd: c.meta?.usd ?? null, turns: c.turns ?? null, savedNoteId: c.note_id ?? null,
-  userName: c.user_name ?? null, title: c.recap?.title ?? c.recap_title ?? null, goal: c.meta?.goal ?? [], rehearsalOf: c.meta?.rehearsalOf?.name ?? null,
+  userName: c.user_name ?? null, title: c.recap?.title ?? c.recap_title ?? null, goal: c.meta?.goal ?? [], rehearsalOf: c.meta?.rehearsalOf?.name ?? null, wishes: c.meta?.wishes ?? [],
   ...(c.timeline ? { events: c.timeline, transcript: c.transcript, note: c.note ?? c.extraction ?? null, cost: c.meta?.cost ?? null, recap: c.recap ?? null } : {}),
 });
 
@@ -477,7 +477,7 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       if (!user) return null;
       const research = await loadResearch(db, user);
       return {
-        call: { id: c.id, direction: c.direction, source: c.source, from: c.from_e164, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at, recap: c.recap ?? null, noteSentAt: c.meta?.noteSentAt ?? null, rehearsalOf: c.meta?.rehearsalOf?.name ?? null },
+        call: { id: c.id, direction: c.direction, source: c.source, from: c.from_e164, lang: c.lang, reason: c.ended_reason, turns: c.transcript ?? [], extraction: c.extraction, extractionTurns: c.extraction_turns, startedAt: c.started_at, recap: c.recap ?? null, noteSentAt: c.meta?.noteSentAt ?? null, rehearsalOf: c.meta?.rehearsalOf?.name ?? null, wishes: c.meta?.wishes ?? null },
         user: { ...userOut(user), profile: user.profile ?? {} },
         objectives: await objectives.byIds(c.objective_ids ?? []),
         discovery: research?.discovery ?? null,
@@ -485,6 +485,7 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
         saveExtraction: (extraction, extractionTurns) => db.query("update calls set extraction = $2, extraction_turns = $3 where id = $1", [callId, json(extraction), extractionTurns]),
         addEvents: events => (events.length ? db.query("update calls set timeline = timeline || $2::jsonb where id = $1", [callId, json(events.map(e => ({ t: Date.now(), ...e })))]) : null),
         saveRecap: recap => db.query("update calls set recap = $2 where id = $1", [callId, json(recap)]),
+        saveWishes: wishes => db.query("update calls set meta = meta || $2::jsonb where id = $1", [callId, json({ wishes })]),
         noteSent: messageId => db.query("update calls set meta = meta || $2::jsonb where id = $1", [callId, json({ noteSentAt: new Date().toISOString(), noteMessageId: messageId })]),
         addCost: usd => db.query("update calls set meta = jsonb_set(meta, '{usd}', to_jsonb(coalesce((meta->>'usd')::float8, 0) + $2)) where id = $1", [callId, usd]),
         done: () => db.query("update calls set after_call_at = now() where id = $1", [callId]),

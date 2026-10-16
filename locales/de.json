@@ -44,7 +44,8 @@
     },
     "note": {
       "title": "Notiert",
-      "next": "Als Nächstes",
+      "todo": "Zu tun",
+      "clarify": "Klären",
       "measured": "Aufgenommen",
       "footer": "Stimmt was nicht? Ruf mich kurz an, dann korrigier ich's."
     }
@@ -115,6 +116,7 @@
         "listAsks": ["Bodenfläche?", "Und die Wand?", "Dusche oder Wanne?"],
         "listStop": ["reicht", "lass mal"],
         "listAck": "Sechs, okay.",
+        "cantYet": "Das kann ich noch nicht. Ich geb's an Max weiter, der baut mir sowas ein.",
         "listLevel": "Welche Ausführung?",
         "listOffer": "Soll ich dir die aufzählen?",
         "listAvoid": ["notiert", "ist eingetragen"],

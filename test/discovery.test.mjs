@@ -75,7 +75,8 @@ test("the pilot: its memory schema knows every framework area; research is on th
   assert.deepEqual(areas, framework.areas.map(a => a.id));
   const agenda = pilot.createAgenda({ discovery: createDiscovery({ framework }) });
   const prompt = agenda.prompt({ lang: "de" });
-  assert.match(prompt, /RESEARCH, THIS WEEK ONLY/);
+  assert.match(prompt, /RESEARCH, A TINY BIT PER CALL/);
+  assert.match(prompt, /Mom Test: about the last time it really happened \(when, what happened, what he did, what it cost\),/);
   assert.match(prompt, /DISCOVERY QUESTION FOR THIS CALL/);
   assert.match(pilot.MEMORY_SYSTEM, /asked_question_ids/);
 });

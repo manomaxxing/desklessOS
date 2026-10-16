@@ -6,7 +6,8 @@
 //      it goes into his chat (once; a failed send doesn't stop the rest)
 //   3. the agenda's objectives recorded (each call counts once), their requests closed
 //   4. an outbound call's outcome back to the scheduler (retry, call later, done)
-//   5. long-term memory: customers, to-dos, research findings (once per call)
+//   5. long-term memory: customers, to-dos, research findings (once per call); what he asked
+//      for that Toni can't do yet is kept on the call, and Max is told (he builds it)
 //   6. the call's summary for the dashboard (src/calls/recap.mjs), unless it has one
 // Every step is idempotent, so the job can be retried from the top.
 
@@ -17,7 +18,9 @@ import { locales } from "../locale/index.mjs";
 import { hasFeature } from "../features.mjs";
 import { noteMessage } from "./note-message.mjs";
 
-export function createAfterCall({ memory, skill, endpoint, model, fallbackModel = FALLBACK_MODEL, writeRecap = null, whatsapp = null, requests = null, scheduler = null, monitor = null, log = () => {} }) {
+const clean = v => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+
+export function createAfterCall({ memory, skill, endpoint, model, fallbackModel = FALLBACK_MODEL, writeRecap = null, whatsapp = null, requests = null, scheduler = null, monitor = null, notifier = null, log = () => {} }) {
   return async function afterCall({ callId }) {
     const state = await memory.afterCall(callId);
     if (!state) return { skipped: true }; // done already, still open, or an unknown caller
@@ -69,10 +72,20 @@ export function createAfterCall({ memory, skill, endpoint, model, fallbackModel 
 
     // 5. Long-term memory.
     let memoryResult = null;
+    let wishes = [];
     if (spoke) {
       const { result, changed: c } = await consolidateCall({ endpoint, model, skill, memory: scope, turns, note, callId, noteId: saved?.id ?? null, lang, date, onUsage: onUsage("memory") });
       memoryResult = c.skipped ? null : { callType: result.call_type, summary: result.call_summary, customer: c.customer, added: c.added, completed: c.completed, updated: c.updated };
+      wishes = (result.wishes ?? []).map(w => ({ what: clean(w?.what), why: clean(w?.why), quote: clean(w?.quote) })).filter(w => w.what);
     }
+    // What he asked for that Toni can't do yet: once per call, on the call's page, and to Max.
+    if (wishes.length && !call.wishes) {
+      await state.saveWishes(wishes);
+      const who = call.rehearsalOf ?? user.name;
+      const lines = wishes.map(w => `- ${w.what}${w.why ? ` (for: ${w.why})` : ""}${w.quote ? `: "${w.quote}"` : ""}`).join("\n");
+      await notifier?.send({ subject: `${who} asked ${skill.persona.agentLabel} for something she can't do yet: ${wishes[0].what}`, text: `${who} asked for:\n${lines}\n\nCall ${callId}`, payload: { type: "wish", callId, who, wishes } })
+        .catch(err => log(`${tag} wish not sent to Max: ${err.message}`));
+    } else wishes = [];
 
     // 6. The summary for the dashboard.
     let recap = null;
@@ -81,7 +94,7 @@ export function createAfterCall({ memory, skill, endpoint, model, fallbackModel 
       await state.saveRecap(recap);
     }
 
-    const events = [...(saved ? [{ event: "saved", id: saved.id }] : []), ...(noteSent ? [{ event: "note_sent", messageId: noteSent }] : []), ...(memoryResult ? [{ event: "memory", ...memoryResult }] : []), ...(recap ? [{ event: "recap", title: recap.title }] : [])];
+    const events = [...(saved ? [{ event: "saved", id: saved.id }] : []), ...(noteSent ? [{ event: "note_sent", messageId: noteSent }] : []), ...wishes.map(w => ({ event: "wish", what: w.what })), ...(memoryResult ? [{ event: "memory", ...memoryResult }] : []), ...(recap ? [{ event: "recap", title: recap.title }] : [])];
     await state.addEvents(events);
     for (const ev of events) monitor?.event(callId, ev);
     if (usd) await state.addCost(usd);

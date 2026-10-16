@@ -225,7 +225,7 @@ test("after a WhatsApp call: the note he confirmed goes into his chat, once; nev
     await afterCall({ callId: "wa-1" });
     assert.equal(sent.length, 1);
     assert.equal(sent[0].to, "+491701234567");
-    assert.equal(sent[0].text, "*Notiert* ✅ Familie Huber, Allensbach\n• Bad: neu fliesen (18 m²)\nAls Nächstes: Angebot schreiben (Freitag)\n\n_Stimmt was nicht? Ruf mich kurz an, dann korrigier ich's._");
+    assert.equal(sent[0].text, "*Notiert* ✅ Familie Huber, Allensbach\n• Bad: neu fliesen (18 m²)\n\n*Zu tun*\n☐ Angebot schreiben (Freitag)\n\n_Stimmt was nicht? Ruf mich kurz an, dann korrigier ich's._");
     await db.query("update calls set after_call_at = null where id = 'wa-1'");
     await afterCall({ callId: "wa-1" });
     assert.equal(sent.length, 1, "a retried job doesn't send it twice");
@@ -247,4 +247,31 @@ test("after a WhatsApp call: the note he confirmed goes into his chat, once; nev
     gemini.restore();
     await memory.updateUser(user.id, { features: { note_whatsapp: false } });
   }
+});
+
+test("he asked for something Toni can't do yet: kept on the call, once, and Max is told; Toni says so in the call", async () => {
+  const sent = [];
+  const notifier = { channels: ["webhook"], send: async m => { sent.push(m); } };
+  const turns = [{ role: "user", text: "Kannst du dem Huber direkt eine Mail mit dem Termin schreiben?" }, { role: "model", text: "Das kann ich noch nicht. Ich geb's an Max weiter, der baut mir sowas ein." }];
+  const scope = await memory.openCall({ callId: "wish-1", source: "twilio" });
+  await scope.endCall({ turns, reason: "caller_hangup", lang: "de" });
+  const wish = { what: "Mails an Kunden schreiben", why: "Termine bestätigen", quote: "Kannst du dem Huber direkt eine Mail schreiben?" };
+  const gemini = stubGemini({ note: { mode: "unclear" }, memoryResult: { call_type: "other", call_summary: "Wollte eine Mail an Huber.", customer: {}, new_actions: [], completed_action_ids: [], wishes: [wish, { what: "  " }] } });
+  try {
+    const afterCall = createAfterCall({ memory, skill, endpoint, model: "gemini-2.5-flash", notifier });
+    await afterCall({ callId: "wish-1" });
+    const call = await memory.getCall("wish-1");
+    assert.deepEqual(call.wishes, [wish], "an empty one is dropped");
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].subject, /asked Toni for something she can't do yet: Mails an Kunden schreiben$/);
+    assert.match(sent[0].text, /- Mails an Kunden schreiben \(for: Termine bestätigen\): "Kannst du dem Huber/);
+    assert.equal(sent[0].payload.type, "wish");
+    assert.equal((await memory.recentCalls()).find(c => c.id === "wish-1").wishes.length, 1, "the calls list knows it too");
+    await db.query("update calls set after_call_at = null where id = 'wish-1'");
+    await afterCall({ callId: "wish-1" });
+    assert.equal(sent.length, 1, "a retried job doesn't tell Max twice");
+  } finally { gemini.restore(); }
+  assert.match(skill.MEMORY_SYSTEM, /- wishes: what he wanted the assistant to do in this call that it can't do \(yet\)/);
+  assert.ok(skill.MEMORY_SCHEMA.required.includes("wishes"));
+  assert.match(skill.createAgenda().prompt({ lang: "de" }), /that you can't\n  do that yet and that you'll pass it on to Max, who builds what you can do \("Das kann ich noch nicht\. Ich geb's an Max weiter, der baut mir sowas ein\."\)/);
 });

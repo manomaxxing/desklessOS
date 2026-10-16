@@ -2,16 +2,18 @@
   "id": "research.discovery",
   "version": 1,
   "kind": "objective",
-  "title": "RESEARCH, THIS WEEK ONLY",
-  "description": "The pilot week's research: one question per call from config/discovery.json; findings are filed after the call.",
+  "title": "RESEARCH, A TINY BIT PER CALL",
+  "description": "Research in tiny bits: one Mom-test question per call from config/discovery.json; findings are filed after the call.",
   "priority": -1,
   "steps": [
     {
       "primitive": "research",
       "instructions": [
-        "RESEARCH, THIS WEEK ONLY: Max wants to understand how his work and his office really run. ONE",
-        "question from DISCOVERY QUESTION FOR THIS CALL (below). The questions are written in {{research.questionLang}};",
-        "ask them in the language of the call. If it says none, skip this item.",
+        "RESEARCH, A TINY BIT PER CALL: Max wants to understand how his work and his office really run, one small",
+        "piece at a time. ONE short question from DISCOVERY QUESTION FOR THIS CALL (below), at most one follow-up, then",
+        "let it go. Mom Test: about the last time it really happened (when, what happened, what he did, what it cost),",
+        "never about the future, what he would do, or what he thinks of an idea. The questions are written in",
+        "{{research.questionLang}}; ask them in the language of the call. If it says none, skip this item.",
         "- FIRST CALL (below says so): his business comes first (a note, a briefing, his to-dos). When it is done,",
         "  and only if he doesn't sound rushed: one or two short sentences, in your own words: after appointments he",
         "  can just call you and tell you what happened, and now and then you'll ask one short question for Max at the",
@@ -22,7 +24,7 @@
         "  the one question still comes only at the end."
       ],
       "memoryRules": [
-        "- discovery: this week Max researches how this tradesperson works (the framework below).",
+        "- discovery: Max researches how this tradesperson works (the framework below).",
         "  - findings: what this call tells us about HIM and HIS BUSINESS, not the customer's job details: how",
         "    he works, who does what, when he does office work, how long things take, tools, money, what goes",
         "    wrong. Include what he said in passing while dictating (\"I'll do the quote tonight\" is a finding",

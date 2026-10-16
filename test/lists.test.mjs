@@ -172,6 +172,17 @@ test("his lists on his People card; the note on WhatsApp shows what was measured
   await assert.rejects(memory.updateUser(u.id, { lists: { levels: "Gold | 99" } }), e => e.status === 400);
   assert.equal((await memory.getUser(u.id)).lists.siteMax, 1.8, "a bad save changes nothing");
 
-  const msg = noteMessage({ customer_name: "Familie Huber", place: "Allensbach", work: [{ area: "Bad", description: "neu fliesen" }], checklist: [{ item: "Bodenfläche", answer: "8,5 m²" }, { item: "Format Fliesen Boden", answer: "60×60" }], site: [{ item: "Parkplatz", answer: "keiner", unfavourable: true }], quality: "Hochwertig", next_steps: [] }, "de");
-  assert.match(msg, /\nAufgenommen: Bodenfläche: 8,5 m² · Format Fliesen Boden: 60×60 · Parkplatz: keiner · Hochwertig\n/);
+  const msg = noteMessage({ customer_name: "Familie Huber", place: "Allensbach", work: [{ area: "Bad", description: "neu fliesen" }], checklist: [{ item: "Bodenfläche", answer: "8,5 m²" }, { item: "Format Fliesen Boden", answer: "60×60" }], site: [{ item: "Parkplatz", answer: "keiner", unfavourable: true }], quality: "Hochwertig", next_steps: [{ what: "Angebot an Huber", due: "Freitag" }, { what: "Fliesen beim Händler anfragen" }], open_questions: ["Anzahl Lochbohrungen"] }, "de");
+  assert.equal(msg, [
+    "*Notiert* ✅ Familie Huber, Allensbach",
+    "• Bad: neu fliesen",
+    "Aufgenommen: Bodenfläche: 8,5 m² · Format Fliesen Boden: 60×60 · Parkplatz: keiner · Hochwertig",
+    "",
+    "*Zu tun*",
+    "☐ Angebot an Huber (Freitag)",
+    "☐ Fliesen beim Händler anfragen",
+    "☐ Klären: Anzahl Lochbohrungen",
+    "",
+    "_Stimmt was nicht? Ruf mich kurz an, dann korrigier ich's._",
+  ].join("\n"), "what he has to do: its own list to work through");
 });

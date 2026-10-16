@@ -18,9 +18,9 @@
       "doneWhen": "Gewerk, Teamgröße, wer das Büro macht, Kundenmix und Auslastung sind bekannt.",
       "questions": [
         { "id": "b1", "ask": "Erzähl mal kurz: Was machst du genau, und wie viele seid ihr im Betrieb?", "probe": "Und seit wann bist du selbstständig?" },
-        { "id": "b2", "ask": "Wer macht bei euch das Büro, also Angebote, Rechnungen und Termine?", "probe": "Wann macht ihr das meistens?" },
-        { "id": "b3", "ask": "Für wen arbeitest du meistens: Privatkunden, Firmen, Hausverwaltungen? Auch drüben in der Schweiz?", "probe": "Was davon ist der größte Teil?" },
-        { "id": "b4", "ask": "Wie voll ist dein Kalender gerade, wie weit im Voraus bist du ausgebucht?", "probe": "Sagst du gerade auch Aufträge ab?" }
+        { "id": "b2", "ask": "Wer hat bei euch die letzte Rechnung geschrieben, und wer das letzte Angebot?", "probe": "Wann war das, tagsüber oder abends?" },
+        { "id": "b3", "ask": "Für wen war dein letzter Auftrag: privat, Firma oder Hausverwaltung?", "probe": "Ist das typisch für dich?" },
+        { "id": "b4", "ask": "Wann hast du zuletzt einen Auftrag abgesagt oder geschoben, weil keine Zeit war?", "probe": "Was war das für einer?" }
       ]
     },
     {
@@ -29,7 +29,7 @@
       "doneWhen": "Kanäle für Anfragen, wie und wo er Termin-Infos festhält, ein konkreter Fall von verlorener Info.",
       "questions": [
         { "id": "a1", "ask": "Wie kam die letzte Anfrage rein, die du bekommen hast? Anruf, WhatsApp, Mail?", "probe": "Wie viele Anfragen sind das so in einer Woche?", "hypothesis": "" },
-        { "id": "a2", "ask": "Was machst du nach einem Besichtigungstermin mit dem, was du aufgenommen hast? Wo landet das?", "probe": "Wie war das beim letzten Termin genau?", "hypothesis": "H1" },
+        { "id": "a2", "ask": "Dein letzter Besichtigungstermin: wo hast du die Maße aufgeschrieben?", "probe": "Und wie kamen die dann ins Angebot?", "hypothesis": "H1" },
         { "id": "a3", "ask": "Ist dir schon mal ein Maß oder ein Kundenwunsch verloren gegangen? Wann zuletzt?", "probe": "Was hat dich das gekostet?", "hypothesis": "H1" }
       ]
     },
@@ -39,8 +39,8 @@
       "doneWhen": "Dauer pro Angebot, Tageszeit, Anzahl pro Woche, Abschlussquote, ein Fall von verlorenem Auftrag (oder keiner).",
       "questions": [
         { "id": "q1", "ask": "Wann hast du dein letztes Angebot geschrieben, und wie lange hat das gedauert?", "probe": "Und wann am Tag war das?", "hypothesis": "H2" },
-        { "id": "q2", "ask": "Wie viele Angebote schreibst du so in der Woche, und wie viele davon werden ein Auftrag?", "probe": "Grob geschätzt reicht.", "hypothesis": "H2" },
-        { "id": "q3", "ask": "Hast du schon mal einen Auftrag verloren, weil das Angebot zu spät kam?", "probe": "Weißt du noch, wann das war?", "hypothesis": "H2" }
+        { "id": "q2", "ask": "Wie viele Angebote hast du letzte Woche geschrieben?", "probe": "Und wie viele davon sind ein Auftrag geworden?", "hypothesis": "H2" },
+        { "id": "q3", "ask": "Wann hast du zuletzt einen Auftrag verloren, weil das Angebot zu spät kam?", "probe": "Was war das für einer?", "hypothesis": "H2" }
       ]
     },
     {
@@ -48,9 +48,9 @@
       "goal": "Wie Infos vom Termin auf die Baustelle kommen: Material, Mitarbeiter, Änderungen.",
       "doneWhen": "Wie er Material bestellt und sein Team informiert, wie er Änderungen festhält, ein konkreter Fall.",
       "questions": [
-        { "id": "e1", "ask": "Wenn der Kunde auf der Baustelle was zusätzlich will, wie hältst du das fest?", "probe": "Wie war das beim letzten Mal?", "hypothesis": "H3" },
-        { "id": "e2", "ask": "Wie bestellst du Material, und hat dir schon mal was auf der Baustelle gefehlt?", "probe": "Was hat dich das gekostet, Zeit oder Geld?", "hypothesis": "" },
-        { "id": "e3", "ask": "Wie sagst du deinen Leuten, was auf der nächsten Baustelle zu tun ist?", "probe": "Geht da manchmal was schief?", "hypothesis": "" }
+        { "id": "e1", "ask": "Wann wollte zuletzt ein Kunde auf der Baustelle was zusätzlich?", "probe": "Und wie hast du das festgehalten?", "hypothesis": "H3" },
+        { "id": "e2", "ask": "Wann hat dir zuletzt Material auf der Baustelle gefehlt?", "probe": "Was hat dich das gekostet, Zeit oder Geld?", "hypothesis": "" },
+        { "id": "e3", "ask": "Wie hast du deinen Leuten heute gesagt, was auf der Baustelle zu tun ist?", "probe": "Ist da letztens was schiefgegangen?", "hypothesis": "" }
       ]
     },
     {
@@ -58,9 +58,9 @@
       "goal": "Wie schnell und wie vollständig abgerechnet wird.",
       "doneWhen": "Zeit von Abschluss bis Rechnung, woher die Zahlen kommen, ein Fall von vergessener Leistung (oder keiner).",
       "questions": [
-        { "id": "r1", "ask": "Wie lange dauert's nach dem Ende einer Baustelle, bis die Rechnung rausgeht?", "probe": "Wie war's bei der letzten?", "hypothesis": "H4" },
-        { "id": "r2", "ask": "Woher nimmst du für die Rechnung die Stunden und das Material?", "probe": "Fehlt da manchmal was?", "hypothesis": "H4" },
-        { "id": "r3", "ask": "Hast du schon mal was vergessen abzurechnen? Weißt du noch, was?", "probe": "Um wie viel Geld ging's ungefähr?", "hypothesis": "H3" }
+        { "id": "r1", "ask": "Deine letzte fertige Baustelle: wann ging da die Rechnung raus?", "probe": "Woran lag's, dass es so lang gedauert hat?", "hypothesis": "H4" },
+        { "id": "r2", "ask": "Für die letzte Rechnung: woher kamen die Stunden und das Material?", "probe": "Hat da was gefehlt?", "hypothesis": "H4" },
+        { "id": "r3", "ask": "Wann ist zuletzt was nicht abgerechnet worden, das eigentlich drauf gehört hätte?", "probe": "Um wie viel Geld ging's ungefähr?", "hypothesis": "H3" }
       ]
     },
     {
@@ -68,9 +68,9 @@
       "goal": "Womit er das Büro heute macht, was es kostet, und was er schon ausprobiert hat.",
       "doneWhen": "Programme und Apps samt Kosten, Stunden Büro pro Woche und wann, was er ausprobiert und aufgegeben hat.",
       "questions": [
-        { "id": "w1", "ask": "Wie viele Stunden die Woche sitzt du ungefähr am Büro, und wann machst du das?", "probe": "Letzte Woche zum Beispiel?", "hypothesis": "H5" },
-        { "id": "w2", "ask": "Welche Programme oder Apps nutzt du fürs Büro, und was zahlst du dafür?", "probe": "Und was davon nutzt du wirklich jeden Tag?", "hypothesis": "" },
-        { "id": "w3", "ask": "Hast du schon mal was ausprobiert, das dir Büroarbeit abnehmen sollte, und wieder aufgehört? Warum?", "probe": "Was hat dich am meisten genervt?", "hypothesis": "H6" }
+        { "id": "w1", "ask": "Wann hast du letzte Woche Büro gemacht, und wie lange?", "probe": "War das abends oder am Wochenende?", "hypothesis": "H5" },
+        { "id": "w2", "ask": "Welche App oder welches Programm hast du heute fürs Büro aufgemacht?", "probe": "Und was zahlst du dafür?", "hypothesis": "" },
+        { "id": "w3", "ask": "Was hast du zuletzt ausprobiert, das dir Büroarbeit abnehmen sollte?", "probe": "Warum hast du wieder aufgehört?", "hypothesis": "H6" }
       ]
     },
     {
