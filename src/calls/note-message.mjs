@@ -17,11 +17,15 @@ export function noteMessage(note, lang, L = sharedLocales()) {
     const area = clean(w.area) && clean(w.description) ? `${clean(w.area)}: ` : "";
     return `• ${area}${what}${paren([w.quantity, w.material].map(clean).filter(Boolean))}`;
   }).filter(Boolean);
+  // What Toni went through on his lists (src/quotes/lists.mjs), and the quality level.
+  const measured = [...(note.checklist ?? []), ...(note.site ?? [])].filter(a => clean(a?.item) && clean(a?.answer)).map(a => `${clean(a.item)}: ${clean(a.answer)}`);
+  if (clean(note.quality)) measured.push(clean(note.quality));
   const next = (note.next_steps ?? []).map(n => (clean(n.what) ? `${clean(n.what)}${paren([n.due].map(clean).filter(Boolean))}` : "")).filter(Boolean);
   if (!who.length && !work.length) return null;
   return [
     `*${t.title}* ✅${who.length ? ` ${who.join(", ")}` : ""}`,
     ...work,
+    ...(measured.length && t.measured ? [`${t.measured}: ${measured.join(" · ")}`] : []),
     ...(next.length ? [`${t.next}: ${next.join("; ")}`] : []),
     "",
     `_${t.footer}_`,

@@ -16,6 +16,7 @@ import { mergeResult, MODES_FOR } from "./objectives.mjs";
 import { toVector } from "../engine/embed.mjs";
 import { randomUUID } from "node:crypto";
 import { FEATURES, allFeatures } from "../features.mjs";
+import { listsIn } from "../quotes/lists.mjs";
 
 const QUERY_EMBED_MS = 1200; // search waits this long for the query's vector, then goes on with names only
 const EMBED_PAUSE_MS = 5 * 60 * 1000; // after a late one, searches skip vectors for a while
@@ -40,7 +41,7 @@ const noteOut = n => ({ ...n.data, id: n.id, lang: n.lang || n.data?.lang || "",
 const userOut = u => u && ({
   id: u.id, orgId: u.org_id, name: u.name, phone: u.phone_e164 ?? "", lang: u.lang, role: u.role, timezone: u.timezone,
   callWindow: u.call_window ?? {}, consentOutboundAt: u.consent_outbound_at ? new Date(u.consent_outbound_at).toISOString() : null, outboundPaused: Boolean(u.outbound_paused),
-  demo: Boolean(u.demo), business: u.profile?.business ?? {}, features: u.profile?.features ?? {},
+  demo: Boolean(u.demo), business: u.profile?.business ?? {}, features: u.profile?.features ?? {}, lists: u.profile?.lists ?? {},
 });
 // His business, for quotes (src/quotes/quote.mjs): only these fields, as text; VAT as a number.
 const BUSINESS_FIELDS = ["name", "address", "phone", "email", "taxId", "currency", "vatRate"];
@@ -579,9 +580,10 @@ export function openPgMemory({ db, skill, queue = null, embedder = null, budget 
       if ("callWindow" in patch) set("call_window", json(patch.callWindow ?? {}));
       if ("consentOutbound" in patch) set("consent_outbound_at", patch.consentOutbound ? new Date().toISOString() : null);
       if ("outboundPaused" in patch) set("outbound_paused", Boolean(patch.outboundPaused));
-      // In the profile: his business (for quotes), and the features (src/features.mjs).
+      // In the profile: his business and his lists (for quotes), and the features (src/features.mjs).
       const profile = {};
       if ("business" in patch) profile.business = businessIn(patch.business);
+      if ("lists" in patch) profile.lists = listsIn(patch.lists);
       // Features: { id: true | false }; one switched on keeps the date it was first switched on.
       if ("features" in patch) {
         const [cur] = await db.query("select profile->'features' f from users where id = $1", [id]);

@@ -12,7 +12,7 @@ const out = r => r && ({
 export function createQuoteStore({ db }) {
   return {
     /** A new quote for `user` (a call scope's user: id, orgId, timezone, profile): numbered and saved. */
-    async create({ user, callId = null, lang, items, customer = {}, now = new Date() }) {
+    async create({ user, callId = null, lang, items, customer = {}, calc = null, now = new Date() }) {
       const timeZone = user.timezone || "Europe/Berlin";
       const year = localParts(now, timeZone).date.slice(0, 4);
       const business = businessOf(user.profile);
@@ -20,7 +20,7 @@ export function createQuoteStore({ db }) {
       for (let attempt = 0; attempt < 5; attempt++) {
         const [{ n }] = await db.query("select count(*)::int n from quotes where org_id = $1 and number like $2", [user.orgId, `${year}-%`]);
         const number = `${year}-${String(n + 1 + attempt).padStart(3, "0")}`;
-        const data = buildQuote({ number, items, customer, business, lang, now, timeZone });
+        const data = buildQuote({ number, items, customer, business, lang, now, timeZone, calc });
         const [row] = await db.query(`insert into quotes (org_id, user_id, call_id, number, lang, data) values ($1, $2, $3, $4, $5, $6)
           on conflict (org_id, number) do nothing returning *`, [user.orgId, user.id, callId, number, lang, JSON.stringify(data)]);
         if (row) return out(row);
@@ -34,7 +34,7 @@ export function createQuoteStore({ db }) {
     async forCall(callId) {
       return (await db.query("select * from quotes where call_id = $1 order by created_at", [callId])).map(r => {
         const { data, ...q } = out(r);
-        return { ...q, draft: data.draft, gross: data.gross, net: data.net, currency: data.currency, customer: data.customer?.name ?? "", items: data.items.length };
+        return { ...q, draft: data.draft, gross: data.gross, net: data.net, currency: data.currency, customer: data.customer?.name ?? "", items: data.items.length, calc: data.calc ?? null };
       });
     },
   };

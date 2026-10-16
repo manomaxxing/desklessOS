@@ -3,15 +3,19 @@
 // (requiresConfirm), at most once per call for the same items. Offered on WhatsApp calls;
 // on the online test phone it's saved for the dashboard only. Line items come from the
 // model; totals are computed in code (src/quotes/quote.mjs), the PDF in src/quotes/pdf.mjs.
+// With his lists (People card), a line can name the list item it's priced from: his price
+// × quality level × site factor (src/quotes/lists.mjs).
 
 import { defineTool } from "./registry.mjs";
 import { renderQuotePdf, quoteFileName, quoteCaption } from "../quotes/pdf.mjs";
+import { quoteParams, priceFromLists } from "../quotes/lists.mjs";
 
 const S = { type: "STRING" };
 const N = { type: "NUMBER" };
 
-/** `memory`: the call's scope (its user); `quotes`: src/quotes/store.mjs; `sender` + `to`: his WhatsApp, if this call has one. */
-export function quoteSend({ memory, quotes, sender = null, to = null, agent = "Toni", log = () => {} }) {
+/** `memory`: the call's scope (its user); `quotes`: src/quotes/store.mjs; `sender` + `to`: his WhatsApp, if this call has one; `lists`: his lists, parsed. */
+export function quoteSend({ memory, quotes, sender = null, to = null, agent = "Toni", lists = null, log = () => {} }) {
+  const fromLists = quoteParams(lists);
   return defineTool({
     name: "quote_send",
     description: "Send him the quote for the job he described, as a PDF into his WhatsApp chat (he gets it during the call). Only after he confirmed your summary and said yes to sending it.",
@@ -26,14 +30,16 @@ export function quoteSend({ memory, quotes, sender = null, to = null, agent = "T
           items: {
             type: "OBJECT",
             properties: {
-              description: { ...S, description: "the work, short (room or area, what, material)" },
+              description: { ...S, description: "the work, short (room or area, what, material), written as on a quote: numbers and sizes in digits (60×60, 2,50 m)" },
               quantity: { ...N, description: "the number only, e.g. 32.5" },
               unit: { ...S, description: "as he said it: m², m, Stück, Std., pauschal" },
               unit_price: { ...N, description: "net price per unit, ONLY if he said one; leave it out otherwise" },
+              ...fromLists.item,
             },
             required: ["description"],
           },
         },
+        ...fromLists.top,
       },
       required: ["items"],
     },
@@ -43,7 +49,8 @@ export function quoteSend({ memory, quotes, sender = null, to = null, agent = "T
     timeoutMs: 20000,
     available: () => Boolean(memory?.user),
     async run(input, ctx) {
-      const quote = await quotes.create({ user: memory.user, callId: ctx.callId, lang: ctx.lang, items: input.items, customer: { name: input.customer_name, address: input.address } });
+      const { items, calc } = priceFromLists(input.items, lists, input);
+      const quote = await quotes.create({ user: memory.user, callId: ctx.callId, lang: ctx.lang, items, calc, customer: { name: input.customer_name, address: input.address } });
       const q = quote.data;
       const about = { number: q.number, items: q.items.length, priced: q.items.filter(i => i.total !== null).length, total_with_vat: q.gross, currency: q.currency, draft: q.draft };
       if (!sender || !to) {

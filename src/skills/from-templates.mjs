@@ -10,6 +10,7 @@ import { primitives } from "../agenda/primitives.mjs";
 import { render } from "../agenda/render.mjs";
 import { loadFramework } from "../memory/research.mjs";
 import { locales as sharedLocales, promptWeekday } from "../locale/index.mjs";
+import { parseLists } from "../quotes/lists.mjs";
 
 const PERSONA_OF = { pilot: "notebook", admin: "admin" };
 const MAX_OBJECTIVES = 1; // the agent's own items per call, always after his business: one extra per call, never more
@@ -103,7 +104,9 @@ export function loadSkillFromTemplates(name, { locales = sharedLocales(), templa
       // like his day) is the call's own item too: no standing items (research) on top.
       const standalone = own.some(o => o.template.standalone);
       const items = direction === "outbound" || standalone ? own : [...own, ...always];
-      return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile: user ? profileOf(user) : profile, locales, discovery, framework, direction });
+      // His lists (People card), for templates with a checklist step.
+      const lists = user?.profile?.lists ? parseLists(user.profile.lists) : null;
+      return createAgenda({ persona, capabilities, objectives: items.slice(0, MAX_OBJECTIVES), profile: user ? profileOf(user) : profile, locales, discovery, framework, direction, lists });
     },
 
     /** Checks an objective's params against its template; returns them normalised (throws on bad input). */

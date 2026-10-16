@@ -113,6 +113,7 @@ export async function renderQuotePdf(q, { agent = "Toni", L = sharedLocales() } 
     y -= 12;
   }
   for (const l of wrap(t.intro, 10, PAGE[0] - 2 * M)) { text(l, M, y); y -= 13; }
+  if (q.quality && t.quality) { y -= 2; text(fill(t.quality, { level: q.quality }), M, y, { f: bold }); y -= 13; }
   y -= 10;
 
   // ---------- the items ----------

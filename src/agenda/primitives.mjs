@@ -1,20 +1,25 @@
 // What one step of a template does in a call. Every hook is optional:
-//   prompt(step, ctx)          instruction text for the system prompt
+//   prompt(step, ctx)          instruction text for the system prompt (static: the same for everyone)
+//   context(step, ctx)         per-call text for the prompt: data about him the step works from
 //   fields(step, ctx)          note fields this step adds { properties, required } (capabilities)
 //   output(step, ctx)          Gemini schema of what this step extracts under agenda.<key> (objectives)
 //   rules(step, ctx)           extraction rules, one "- …" line each
 //   missing(step, note, ctx)   what's still missing for the note (capabilities)
 //   save(step, note)           worth saving as a note? (capabilities)
 //   isDone(step, out, ctx)     checked in code after every extraction (objectives)
-//   status(step, out, ctx)     one line for THIS CALL: where this step stands
+//   status(step, out, ctx)     one line for THIS CALL: where this step stands (a capability's `out` is his note)
+//   tidy(step, note, ctx)      his note as the extraction returned it → as it's kept (capabilities)
 //   result(step, out, ctx)     what the objective keeps after the call
 //   validate(step, params)     checks and normalises an objective's params; throws on bad input
 //   memory(step, ctx)          what the post-call memory step adds { schema, rules, prompt(snapshot) }
 // ctx: { r(text, extra?) renders {{slots}}, lang, params, key, agentLabel, discovery, framework, locales,
-//        previous (an objective's result from earlier calls), tools (the tool names this call has) }.
-// Primitives: capture (a note), inform (answer from what's known), ask (Max's questions),
-// tell (one thing to tell him, once), research (the pilot week's questions), conversation
-// (his day, a listening conversation).
+//        previous (an objective's result from earlier calls), tools (the tool names this call has),
+//        mode (a capability's mode id), outbound, lists (his lists from his People card, parsed) }.
+// Primitives: capture (a note), checklist (his own lists, gone through after he told), inform
+// (answer from what's known), ask (Max's questions), tell (one thing to tell him, once), research
+// (the pilot week's questions), conversation (his day, a listening conversation).
+
+import { hasLists, listsContext, listsSchema, listsRules, openOnLists, listFieldsIn } from "../quotes/lists.mjs";
 
 const S = { type: "STRING" };
 const filled = v => (Array.isArray(v) ? v.length > 0 : typeof v === "string" ? v.trim() !== "" : v !== undefined && v !== null && v !== false);
@@ -29,6 +34,23 @@ const capture = {
   rules: (s, c) => lines(s.rules).map(l => c.r(l)),
   missing: (s, note) => lines(s.missing).filter(g => !g.anyOf.some(k => filled(note?.[k]))).map(g => g.label),
   save: (s, note) => lines(s.save?.anyOf).some(k => filled(note?.[k])),
+};
+
+// His own lists (People card, src/quotes/lists.mjs): once he has told about a job of one of his
+// kinds, the agent goes through what's still open before the summary: the job's items, the site,
+// the quality level. The template says how; his lists come per call; what's open, every turn.
+// Nothing at all for someone without lists, or on a call the agent makes (that's for its errand).
+const listsOn = c => !c.outbound && hasLists(c.lists);
+const checklist = {
+  prompt: (s, c) => (listsOn(c) ? c.r(s.instructions) : ""),
+  context: (s, c) => (listsOn(c) ? listsContext(c.lists) : ""),
+  fields: (s, c) => (listsOn(c) ? listsSchema(c.lists) : null),
+  rules: (s, c) => (listsOn(c) ? listsRules(c.lists) : []),
+  status(s, note, c) {
+    const open = listsOn(c) && note?.mode === c.mode ? openOnLists(c.lists, note) : "";
+    return open ? `Open on his lists: ${open}` : "";
+  },
+  tidy: (s, note, c) => (listsOn(c) ? listFieldsIn(note) : note),
 };
 
 // Answers from what's known (a briefing, the agenda): instructions only, nothing to extract.
@@ -233,4 +255,4 @@ const conversation = {
   },
 };
 
-export const primitives = { capture, inform, ask, tell, research, conversation };
+export const primitives = { capture, checklist, inform, ask, tell, research, conversation };

@@ -114,6 +114,7 @@
   .quote:hover { box-shadow: 0 0 0 1px var(--sep), var(--shadow); }
   .quote .st { color: var(--muted); } .quote .st.sent { color: var(--green); } .quote .st.failed { color: var(--red); }
   details.biz { margin-top: 10px; } details.biz summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+  details.biz > label { font-size: 12px; color: var(--muted); display: block; margin: 10px 0 4px; } details.biz code { font-size: 12px; background: var(--fill); border-radius: 4px; padding: 0 4px; color: var(--ink); }
   @media (max-width: 520px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } .bar { padding: 0 16px; gap: 10px; } .brand span, .hide-s { display: none; } .doc { padding: 16px; } .tabs { gap: 16px; } .icon .lbl { display: none; } }
 </style>
 </head>
@@ -415,6 +416,7 @@ function renderPeople(users, outbound) {
           <div><label>VAT % · currency</label><div style="display:flex;gap:6px"><input type="text" name="b_vatRate" value="${esc(u.business?.vatRate ?? "")}" placeholder="19"><input type="text" name="b_currency" value="${esc(u.business?.currency)}" placeholder="EUR"></div></div>
         </div>
       </details>
+      ${listsHtml(u)}
       <label class="check"><input type="checkbox" name="consent" ${u.consentOutboundAt ? "checked" : ""}> Agreed to be called by the assistant${u.consentOutboundAt ? ` (since ${esc(new Date(u.consentOutboundAt).toLocaleDateString())})` : ""}</label>
       <label class="check"><input type="checkbox" name="paused" ${u.outboundPaused ? "checked" : ""}> Pause calls to ${esc(u.name)}</label>
       <div class="row"><button class="btn" data-save-user="${esc(u.id)}">Save</button>${outbound ? "" : '<span class="muted small">Planned calls (from requests) are off on this server; Call now works.</span>'}</div>
@@ -445,11 +447,29 @@ function renderPeople(users, outbound) {
       consentOutbound: v("consent").checked, outboundPaused: v("paused").checked,
       business: Object.fromEntries(["name", "address", "phone", "email", "taxId", "vatRate", "currency"].map(k => [k, v(`b_${k}`).value.trim()])),
       features: Object.fromEntries(FEATURES.map(([id]) => [id, v(`f_${id}`).checked])),
+      lists: { jobs: v("l_jobs").value, site: v("l_site").value, siteMax: v("l_siteMax").value.trim(), levels: v("l_levels").value },
     };
     const was = users.find(u => u.id === b.dataset.saveUser);
     if (Boolean(was.consentOutboundAt) === patch.consentOutbound) delete patch.consentOutbound; // keep the original date
     try { await api(`/api/users/${b.dataset.saveUser}`, patch); await refresh(true); } catch (e) { $(`uerr-${b.dataset.saveUser}`).textContent = e.message; }
   };
+}
+// His lists (src/quotes/lists.mjs): what Toni goes through after he tells about a job, and how
+// the quote prices it. Plain text, so what he sends on WhatsApp can be pasted.
+function listsHtml(u) {
+  const l = u.lists || {};
+  const kinds = (l.jobs || "").split("\n").filter(x => x.trim().startsWith("#")).map(x => x.replace(/^#+/, "").trim()).filter(Boolean);
+  const summary = kinds.length ? `: ${kinds.join(", ")}` : (l.site || l.levels) ? "" : " (none yet)";
+  return `<details class="biz"><summary>Lists and prices for quotes${esc(summary)}</summary>
+    <div class="muted small" style="margin-top:6px">After ${esc(u.name)} tells about a job of one of these kinds, ${esc(agentName())} goes through what's still open: the job's list, the site, the quality level. He can say "reicht" anytime. A line with a price is priced on the quote: price × quality factor × site factor. A price he says in the call counts as it is.</div>
+    <label>Per kind of job: "# Badumbau", then one item per line: <code>Bodenfläche | m² | 65</code> (asked and priced), <code>Format Fliesen Boden</code> (just asked)</label>
+    <textarea name="l_jobs" rows="8" placeholder="# Badumbau&#10;Bodenfläche | m² | 65&#10;Wandfläche | m² | 60&#10;Format Fliesen Boden">${esc(l.jobs || "")}</textarea>
+    <label>The site: <code>Parkplatz | kein Parkplatz am Haus</code> (the question | when it makes the job harder); <code>Adresse</code> is just asked</label>
+    <textarea name="l_site" rows="5" placeholder="Adresse&#10;Haus oder Wohnung | Wohnung&#10;Stockwerk | ab 2. OG ohne Aufzug&#10;Laufweg | über 20 m&#10;Parkplatz | kein Parkplatz am Haus">${esc(l.site || "")}</textarea>
+    <div class="grid2"><div><label>Factor when all of it makes it harder</label><input type="text" name="l_siteMax" value="${esc(l.siteMax ?? "")}" placeholder="1,8"></div></div>
+    <label>Quality levels: <code>Hochwertig | 1,25</code></label>
+    <textarea name="l_levels" rows="4" placeholder="Low Budget | 0,85&#10;Standard | 1&#10;Hochwertig | 1,25&#10;Meisterstück | 1,5">${esc(l.levels || "")}</textarea>
+  </details>`;
 }
 async function callPermission(u) {
   const el = $(`wa-${u.id}`);
@@ -664,9 +684,11 @@ function renderCall() {
 // Quotes made in this call (quote_send): the PDF, made again from its data.
 const money = (n, currency) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(n); } catch { return `${n} ${currency}`; } };
 const QUOTE_STATUS = { sent: "sent to WhatsApp", saved: "saved", failed: "not sent" };
+// How his list prices were worked out (src/quotes/lists.mjs): the quality level and the site's factor.
+const calcText = c => (c?.fromList ? ` · ${esc([c.quality ? `${c.quality.name} ×${c.quality.factor}` : "", c.site?.factor > 1 ? `site ×${c.site.factor} (${c.site.unfavourable.join(", ")})` : "", `${c.fromList} from his list`].filter(Boolean).join(", "))}` : "");
 function quotesHtml(c) {
   if (!c.quotes?.length) return "";
-  return `<div class="quotes">${c.quotes.map(q => `<a class="quote" href="${withDev(`/api/quotes/${encodeURIComponent(q.id)}/pdf`)}" target="_blank" title="${esc(q.error || "Open the PDF")}">📄 ${q.draft ? "Draft quote" : "Quote"} ${esc(q.number)}${q.customer ? ` · ${esc(q.customer)}` : ""}${q.gross != null ? ` · ${esc(money(q.gross, q.currency))}` : ""} <span class="st ${esc(q.status)}">· ${esc(QUOTE_STATUS[q.status] ?? q.status)}</span></a>`).join("")}</div>`;
+  return `<div class="quotes">${c.quotes.map(q => `<a class="quote" href="${withDev(`/api/quotes/${encodeURIComponent(q.id)}/pdf`)}" target="_blank" title="${esc(q.error || "Open the PDF")}">📄 ${q.draft ? "Draft quote" : "Quote"} ${esc(q.number)}${q.customer ? ` · ${esc(q.customer)}` : ""}${q.gross != null ? ` · ${esc(money(q.gross, q.currency))}` : ""}${calcText(q.calc)} <span class="st ${esc(q.status)}">· ${esc(QUOTE_STATUS[q.status] ?? q.status)}</span></a>`).join("")}</div>`;
 }
 function summaryHtml(c) {
   const r = c.recap;

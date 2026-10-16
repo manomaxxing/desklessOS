@@ -136,6 +136,11 @@ function lastBoundary(text) {
   return end;
 }
 
+// A tool call written out as text instead of made ("default_api:quote_send{…}",
+// "quote_send(items=…)"): Gemini does that now and then. Speech has no braces or snake_case.
+const TOOL_CALL_TEXT = /default_api|[{}]|\b[a-z]+_[a-z_]+\s*[:({=]/i;
+export const isToolCallText = sentence => TOOL_CALL_TEXT.test(String(sentence ?? ""));
+
 // Spoken text only: no markdown, no emoji, one line.
 export function clean(text) {
   return text

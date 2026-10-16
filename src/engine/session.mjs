@@ -16,7 +16,7 @@
 // `config` (per call; the browser test phone picks its own): { model, mask: "typing"|"filler"|"none" }.
 
 import { createVad } from "./vad.mjs";
-import { createReplyParser } from "./reply.mjs";
+import { createReplyParser, isToolCallText } from "./reply.mjs";
 import { streamTurn, extractJsonResilient, warmModel, userContent, historyContents, transcribe, FALLBACK_MODEL } from "./gemini.mjs";
 import { wav, silence, frames, durationMs } from "./audio.mjs";
 import { writeFileSync } from "node:fs";
@@ -490,6 +490,8 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     const onSentence = sentence => {
       if (signal.aborted || turn.waiting) return;
       if (STAGE_DIRECTION.test(sentence)) { debug("say", { turn: turn.id, text: sentence, note: "stage direction, not spoken" }); return; }
+      // A tool call written out as text: never read out, and nothing after it in this reply either.
+      if (turn.toolCallText || isToolCallText(sentence)) { turn.toolCallText = true; debug("say", { turn: turn.id, text: sentence, note: "a tool call written as text, not spoken" }); return; }
       // Nothing transcribed, and the reply starts like the last one: it didn't catch him and is
       // repeating itself. Say once that it didn't come through, instead of the same answer again.
       if (!reply && !text && turn.heardEmpty && sameStart(sentence, lastReply)) {
@@ -698,6 +700,8 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     stopMask();
     // The voice failed for the whole answer: say the pre-recorded sorry rather than nothing.
     if (!outAudio.length && !signal.aborted && clips.some(c => c.error)) speakCached(pick(assets[lang]?.oops, oopsCount++), "oops");
+    // Only a tool call written out as text, nothing said: he hears it didn't come through, and says it again.
+    else if (turn.toolCallText && !reply && !signal.aborted && !turn.waiting) speakCached(pick(assets[lang]?.oops, oopsCount++), "oops");
     if (outAudio.length) {
       const outFile = saveAudio(`turn-${turn.id}-out.wav`, wav(Buffer.concat(outAudio)));
       if (outFile) debug("agent_audio", { turn: turn.id, audio: outFile, interrupted: signal.aborted });

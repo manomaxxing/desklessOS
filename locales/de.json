@@ -39,11 +39,13 @@
       "page": "Seite {n} von {of}",
       "fileName": "Angebot",
       "caption": "{title} {number} für {customer}",
-      "captionNoCustomer": "{title} {number}"
+      "captionNoCustomer": "{title} {number}",
+      "quality": "Ausführung: {level}"
     },
     "note": {
       "title": "Notiert",
       "next": "Als Nächstes",
+      "measured": "Aufgenommen",
       "footer": "Stimmt was nicht? Ruf mich kurz an, dann korrigier ich's."
     }
   },
@@ -110,6 +112,12 @@
         "offerQuote": "Soll ich dir das als Angebot auf WhatsApp schicken?",
         "echoName": "Huber in Allensbach, okay.",
         "knownBefore": "Du hast ja erzählt, die Anfragen kommen meistens per Anruf. Wie war das bei der letzten?",
+        "listAsks": ["Bodenfläche?", "Und die Wand?", "Dusche oder Wanne?"],
+        "listStop": ["reicht", "lass mal"],
+        "listAck": "Sechs, okay.",
+        "listLevel": "Welche Ausführung?",
+        "listOffer": "Soll ich dir die aufzählen?",
+        "listAvoid": ["notiert", "ist eingetragen"],
         "selfName": "deine KI-Assistentin",
         "notedOn": "Am dritten Oktober hast du gesagt …",
         "briefTriggers": ["ich fahr zu …", "was war bei …"],

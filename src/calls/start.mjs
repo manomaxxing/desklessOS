@@ -15,6 +15,7 @@ import { createCallSession } from "../engine/session.mjs";
 import { createLiveSession } from "../engine/live-session.mjs";
 import { adminTools } from "../tools/admin.mjs";
 import { quoteSend } from "../tools/quote.mjs";
+import { parseLists } from "../quotes/lists.mjs";
 import { hasFeature } from "../features.mjs";
 import { emptyScope, e164 } from "../memory/pg.mjs";
 import { shortCallId } from "../telephony/whatsapp.mjs";
@@ -65,7 +66,7 @@ export function createCallStarter({ cfg, skill, adminSkill = null, memory, monit
 
     const viaWhatsApp = source === "whatsapp" && Boolean(whatsapp) && Boolean(msg.from);
     const tools = quotes && scope.user && !outbound && (viaWhatsApp || dev) && hasFeature(scope.user, "quotes")
-      ? [quoteSend({ memory: scope, quotes, sender: viaWhatsApp ? whatsapp : null, to: viaWhatsApp ? msg.from : null, agent: skill.persona.agentLabel, log: callLog(id) })]
+      ? [quoteSend({ memory: scope, quotes, sender: viaWhatsApp ? whatsapp : null, to: viaWhatsApp ? msg.from : null, agent: skill.persona.agentLabel, lists: scope.user.profile?.lists ? parseLists(scope.user.profile.lists) : null, log: callLog(id) })]
       : [];
     const common = {
       send, dev, skill, agenda, endpoint, extractModel: cfg.model, memory: scope, assets: assets[skill.PERSONA], recordDir, log: callLog(id), tools,

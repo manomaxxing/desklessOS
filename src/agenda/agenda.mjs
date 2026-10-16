@@ -19,9 +19,9 @@ const P = step => primitives[step.primitive];
 /**
  * persona: parsed personas/<id>.md. capabilities: capability templates, in order.
  * objectives: [{ id, key, template, params, stored, questionLang }] (key: where its answers go in the extraction).
- * profile: who the persona serves ({{profile.*}}).
+ * profile: who the persona serves ({{profile.*}}). lists: his own lists (src/quotes/lists.mjs, parsed), for the checklist primitive.
  */
-export function createAgenda({ persona, capabilities, objectives = [], profile, locales, discovery = null, framework = null, direction = "inbound" }) {
+export function createAgenda({ persona, capabilities, objectives = [], profile, locales, discovery = null, framework = null, direction = "inbound", lists = null }) {
   const items = objectives.map(o => ({ ...o, output: undefined, done: false }));
   const outbound = direction === "outbound";
   let last = {}; // the latest extraction, his note and the objectives' answers
@@ -39,21 +39,27 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
     const ctx = slotContext(lang);
     return (text, extra) => render(text, extra ? { ...ctx, ...extra } : ctx, where);
   };
-  const stepContext = (item, lang, tools = []) => ({
+  // `cap`: the capability template a step belongs to (its mode), for a capability's steps.
+  const stepContext = (item, lang, tools = [], cap = null) => ({
     r: renderer(lang, item ? `templates/${item.template.id}` : `personas/${persona.id}`),
-    lang, locales, discovery, framework, outbound,
+    lang, locales, discovery, framework, outbound, lists, mode: cap?.mode?.id ?? null,
     params: item?.params ?? {}, key: item?.key, questionLang: item?.questionLang ?? null,
     previous: item?.previous ?? null, // what this objective got in earlier calls (its stored result)
     agentLabel: persona.agentLabel ?? "Agent",
     tools,
   });
-  const stepsText = (t, item, lang, tools) => t.steps.map(s => P(s).prompt?.(s, stepContext(item, lang, tools)) ?? "").filter(Boolean).join("\n");
+  const stepsText = (t, item, lang, tools) => t.steps.map(s => P(s).prompt?.(s, stepContext(item, lang, tools, item ? null : t)) ?? "").filter(Boolean).join("\n");
+  // The capabilities' steps, each with its context: their per-call text, their lines for THIS CALL, the note as kept.
+  const capSteps = () => capabilities.flatMap(t => t.steps.map(s => ({ s, t })));
+  const capContext = lang => capSteps().map(({ s, t }) => P(s).context?.(s, stepContext(null, lang, [], t)) ?? "").filter(Boolean);
+  const capStatus = (note, lang) => capSteps().map(({ s, t }) => P(s).status?.(s, note, stepContext(null, lang, [], t)) ?? "").filter(Boolean);
+  const tidy = note => capSteps().reduce((n, { s, t }) => P(s).tidy?.(s, n, stepContext(null, profile.lang, [], t)) ?? n, note);
 
   function missing(note) {
     if (!note) return [];
     const cap = note.mode ? capabilities.find(t => t.mode.id === note.mode) : capabilities.find(t => t.mode.default);
     if (!cap) return [];
-    return cap.steps.flatMap(s => P(s).missing?.(s, note, stepContext(null, profile.lang)) ?? []);
+    return cap.steps.flatMap(s => P(s).missing?.(s, note, stepContext(null, profile.lang, [], cap)) ?? []);
   }
 
   function statusLines(lang) {
@@ -92,6 +98,7 @@ ${section("next")}`;
       // What he told in earlier calls' research questions: the research item shows it; without one (a call Toni makes), this does.
       const researching = items.some(o => o.template.steps.some(s => s.primitive === "research"));
       const known = !researching && discovery?.known?.();
+      const capLines = capStatus(note, lang);
       return [
         // static: the same on every turn of every call in this language
         `${section("role")}\n${intro}`,
@@ -108,12 +115,13 @@ ${section("next")}`;
         outbound ? section("outbound") : "",
         own.length ? `${section("agenda")}\n\nItems for this call, in this order:\n${own.join("\n\n")}` : "",
         known ? `WHAT HE TOLD YOU IN EARLIER CALLS (about his business): known, so never ask it again; build on it instead (${r("{{q ex.knownBefore}}")}):\n${known}` : "",
+        ...capContext(lang),
         `MEMORY (persists across calls: to-dos, customers and their notes):\n${memory || "(empty)"}`,
         // per turn
         `THIS CALL (changes every turn, so it comes last):
 The note so far (may lag one turn behind):
 ${JSON.stringify(note ?? {}, null, 0)}
-Still missing: ${miss?.length ? miss.join(", ") : "nothing"}${status.length ? `\nYour own agenda so far: ${status.join(" | ")}` : ""}`,
+Still missing: ${miss?.length ? miss.join(", ") : "nothing"}${capLines.map(l => `\n${l}`).join("")}${status.length ? `\nYour own agenda so far: ${status.join(" | ")}` : ""}`,
       ].filter(Boolean).join("\n\n");
     },
 
@@ -123,7 +131,7 @@ Still missing: ${miss?.length ? miss.join(", ") : "nothing"}${status.length ? `\
       const required = ["mode"];
       for (const t of capabilities) {
         for (const s of t.steps) {
-          const f = P(s).fields?.(s);
+          const f = P(s).fields?.(s, stepContext(null, profile.lang, [], t));
           if (f) { Object.assign(properties, f.properties); required.push(...f.required); }
         }
       }
@@ -153,7 +161,7 @@ Still missing: ${miss?.length ? miss.join(", ") : "nothing"}${status.length ? `\
       const [intro, general] = firstRule < 0 ? [text, []] : [text.slice(0, firstRule), text.slice(firstRule)];
       const modes = capabilities.map(t => `"${t.mode.id}" ${t.mode.when}`).join("; ");
       const modeRules = capabilities.map(t => t.mode.rule).filter(Boolean).map(l => `  ${l}`);
-      const ruleLines = item => t => t.steps.flatMap(s => P(s).rules?.(s, stepContext(item, lang)) ?? []);
+      const ruleLines = item => t => t.steps.flatMap(s => P(s).rules?.(s, stepContext(item, lang, [], item ? null : t)) ?? []);
       return [
         ...intro,
         `- mode: ${modes}; otherwise "unclear".`,
@@ -185,7 +193,8 @@ Return the updated note.`;
     /** Takes one extraction: his note, what's still missing, and objectives that just got done. */
     update(extracted = {}) {
       last = extracted ?? {};
-      const { agenda: answers = {}, call_consent: consent, callback_when: callbackWhen, ...note } = last;
+      const { agenda: answers = {}, call_consent: consent, callback_when: callbackWhen, ...raw } = last;
+      const note = tidy(raw);
       if (outbound) outcome = { consent: consent ?? "unknown", callbackWhen: callbackWhen ?? "" };
       const changes = [];
       for (const o of items) {

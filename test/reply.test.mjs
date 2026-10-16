@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createReplyParser } from "../src/engine/reply.mjs";
+import { createReplyParser, isToolCallText } from "../src/engine/reply.mjs";
 
 function run(chunks) {
   const out = { header: null, sentences: [] };
@@ -125,4 +125,9 @@ test("flush() with nothing written: an empty, absent header", () => {
   p.flush();
   assert.deepEqual(out.header, { heard: "", lang: "", next: "listen", present: false });
   assert.equal(out.sentences.length, 0);
+});
+
+test("a tool call written out as text is recognised, so it's never read aloud", () => {
+  for (const s of ["Anrufen bei default_api:quote_send{address:Seestraße 4, Allensbach,customer_name:Familie Huber}", "quote_send(items=[…])", "list_item: Bodenfläche, quantity: 6}"]) assert.ok(isToolCallText(s), s);
+  for (const s of ["Bodenfläche sechs Quadratmeter, okay.", "Um 14:30 bei Huber, alles klar.", "Soll ich dir das als Angebot auf WhatsApp schicken?", "Schick's an info@huber-bau.de, ja?"]) assert.ok(!isToolCallText(s), s);
 });

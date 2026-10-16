@@ -35,10 +35,12 @@ export function cleanItems(items = []) {
 const plusDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
 /**
- * buildQuote({ number, items, customer, business, lang, now, timeZone }) → the quote's data,
+ * buildQuote({ number, items, customer, business, lang, now, timeZone, calc }) → the quote's data,
  * all a PDF needs: items with their totals, net, VAT, gross; `complete` when every item has a price.
+ * calc: how list prices were worked out (src/quotes/lists.mjs), kept for the dashboard; its
+ * quality level goes on the PDF, the site factor doesn't (it's in the prices).
  */
-export function buildQuote({ number, items, customer = {}, business = businessOf(), lang, now = new Date(), timeZone = "Europe/Berlin" }) {
+export function buildQuote({ number, items, customer = {}, business = businessOf(), lang, now = new Date(), timeZone = "Europe/Berlin", calc = null }) {
   const lines = cleanItems(items).map((i, n) => ({ pos: n + 1, ...i, total: i.unitPrice !== null && i.quantity !== null ? cents(i.unitPrice * i.quantity) / 100 : null }));
   if (!lines.length) throw Object.assign(new Error("no line items"), { status: 400 });
   const netCents = lines.reduce((s, l) => s + (l.total === null ? 0 : cents(l.total)), 0);
@@ -55,5 +57,7 @@ export function buildQuote({ number, items, customer = {}, business = businessOf
     vat: priced ? vatCents / 100 : null,
     gross: priced ? (netCents + vatCents) / 100 : null,
     complete: lines.every(l => l.total !== null),
+    quality: calc?.quality?.name ?? "",
+    ...(calc ? { calc } : {}),
   };
 }

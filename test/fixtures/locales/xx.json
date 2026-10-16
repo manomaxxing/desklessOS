@@ -46,11 +46,13 @@
       "page": "xx:Page {n} of {of}",
       "fileName": "xx:Quote",
       "caption": "{title} {number} for {customer}",
-      "captionNoCustomer": "{title} {number}"
+      "captionNoCustomer": "{title} {number}",
+      "quality": "xx:Finish: {level}"
     },
     "note": {
       "title": "xx:Noted",
       "next": "xx:Next",
+      "measured": "xx:Measured",
       "footer": "xx:Something wrong? Just give me a quick call and I'll fix it."
     }
   },
@@ -149,6 +151,12 @@
         "offerQuote": "xx:Want me to send that to your WhatsApp as a quote?",
         "echoName": "xx:Huber in Allensbach, oki.",
         "knownBefore": "xx:You said most inquiries come by phone. How was the last one?",
+        "listAsks": ["xx:Floor?", "xx:And the wall?"],
+        "listStop": ["xx:enough"],
+        "listAck": "xx:Six, oki.",
+        "listLevel": "xx:Which finish?",
+        "listOffer": "xx:List them?",
+        "listAvoid": ["xx:noted"],
         "selfName": "xx:your AI assistant",
         "notedOn": "xx:On October third you said …",
         "briefTriggers": [
