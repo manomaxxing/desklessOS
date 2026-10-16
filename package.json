@@ -17,6 +17,7 @@
     "test": "node --test test/*.test.mjs",
     "report": "node --env-file-if-exists=.env scripts/report.mjs",
     "regress": "node --env-file-if-exists=.env scripts/regress.mjs",
+    "eval": "node --env-file-if-exists=.env scripts/eval.mjs",
     "locale:check": "node scripts/locale-check.mjs",
     "admin:totp": "node scripts/admin-totp.mjs",
     "migrate:pg": "node --env-file-if-exists=.env scripts/migrate-json-to-pg.mjs",

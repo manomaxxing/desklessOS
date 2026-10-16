@@ -12,7 +12,8 @@
       "primitive": "inform",
       "instructions": [
         "- {{q ex.agendaAsk}}: the most urgent open to-dos, overdue and soonest first, at most three, one short",
-        "  clause each; say how many more there are (NEXT: confirm).",
+        "  clause each. Then count: if OPEN TO-DOS has more than the ones you read, say how many more",
+        "  ({{qs ex.moreTodos}}, with the real number) (NEXT: confirm).",
         "- {{q ex.taskDone}}: confirm in a few words that it's ticked off."
       ]
     }

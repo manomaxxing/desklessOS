@@ -187,3 +187,24 @@ test("a focus: a call Toni makes leads with it; in his own calls it waits until 
   assert.match(inbound, /If it comes up naturally, Max is especially curious about: how his last quote went\./);
   assert.doesNotMatch(inbound, /THIS CALL'S FOCUS/);
 });
+
+test("research: one question per call, checked in code; asked, the questions leave the prompt", () => {
+  const skill = loadSkillFromTemplates("pilot");
+  const agenda = skill.createAgenda({ discovery: createDiscovery({ framework: loadFramework() }) });
+  assert.deepEqual(agenda.schema().properties.agenda.properties.research_discovery, { type: "OBJECT", properties: { asked: { type: "BOOLEAN" } }, required: ["asked"] });
+  assert.match(agenda.extractSystem("de"), /- agenda\.research_discovery: asked = true once the toni has asked him a research question/);
+  assert.match(agenda.prompt({ lang: "de" }), /DISCOVERY QUESTION FOR THIS CALL/);
+  agenda.update({ mode: "capture", agenda: { research_discovery: { asked: true } } });
+  const after = agenda.prompt({ lang: "de" });
+  assert.doesNotMatch(after, /DISCOVERY QUESTION FOR THIS CALL/, "no question left to ask");
+  assert.match(after, /RESEARCH: done for this call, your one question is asked\./);
+  assert.match(after, /Your own agenda so far: RESEARCH: asked, no more research questions/);
+});
+
+test("one question per reply; after his goodbye only a goodbye; the to-dos counted", () => {
+  const prompt = loadSkillFromTemplates("pilot").createAgenda().prompt({ lang: "de" });
+  assert.match(prompt, /One question per reply, a single one: ask the first \("Wann kam die rein\?"\), and the next only after\n  his answer; never two in one breath, also not joined with "and"\. A choice \("Dusche oder Wanne\?"\) is one\./);
+  assert.doesNotMatch(prompt, /wie lief das ab/, "no wrong example to copy");
+  assert.match(prompt, /Once he has said goodbye: only your\nshort goodbye \(NEXT: hangup\), no question after it, no "Noch was\?", no item of your own\./);
+  assert.match(prompt, /if OPEN TO-DOS has more than the ones you read, say how many more\n  \("Und noch einer\.", "Und noch drei weitere\.", with the real number\)/);
+});

@@ -24,7 +24,7 @@ plans that got here are in `docs/v2-architecture.md`.
 
 | | Target | How |
 |---|---|---|
-| Latency | first audio ≤ 3 s after he stops talking (p50 today 2.4–3.2 s) | streamed Gemini → streamed Fish, hedged requests, nothing slow on the hot path |
+| Latency | from his last word to the first sound: p50 ≤ 2.2 s, p90 ≤ 3 s (measured 2026-10-16: p50 3.3 s, p90 5.1 s; 22% the end-of-turn pause, 53% Gemini's first token, 25% header and Fish) | thinking at the pause (held, dropped if he goes on), streamed Gemini → streamed Fish, hedged requests (the same model, then the backup), nothing slow on the hot path |
 | Availability | a call always connects | memory down → the call goes on without it; Gemini slow → backup model |
 | Durability | no note lost, even if an instance dies mid-call | the call is saved after every turn; the after-call job is queued in the transaction that ends the call |
 | Correctness | nothing done twice (a note, a to-do, a message to Max) | every background step is idempotent; jobs are keyed |
@@ -248,7 +248,7 @@ flows branch over days, per `docs/v2-architecture.md`).
   production) plus one LISTEN connection; instances × 5 stays under the `deskless` login's
   limit of 16 connections.
 - **Bottlenecks, in the order they'll bite:**
-  1. Gemini quota (ask for more; the hedge already spreads over two models).
+  1. Gemini quota (ask for more; hedged requests and thinking at the pause add calls: about a third more).
   2. Per-minute cost (cheaper carrier, SIP; see below).
   3. Database connections (Supabase compute size, or the transaction pooler for everything except LISTEN).
   4. Timeline storage (retention).
@@ -262,7 +262,7 @@ flows branch over days, per `docs/v2-architecture.md`).
 
 | Failure | Effect | Handling |
 |---|---|---|
-| Gemini slow or erroring | a turn stalls | hedge to the backup model after 2.2 s; error line ("oops") after 12 s; jobs retry 429s |
+| Gemini slow or erroring | a turn stalls | the same request again after 1.6 s, the backup model after 2.6 s; error line ("oops") after 12 s; jobs retry 429s |
 | Gemini quota (429) after the call | after-call job fails | queue retries with backoff; dead after 5, visible |
 | Fish down | the agent's own answers can't be spoken | the pre-recorded "sorry" line plays instead; logged. No second voice since Gemini TTS was cut (§11.10) |
 | Postgres down at call start | no memory | the call goes on without it, nothing is saved; logged as error |

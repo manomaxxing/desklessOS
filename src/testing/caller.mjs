@@ -264,6 +264,10 @@ export function describeEvent(f) {
     case "backchannel": return "… mhm (backchannel)";
     case "heard_check": return `👂 his words written down separately (no transcript came back): ${f.text || "(nothing)"}`;
     case "prepared_dropped": return "↩  he went on: the prepared answer was dropped unheard";
+    case "speculate": return `💭 thinking at his pause (${f.ms} ms of speech)`;
+    case "speculation_used": return "💭 the answer prepared at his pause plays";
+    case "speculation_dropped": return `💭 dropped unheard: ${f.why}`;
+    case "recovered": return `↻ answered by ${f.model} (try ${f.attempt})`;
     case "note_sent": return "💬 note sent to his WhatsApp";
     case "nudge": return `⏲  ${f.kind}`;
     case "tool": return f.ignored ? `🛠  tool call ignored (${f.reason}): ${f.ignored.join(", ")}` : `🛠  ${f.name} ${f.status} (${f.ms} ms)${f.summary ? `: ${f.summary}` : ""}`;

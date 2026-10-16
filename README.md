@@ -246,12 +246,16 @@ Realtime and Google's Live best practices.
   for missing essentials. One summary at the end, then "Passt das?", then "Noch was?".
 - **Trust first** (what a first-time user must never meet):
   - **He ends the call, never Toni:** goodbye only after his goodbye, his "nein, das war's", or
-    the second silence.
-  - **One extra per call, at most:** Max's question, a new feature to mention, or one research
-    question, never more, and always after his own business. On his first call: one question,
-    and only if he says yes to it.
+    the second silence; after his goodbye only hers (no question, no "Noch was?"). Checked in
+    code: a goodbye to words without a word in them ("00:00") never hangs up (`misheard()`).
+  - **One question for us per call, at most, always after his own business:** Max's question, or
+    one research question (a tiny Mom-test one about the last time something happened). Once the
+    extraction sees the research question asked, the questions leave the prompt for the rest of
+    the call. A heads-up about a new feature asks nothing, so the research question comes along.
+    On his first call: one question, and only if he says yes to it.
   - **No promise it can't keep:** a tool's instructions are in the prompt only on calls that have
-    the tool; asked for something it can't do, Toni says so and offers to note it as a to-do.
+    the tool; asked for something it can't do, Toni says so and that she passes it on to Max
+    (it's kept on the call as a wish, and Max is told), and offers what she can now.
   - **A plain yes, checked in code:** anything with consequences (a quote sent) runs only if his
     words say yes and nothing takes it back ("ja, aber…", "nee, warte"; `affirmed()`, word lists
     in the locale pack). Gemini sometimes answers such a turn with only the tool call and no
@@ -261,7 +265,8 @@ Realtime and Google's Live best practices.
     Art. 50); asked, Toni says so plainly.
   - **Unclear audio:** ask for just the missing piece, then offer a best guess, never three times
     in a row; a transcript that came back empty never gets the last answer repeated (a short
-    "nicht angekommen, nochmal?" instead).
+    "nicht angekommen, nochmal?" instead), and neither does one that is just his previous turn
+    again, word for word (the model copied it; `misheard()`).
   - **New things one at a time:** what Toni does beyond notes, briefings and to-dos is switched on
     per person on the People card (`src/features.mjs`): the confirmed note into his WhatsApp
     chat after each WhatsApp call (laid out from the note's fields, never written by a model), and
@@ -272,6 +277,11 @@ Realtime and Google's Live best practices.
     open one). The model answers `NEXT: wait` when he stopped mid-thought, and a
     word check overrides it when his words stop on "und", "die", "will" and the
     like. The agent then stays silent and keeps his audio.
+  - **Thinking at the pause:** already 0.35 s into a pause (`SPECULATE_MS`) the answer starts,
+    held unheard (no typing sound, no tool runs). If the pause becomes the end of his turn, it
+    plays at once, a model round trip sooner; if he goes on, it's dropped unheard. At most two
+    per utterance (`SPECULATE_MAX`); the monitor shows `speculate`, `speculation_used`,
+    `speculation_dropped`.
   - If he stays quiet, a quiet "Mhm." 2.5 s after his last word says it's still
     listening; at 5 s it answers the whole thought as one turn. That answer is
     prepared right after the "wait" and held (no typing sound, no tool runs), so it
@@ -297,13 +307,19 @@ Realtime and Google's Live best practices.
   actually heard (marks); if the interjection was just "ja/genau", the agent
   finishes the part he missed. Bracketed stage directions ("[Silence]") are
   never spoken.
+- **Conversation quality:** `npm run eval` puts Toni's real prompts into 12 situations (most from real
+  calls) and has Gemini 2.5 Pro judge every reply against a fixed rubric: one question per reply,
+  no echo, nothing invented, and what each situation needs (2026-10-16: 3.5 Flash 28/36 replies
+  flawless, 3.8 Flash 32/36). Run it before and after a prompt change.
 - **Testing pauses:** `npm run fake-dial -- --say "Die will [pause 5] ein neues Bad."`
   puts a thinking pause mid-line. `npm run report` counts pauses held, "mhm"s,
   holds and false starts per pilot week.
 - **Failures:**
-  - Gemini: hedged requests; if there's no first token after 2.2 s, the fallback
-    model (`FALLBACK_MODEL`, default `gemini-3.5-flash-lite`; Vertex retires 2.5 Flash on
-    2026-10-20) races it and the first to speak wins.
+  - Gemini: hedged requests. A stall is the server's (measured: ~30% of turns, unrelated to
+    prompt or audio length), so after 1.6 s without a first token (`HEDGE_MS`, about a healthy
+    turn's p90) the same request goes out again; after 2.6 s (`HEDGE_FALLBACK_MS`) the fallback model
+    (`FALLBACK_MODEL`, default `gemini-3.5-flash-lite`) joins. The first to speak wins. The
+    fallback is last because it mishears more (in a test it wrote German names for English audio).
   - Voice: if Fish fails for a whole answer, a pre-rendered "sorry, say again" plays.
   - After the call: the final note and the memory step run as a job with a fallback
     model; a failed job is retried with backoff (1 min … 6 h), then shown on the admin page.

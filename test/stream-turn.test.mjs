@@ -80,3 +80,11 @@ test("hedged extraction: a hung first model doesn't cost the whole timeout", asy
     assert.equal(asked.length, 2);
   } finally { globalThis.fetch = original; }
 });
+
+test("thinking: MINIMAL up to Gemini 3.5, LOW from 3.6 (MINIMAL is refused there), a budget before 3", async () => {
+  const { thinkingConfig } = await import("../src/engine/gemini.mjs");
+  assert.deepEqual(thinkingConfig("gemini-3.5-flash"), { thinkingLevel: "MINIMAL" });
+  assert.deepEqual(thinkingConfig("gemini-3.8-flash"), { thinkingLevel: "LOW" });
+  assert.deepEqual(thinkingConfig("gemini-3.5-flash", 512), { thinkingLevel: "LOW" });
+  assert.deepEqual(thinkingConfig("gemini-2.5-flash"), { thinkingBudget: 0 });
+});

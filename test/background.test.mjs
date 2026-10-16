@@ -273,5 +273,5 @@ test("he asked for something Toni can't do yet: kept on the call, once, and Max 
   } finally { gemini.restore(); }
   assert.match(skill.MEMORY_SYSTEM, /- wishes: what he wanted the assistant to do in this call that it can't do \(yet\)/);
   assert.ok(skill.MEMORY_SCHEMA.required.includes("wishes"));
-  assert.match(skill.createAgenda().prompt({ lang: "de" }), /that you can't\n  do that yet and that you'll pass it on to Max, who builds what you can do \("Das kann ich noch nicht\. Ich geb's an Max weiter, der baut mir sowas ein\."\)/);
+  assert.match(skill.createAgenda().prompt({ lang: "de" }), /that you can't\n  do that yet and that you'll pass it on to Max, who builds what you can do \("Das kann ich noch nicht, ich geb's an Max weiter\."\)/);
 });

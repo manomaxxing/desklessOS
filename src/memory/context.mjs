@@ -44,7 +44,9 @@ export function buildContext(data, { budget = DEFAULT_BUDGET, maxFacts = 12, max
   }
 
   const tasks = (data.tasks ?? []).slice(0, maxTasks);
-  const taskLines = ["OPEN TO-DOS (customer | task | due):"];
+  // The total in the header: "the three most urgent, and two more" needs no counting by the model.
+  const openCount = data.openTaskCount ?? tasks.length;
+  const taskLines = [`OPEN TO-DOS (${openCount} open; customer | task | due):`];
   for (const t of tasks) {
     const line = `- ${t.contactName || "?"} | ${t.text} | ${dueLabel(t.due, today)}`;
     if (fits([...taskLines, line].join("\n"))) taskLines.push(line);

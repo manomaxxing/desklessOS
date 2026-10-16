@@ -17,7 +17,7 @@
       "goal": "Wer ist er, was macht der Betrieb, wer erledigt das Büro.",
       "doneWhen": "Gewerk, Teamgröße, wer das Büro macht, Kundenmix und Auslastung sind bekannt.",
       "questions": [
-        { "id": "b1", "ask": "Erzähl mal kurz: Was machst du genau, und wie viele seid ihr im Betrieb?", "probe": "Und seit wann bist du selbstständig?" },
+        { "id": "b1", "ask": "Erzähl mal kurz: Was machst du genau?", "probe": "Und wie viele seid ihr im Betrieb?" },
         { "id": "b2", "ask": "Wer hat bei euch die letzte Rechnung geschrieben, und wer das letzte Angebot?", "probe": "Wann war das, tagsüber oder abends?" },
         { "id": "b3", "ask": "Für wen war dein letzter Auftrag: privat, Firma oder Hausverwaltung?", "probe": "Ist das typisch für dich?" },
         { "id": "b4", "ask": "Wann hast du zuletzt einen Auftrag abgesagt oder geschoben, weil keine Zeit war?", "probe": "Was war das für einer?" }
@@ -30,7 +30,7 @@
       "questions": [
         { "id": "a1", "ask": "Wie kam die letzte Anfrage rein, die du bekommen hast? Anruf, WhatsApp, Mail?", "probe": "Wie viele Anfragen sind das so in einer Woche?", "hypothesis": "" },
         { "id": "a2", "ask": "Dein letzter Besichtigungstermin: wo hast du die Maße aufgeschrieben?", "probe": "Und wie kamen die dann ins Angebot?", "hypothesis": "H1" },
-        { "id": "a3", "ask": "Ist dir schon mal ein Maß oder ein Kundenwunsch verloren gegangen? Wann zuletzt?", "probe": "Was hat dich das gekostet?", "hypothesis": "H1" }
+        { "id": "a3", "ask": "Wann ist dir zuletzt ein Maß oder ein Kundenwunsch verloren gegangen?", "probe": "Was hat dich das gekostet?", "hypothesis": "H1" }
       ]
     },
     {
@@ -38,7 +38,7 @@
       "goal": "Wann, wie und wie schnell Angebote entstehen, und was Verzögerungen kosten.",
       "doneWhen": "Dauer pro Angebot, Tageszeit, Anzahl pro Woche, Abschlussquote, ein Fall von verlorenem Auftrag (oder keiner).",
       "questions": [
-        { "id": "q1", "ask": "Wann hast du dein letztes Angebot geschrieben, und wie lange hat das gedauert?", "probe": "Und wann am Tag war das?", "hypothesis": "H2" },
+        { "id": "q1", "ask": "Wann hast du dein letztes Angebot geschrieben?", "probe": "Und wie lange hat das gedauert?", "hypothesis": "H2" },
         { "id": "q2", "ask": "Wie viele Angebote hast du letzte Woche geschrieben?", "probe": "Und wie viele davon sind ein Auftrag geworden?", "hypothesis": "H2" },
         { "id": "q3", "ask": "Wann hast du zuletzt einen Auftrag verloren, weil das Angebot zu spät kam?", "probe": "Was war das für einer?", "hypothesis": "H2" }
       ]

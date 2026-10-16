@@ -45,6 +45,7 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
     lang, locales, discovery, framework, outbound, lists, mode: cap?.mode?.id ?? null,
     params: item?.params ?? {}, key: item?.key, questionLang: item?.questionLang ?? null,
     previous: item?.previous ?? null, // what this objective got in earlier calls (its stored result)
+    output: item?.output, // what it got so far in this call (the latest extraction)
     agentLabel: persona.agentLabel ?? "Agent",
     tools,
   });

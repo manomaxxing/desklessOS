@@ -14,7 +14,8 @@
 //   memory(step, ctx)          what the post-call memory step adds { schema, rules, prompt(snapshot) }
 // ctx: { r(text, extra?) renders {{slots}}, lang, params, key, agentLabel, discovery, framework, locales,
 //        previous (an objective's result from earlier calls), tools (the tool names this call has),
-//        mode (a capability's mode id), outbound, lists (his lists from his People card, parsed) }.
+//        mode (a capability's mode id), outbound, lists (his lists from his People card, parsed),
+//        output (an objective's extraction so far in this call) }.
 // Primitives: capture (a note), checklist (his own lists, gone through after he told), inform
 // (answer from what's known), ask (Max's questions), tell (one thing to tell him, once), research
 // (the pilot week's questions), conversation (his day, a listening conversation).
@@ -135,11 +136,17 @@ const ask = {
   }),
 };
 
-// The pilot week's research (config/discovery.json): one question per call from the
-// framework, chosen by the discovery store. Findings are filed by the post-call step.
+// Research in tiny bits (config/discovery.json): one question per call from the framework,
+// chosen by the discovery store. One is checked in code: once the extraction sees it asked,
+// the questions leave the prompt for the rest of the call. Findings are filed after the call.
 const research = {
-  prompt: (s, c) => `${c.r(s.instructions, { research: { startArea: c.framework.areas.find(a => a.phase === "start")?.title ?? "the business", questionLang: c.locales.name(c.framework.participant?.lang ?? c.lang) } })}\n\n${c.discovery.context()}`,
-  status: () => "",
+  prompt(s, c) {
+    if (c.output?.asked) return `${c.r(s.title ?? "RESEARCH")}: done for this call, your one question is asked. If his answer was vague, one follow-up of your own is fine; then no more research questions in this call.`;
+    return `${c.r(s.instructions, { research: { startArea: c.framework.areas.find(a => a.phase === "start")?.title ?? "the business", questionLang: c.locales.name(c.framework.participant?.lang ?? c.lang) } })}\n\n${c.discovery.context()}`;
+  },
+  output: () => ({ type: "OBJECT", properties: { asked: { type: "BOOLEAN" } }, required: ["asked"] }),
+  rules: (s, c) => [`- agenda.${c.key}: asked = true once the ${c.agentLabel.toLowerCase()} has asked him a research question (one of DISCOVERY QUESTION FOR THIS CALL, in any wording) in this call, else false.`],
+  status: (s, out, c) => (out?.asked ? `${c.r(s.title ?? "RESEARCH")}: asked, no more research questions` : ""),
   memory: (s, c) => ({
     schema: {
       discovery: {
@@ -205,7 +212,7 @@ const conversation = {
       c.r(s.instructions),
       // A call Toni makes for a focus leads with it: "how was your day" gets "okay", the last concrete case gets a story.
       c.params.focus && c.outbound
-        ? `THIS CALL'S FOCUS (why you called): ${c.params.focus}. This comes before his day in general: your one sentence why you're calling is this focus, in a few plain words, linked to what he told before if it fits (${c.r("{{q ex.knownBefore}}")}). Once he has time, ask straight away about the last concrete case of it (when it was, what happened next), and follow that story. His day in general only afterwards, if there's time.`
+        ? `THIS CALL'S FOCUS (why you called): ${c.params.focus}. This comes before his day in general: your one sentence why you're calling is this focus, in a few plain words, linked to what he told before if it fits (${c.r("{{q ex.knownBefore}}")}). Once he has time, ask straight away about the last concrete case of it, one small question at a time (first when it was; what happened next only after his answer), and follow that story. His day in general only afterwards, if there's time.`
         : c.params.focus ? `If it comes up naturally, Max is especially curious about: ${c.params.focus}.` : "",
       prev?.open_thread || covered.length || last
         ? `FROM EARLIER CALLS: ${covered.length ? `he already told you about: ${covered.join("; ")}. ` : ""}${prev?.open_thread ? `It stopped while: ${prev.open_thread}. ` : ""}\n${last}If it stopped in the middle of something, pick up from there, naming what he actually told you (in the form of ${c.r("{{q ex.dayPickUp}}")}, the … being his topic); don't start over and don't ask about what's covered again.`

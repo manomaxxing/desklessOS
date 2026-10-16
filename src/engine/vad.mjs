@@ -2,12 +2,18 @@
 // Feeds on ~20 ms PCM16 frames; reports when speech starts and hands over the
 // whole utterance when it ends. How long a pause ends a turn is set by the
 // conversation: long while dictating, short for a yes/no.
+// A short pause inside an utterance (pauseMs) is reported too, with the speech so far
+// (onPause), and so is his voice coming back before the utterance ended (onResume):
+// the session starts thinking at the pause and drops it if he goes on.
 
 import { rms, durationMs } from "./audio.mjs";
 
 export function createVad({
   onSpeechStart = () => {},
   onSpeechEnd = () => {},
+  onPause = () => {}, // (pcm so far): a pause of pauseMs inside the utterance; at most once per pause
+  onResume = () => {}, // he speaks again after a reported pause, before the utterance ended
+  pauseMs = 0, // 0: no pause reports
   startMs = 200, // voiced audio needed to call it speech
   endSilenceMs = 1200, // pause that ends the utterance
   preRollMs = 300, // audio kept from before the start, so first syllables survive
@@ -25,6 +31,14 @@ export function createVad({
   let preRollLen = 0;
   let utterance = [];
   let utteranceMs = 0;
+  let pauseReported = false;
+  // The utterance so far, with ~250 ms of its trailing pause (as onSpeechEnd hands it over).
+  const trimmed = () => {
+    const kept = [...utterance];
+    let drop = Math.max(0, silenceMs - 250);
+    while (drop > 0 && kept.length) drop -= durationMs(kept.pop());
+    return Buffer.concat(kept);
+  };
 
   const threshold = () => Math.max(minThreshold, floor * floorFactor) * (strict ? 1.8 : 1);
 
@@ -37,9 +51,10 @@ export function createVad({
     setStartMs(ms) { startMs = ms; }, // shorter while waiting for "ja" / "passt"
     setStrict(on) { strict = on; },
     setInterruptMs(ms) { interruptMs = ms; }, // shorter right after the agent starts: he may not have been done
+    setPauseMs(ms) { pauseMs = ms; },
     /** Drops whatever is in progress (after a hang-up or reset). */
     reset() {
-      speaking = false; voicedMs = 0; silenceMs = 0; utterance = []; utteranceMs = 0; preRoll = []; preRollLen = 0;
+      speaking = false; voicedMs = 0; silenceMs = 0; utterance = []; utteranceMs = 0; preRoll = []; preRollLen = 0; pauseReported = false;
     },
     push(frame) {
       const ms = durationMs(frame);
@@ -58,6 +73,7 @@ export function createVad({
           utteranceMs = preRollLen;
           preRoll = [];
           preRollLen = 0;
+          pauseReported = false;
           onSpeechStart();
         }
         return;
@@ -65,16 +81,20 @@ export function createVad({
       utterance.push(frame);
       utteranceMs += ms;
       silenceMs = voiced ? 0 : silenceMs + ms;
+      if (voiced && pauseReported) { pauseReported = false; onResume(); }
       if (silenceMs >= endSilenceMs || utteranceMs >= maxUtteranceMs) {
-        // Keep ~250 ms of the trailing pause, drop the rest.
-        let drop = Math.max(0, silenceMs - 250);
-        while (drop > 0 && utterance.length) drop -= durationMs(utterance.pop());
-        const pcm = Buffer.concat(utterance);
+        const pcm = trimmed(); // ~250 ms of the trailing pause kept, the rest dropped
+        pauseReported = false;
         speaking = false;
         voicedMs = 0;
         utterance = [];
         utteranceMs = 0;
         onSpeechEnd(pcm);
+        return;
+      }
+      if (pauseMs && !pauseReported && silenceMs >= pauseMs && pauseMs < endSilenceMs) {
+        pauseReported = true;
+        onPause(trimmed());
       }
     },
   };

@@ -4,8 +4,12 @@
 // Flash: Vertex retires gemini-2.5-flash and -flash-lite on 2026-10-20.
 export const FALLBACK_MODEL = process.env.FALLBACK_MODEL || "gemini-3.5-flash-lite";
 
+// Gemini 3 takes a thinking level, older models a budget. From 3.6 on MINIMAL is gone (400
+// "Thinking level is unsupported"): LOW is the lowest, and on a short turn it thinks 0 tokens.
 export function thinkingConfig(model, budget = 0) {
-  return /^gemini-3/.test(model) ? { thinkingLevel: budget ? "LOW" : "MINIMAL" } : { thinkingBudget: budget };
+  if (!/^gemini-3/.test(model)) return { thinkingBudget: budget };
+  const minor = Number((/^gemini-3\.(\d+)/.exec(model) ?? [])[1] ?? 0);
+  return { thinkingLevel: budget || minor >= 6 ? "LOW" : "MINIMAL" };
 }
 
 // The two Gemini calls.

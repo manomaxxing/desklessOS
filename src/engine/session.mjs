@@ -22,7 +22,7 @@ import { wav, silence, frames, durationMs } from "./audio.mjs";
 import { writeFileSync } from "node:fs";
 import { createMeter, geminiCost, ttsCost } from "./cost.mjs";
 import { createTypist } from "./ambience.mjs";
-import { dangling, holdOn, affirmed } from "./endpointing.mjs";
+import { dangling, holdOn, affirmed, misheard } from "./endpointing.mjs";
 import { locales, pickLanguage } from "../locale/index.mjs";
 import { createToolRunner } from "../tools/registry.mjs";
 import { callTools } from "../tools/index.mjs";
@@ -43,10 +43,20 @@ const HOLD_MS = 15000;
 // He talks again right after the agent started: he wasn't done. Stop on a shorter
 // burst of speech, forget the reply, and answer both parts as one thought.
 const FALSE_START_MS = 1500;
+// Thinking at the pause: SPECULATE_MS of silence inside his utterance starts the answer, held
+// unheard; if the silence reaches the end of his turn it plays at once (a model round trip
+// sooner), if he goes on it's dropped. At most SPECULATE_MAX per utterance (each costs a call).
+const SPECULATE_MS = Number(process.env.SPECULATE_MS ?? 350);
+const SPECULATE_MAX = Number(process.env.SPECULATE_MAX ?? 2);
 const FALSE_START_INTERRUPT_MS = 300;
 const MAX_PENDING_MS = 60000;
 const FILLER_AFTER_MS = 700;
-const HEDGE_MS = Number(process.env.HEDGE_MS || 2200); // no first token by then: race the fallback model
+// No first token by HEDGE_MS (a healthy turn's p90 is ~1.7 s; Gemini stalls on ~30% of turns,
+// independent of the prompt): race the same model again. Still nothing by HEDGE_FALLBACK_MS: the
+// fallback model joins (faster, but it mishears more; stalls often hit the same model twice, so
+// it isn't kept waiting long).
+const HEDGE_MS = Number(process.env.HEDGE_MS || 1600);
+const HEDGE_FALLBACK_MS = Number(process.env.HEDGE_FALLBACK_MS || 2600);
 const TURN_DEADLINE_MS = 12000; // give up and say sorry
 const IDLE_MS = { listen: 9000, ask: 10000, confirm: 7000, wait: 0, hangup: 0 };
 const BACKCHANNEL_IDLE_MS = 3000;
@@ -121,10 +131,18 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
   let falseStartTimer = null;
   let nudges = 0;
   let oopsCount = 0;
+  let askedToRepeat = false; // the agent's last words asked him to say it again
   let outbound = null; // a call the agent made: { greeted, timer }
   const markText = new Map(); // mark name → { turn, text } for sentences, so we know what was heard
 
-  const vad = createVad({ onSpeechStart, onSpeechEnd, endSilenceMs: END_SILENCE.listen, interruptMs: INTERRUPT_MS });
+  const vad = createVad({ onSpeechStart, onSpeechEnd, onPause, onResume, pauseMs: SPECULATE_MS, endSilenceMs: END_SILENCE.listen, interruptMs: INTERRUPT_MS });
+  // How long a pause ends his next utterance, from the NEXT of the answer. An answer still held
+  // while his utterance is open (prepared at a pause) keeps it until it's released.
+  function turnVad(turn, n) {
+    if (!turn.released && (turn.speculative || vad.speaking)) { turn.vadNext = n; return; }
+    vad.setEndSilence(END_SILENCE[n] ?? END_SILENCE.listen);
+    vad.setStartMs(START_MS[n] ?? START_MS.listen);
+  }
   // Typing doesn't count as the agent talking: no strict VAD, no marks.
   const typist = assets.typing ? createTypist(assets.typing, chunk => send({ type: "media", payload: chunk.toString("base64") })) : null;
 
@@ -140,6 +158,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     return name;
   }
   function speakCached(pcm, prefix) {
+    if (prefix === "oops") askedToRepeat = true;
     if (!pcm?.length) return null;
     sendAudio(pcm);
     return sendMark(prefix);
@@ -180,11 +199,12 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     }
   }
 
-  // Gemini hangs or errors now and then. Hedged requests (Sierra's trick): if the
-  // main model hasn't produced a token after HEDGE_MS, or fails before its first
-  // token, the backup model starts in parallel; the first to speak wins and the
-  // other is cancelled. Words are never repeated (losers are dropped before any
-  // of their text is used), and only the winner's tool calls are ever run.
+  // Gemini hangs or errors now and then. Hedged requests (Dean & Barroso's "tail at scale"):
+  // if the main model hasn't produced a token after HEDGE_MS, the same request goes out again
+  // (a stall is the server's, not the prompt's: a second try usually lands elsewhere); after
+  // HEDGE_FALLBACK_MS the backup model joins. A failure before the first token tries the backup.
+  // The first to speak wins and the others are cancelled. Words are never repeated (losers are
+  // dropped before any of their text is used), and only the winner's tool calls are ever run.
   // `request`: the streamTurn args, or a function model → args (the tool follow-up
   // differs per model). The final "end" event carries the winning model.
   async function* geminiStream(request, signal, turn, { primary = fastModel, backup = fallbackModel } = {}) {
@@ -215,7 +235,8 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     const spoke = a => a.events.some(e => e.type !== "end");
     const started = performance.now();
     launch(primary);
-    const hedge = setTimeout(() => { if (!winner()) launch(backup, `no first token after ${HEDGE_MS} ms`); notify(); }, HEDGE_MS);
+    const hedge = setTimeout(() => { if (!winner()) launch(primary, `no first token after ${HEDGE_MS} ms`); notify(); }, HEDGE_MS);
+    const hedgeFallback = backup && backup !== primary ? setTimeout(() => { if (!winner()) launch(backup, `no first token after ${HEDGE_FALLBACK_MS} ms`); notify(); }, HEDGE_FALLBACK_MS) : null;
     const winner = () => attempts.find(spoke);
     try {
       let w = null;
@@ -227,7 +248,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         if (failed.length === attempts.length) {
           // everyone failed before a token: one more model, then give up
           const tried = new Set(attempts.map(a => a.m));
-          const next = !tried.has(backup) ? backup : attempts.length < 3 ? primary : null;
+          const next = backup && !tried.has(backup) ? backup : attempts.length < 4 ? primary : null;
           if (!next || performance.now() - started > TURN_DEADLINE_MS) throw failed.at(-1).error ?? new Error("all models failed");
           launch(next, failed.at(-1).error?.message?.slice(0, 160) ?? "empty answer");
           continue;
@@ -236,6 +257,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         await new Promise(r => { wake = r; setTimeout(r, 250); });
       }
       clearTimeout(hedge);
+      clearTimeout(hedgeFallback);
       for (const a of attempts) if (a !== w) a.ctl.abort();
       if (w.m !== primary || attempts.length > 1) debug("recovered", { turn: turn.id, model: w.m, attempt: attempts.indexOf(w) + 1 });
       let i = 0;
@@ -246,6 +268,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       }
     } finally {
       clearTimeout(hedge);
+      clearTimeout(hedgeFallback);
       for (const a of attempts) if (!a.done) a.ctl.abort();
     }
   }
@@ -301,6 +324,12 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         // He's starting again (voice building up, not yet speech): wait; onSpeechStart drops it if it is.
         if (vad.speaking || vad.stirring) { waitTimer = setTimeout(tryRelease, 200); return; }
         debug("nudge", { kind: "dictation_done" });
+        if (prepared.misheardHeld) {
+          undoHeld(prepared);
+          debug("say", { turn: prepared.id, note: `not spoken: ${prepared.misheardHeld}` });
+          speakCached(pick(assets[lang]?.oops, oopsCount++), "oops");
+          return;
+        }
         release();
       };
       waitTimer = setTimeout(tryRelease, after(WAIT_DONE_MS));
@@ -322,6 +351,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     if (outbound && !outbound.greeted) clearTimeout(outbound.timer); // he's saying hello: wait for him
     clearTimeout(idleTimer);
     clearTimeout(waitTimer);
+    speculations = 0;
     debug("vad", { speaking: true });
     // He goes on after a pause: the answer prepared meanwhile was never heard. Drop it, from
     // the history too, and put his audio back, so all of it is answered as one thought.
@@ -369,11 +399,69 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       return greetOutbound({ heardHello: true });
     }
     debug("vad", { speaking: false, ms: Math.round(durationMs(pcm)) });
-    if (ended || durationMs(pcm) < 250) return;
+    if (ended || durationMs(pcm) < 250) { if (spec) dropSpeculation("utterance too short"); return; }
+    if (spec) {
+      const { turn, piece, release } = spec;
+      spec = null;
+      nudges = 0;
+      lastHold = false;
+      // Prepared at the pause, and he stayed quiet: it plays now. His audio is already in it.
+      if (current === turn && !turn.released && !turn.misheardHeld) {
+        turn.speculationUsed = true;
+        debug("speculation_used", { turn: turn.id });
+        release();
+        return;
+      }
+      if (current === turn && turn.misheardHeld) undoHeld(turn); // misheard: hear it again, the usual way
+      // It said he isn't done: that wait (a soft mhm, then the answer) is already running.
+      if (turn.waiting || lastNext === "wait") return;
+      // It failed: answer the utterance the usual way.
+      pendingUser = pendingUser.filter(p => p !== piece);
+    }
     pendingUser.push(pcm);
     nudges = 0;
     lastHold = false;
     runTurn().catch(err => fail("turn", err));
+  }
+
+  // ---------- thinking at the pause ----------
+  // Not while the agent talks or a turn runs, before an outbound greeting, or on a short sound.
+  let spec = null; // { turn, piece, release }: the answer being prepared at his pause
+  let speculations = 0;
+  function onPause(pcm) {
+    if (!SPECULATE_MS || ended || spec || current || marks.size || hangupMark || speculations >= SPECULATE_MAX) return;
+    if ((outbound && !outbound.greeted) || durationMs(pcm) < 400) return;
+    speculations += 1;
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    pendingUser.push(pcm);
+    runTurn({ held }).catch(err => fail("turn", err));
+    current.speculative = true;
+    spec = { turn: current, piece: pcm, release };
+    debug("speculate", { turn: current.id, ms: Math.round(durationMs(pcm)) });
+  }
+  // He goes on: what was prepared is dropped unheard (and its turn out of the history); his
+  // utterance isn't over, the VAD hands it over whole when it is.
+  function onResume() {
+    if (spec) dropSpeculation("he went on");
+  }
+  // A held answer he never heard: gone, from the history too, and his audio back where it was.
+  function undoHeld(t) {
+    if (current === t) current = null;
+    t.dropped = true;
+    t.abort.abort();
+    if (t.turnsBefore != null) turns.splice(t.turnsBefore);
+    if (t.userAudio) pendingUser = [...t.userAudio, ...pendingUser];
+  }
+  function dropSpeculation(why) {
+    const { turn, piece } = spec;
+    spec = null;
+    clearTimeout(waitTimer);
+    if (current?.held && !current.released) undoHeld(current);
+    pendingUser = pendingUser.filter(p => p !== piece);
+    vad.setEndSilence(END_SILENCE[lastNext] ?? END_SILENCE.listen);
+    vad.setStartMs(START_MS[lastNext] ?? START_MS.listen);
+    debug("speculation_dropped", { turn: turn.id, why });
   }
 
   // `held`: an answer prepared while he pauses (armWait): nothing of it is heard, and no tool
@@ -414,6 +502,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         if (signal.aborted) return;
         turn.released = true;
         turn.endpointAt = performance.now(); // its latency counts from here: he's done now
+        if (turn.vadNext) turnVad(turn, turn.vadNext);
         for (const text of turn.unsaid ?? []) debug("say", { turn: turn.id, text });
         turn.unsaid = null;
         if (!turn.firstAudioAt && cfg.mask === "typing" && typist && !typist.running) { typist.start(); debug("mask", { kind: "typing", for: "prepared" }); }
@@ -465,7 +554,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
             }
             // firstAudioMs counts from the end of his turn (the silence that ended it already passed);
             // sinceSpeechMs from his last word, which is what he actually waits.
-            if (!text) debug("latency", { turn: turn.id, firstAudioMs: Math.round(turn.firstAudioAt - turn.endpointAt), sinceSpeechMs: turn.held ? null : Math.round(turn.firstAudioAt - turn.endpointAt + (END_SILENCE[turn.prevNext] ?? END_SILENCE.listen)), firstTokenMs: Math.round(turn.firstTokenAt - turn.endpointAt), fishFirstByteMs: fish?.stream.lastFirstByteMs ?? null, ...(turn.held ? { prepared: true } : {}) });
+            if (!text) debug("latency", { turn: turn.id, firstAudioMs: Math.round(turn.firstAudioAt - turn.endpointAt), sinceSpeechMs: turn.held && !turn.speculative ? null : Math.round(turn.firstAudioAt - turn.endpointAt + (END_SILENCE[turn.prevNext] ?? END_SILENCE.listen)), firstTokenMs: Math.round(turn.firstTokenAt - turn.endpointAt), fishFirstByteMs: fish?.stream.lastFirstByteMs ?? null, ...(turn.speculative ? { speculative: true } : turn.held ? { prepared: true } : {}) });
           }
           if (turn.followFrom != null && index >= turn.followFrom && !turn.followAudioAt) {
             // The answer after the tool: typing stops, and how long the tool hop took goes to the monitor.
@@ -490,6 +579,13 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     const onSentence = sentence => {
       if (signal.aborted || turn.waiting) return;
       if (STAGE_DIRECTION.test(sentence)) { debug("say", { turn: turn.id, text: sentence, note: "stage direction, not spoken" }); return; }
+      if (turn.misheard && !reply) {
+        debug("say", { turn: turn.id, text: sentence, note: `not spoken: ${turn.misheard}` });
+        turn.abort.abort();
+        if (current === turn) current = null;
+        speakCached(pick(assets[lang]?.oops, oopsCount++), "oops");
+        return;
+      }
       // A tool call written out as text: never read out, and nothing after it in this reply either.
       if (turn.toolCallText || isToolCallText(sentence)) { turn.toolCallText = true; debug("say", { turn: turn.id, text: sentence, note: "a tool call written as text, not spoken" }); return; }
       // Nothing transcribed, and the reply starts like the last one: it didn't catch him and is
@@ -531,6 +627,14 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
             : dangling(heard, lex(l || lang)) ? "words" : null;
           if (by) { n = "wait"; debug("dangling", { turn: turn.id, text: heard, by }); }
         }
+        // Misheard, checked in code: a goodbye to words nobody understood ("00:00"), or a transcript
+        // that is just his previous turn again (the model copied it). He hears that it didn't come
+        // through, instead of a hang-up or an answer to something he didn't say.
+        if (!text && n !== "wait") {
+          const said = misheard(heard, { next: n, lastUser: [...turns].reverse().find(t => t.role === "user" && !t.text.startsWith("("))?.text, askedToRepeat });
+          if (said && turn.released) { turn.misheard = said; n = "listen"; }
+          else if (said) turn.misheardHeld = said; // decided when it would play (he's mid-pause)
+        }
         next = n;
         if (l) lang = l;
         turn.heardEmpty = !text && (!String(heard ?? "").trim() || locales().unclear.test(String(heard).trim()));
@@ -538,14 +642,13 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         if (n === "wait") {
           // Unfinished thought: say nothing, keep his audio, and answer it all once he's done.
           turn.waiting = true;
-          vad.setEndSilence(END_SILENCE.wait);
+          turnVad(turn, "wait");
           debug("heard", { turn: turn.id, text: heard, next: n, lang, audio: inFile });
           return;
         }
-        vad.setEndSilence(END_SILENCE[n] ?? END_SILENCE.listen);
-        vad.setStartMs(START_MS[n] ?? START_MS.listen);
+        turnVad(turn, n);
         if (!text) Object.assign(turn, { userAudio: pendingUser, turnsBefore: turns.length }); // to undo a false start
-        turns.push({ role: "user", text: text ?? (heard || "(not transcribed)") });
+        turns.push({ role: "user", text: text ?? (turn.misheard ? "(unclear)" : heard || "(not transcribed)") });
         if (!text) turn.userEntry = turns.at(-1); // a tool follow-up may still say what he said
         if (!text) pendingUser = []; // answered (even if the caller cuts in later)
         debug("heard", { turn: turn.id, text: heard, next: n, lang, audio: inFile });
@@ -661,8 +764,7 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
       }
       follow.end();
       if (followNext) next = followNext;
-      vad.setEndSilence(END_SILENCE[next] ?? END_SILENCE.listen);
-      vad.setStartMs(START_MS[next] ?? START_MS.listen);
+      turnVad(turn, next);
     }
 
     try {
@@ -679,7 +781,10 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
         else if (ev.type === "end") first = ev;
       }
       parser.end();
-      if (calls.length && turn.waiting) debug("tool", { turn: turn.id, ignored: calls.map(c => c.name), reason: "NEXT: wait" });
+      if (calls.length && (turn.misheard || turn.misheardHeld)) {
+        debug("tool", { turn: turn.id, ignored: calls.map(c => c.name), reason: turn.misheard || turn.misheardHeld });
+        if (turn.misheard && !reply && !signal.aborted) { turn.abort.abort(); if (current === turn) current = null; speakCached(pick(assets[lang]?.oops, oopsCount++), "oops"); }
+      } else if (calls.length && turn.waiting) debug("tool", { turn: turn.id, ignored: calls.map(c => c.name), reason: "NEXT: wait" });
       else if (calls.length && !signal.aborted) await answerWithTools(calls, request, first);
     } catch (err) {
       stopMask();
@@ -710,12 +815,12 @@ export function createCallSession({ send, dev = false, skill, agenda = skill.cre
     if (turn.waiting) {
       if (current === turn) current = null;
       lastNext = "wait";
-      armWait({ hold: turn.hold, lastVoice: turn.endpointAt - (END_SILENCE[turn.prevNext] ?? END_SILENCE.listen) });
+      armWait({ hold: turn.hold, lastVoice: turn.endpointAt - (turn.speculative && !turn.released ? SPECULATE_MS : END_SILENCE[turn.prevNext] ?? END_SILENCE.listen) });
       return;
     }
     // What a tool did stays in the history, between the preface and the answer.
     const said = turn.toolNotes.length ? [reply.slice(0, turn.prefaceLength), ...turn.toolNotes, reply.slice(turn.prefaceLength)].map(s => s.trim()).filter(Boolean).join(" ") : reply;
-    if (said) turns.push({ role: "model", text: said });
+    if (said) { turns.push({ role: "model", text: said }); askedToRepeat = false; }
     if (reply) lastReply = reply;
     checkpoint();
     if (current === turn) current = null;

@@ -207,7 +207,7 @@ for (const folder of folders) {
       for (const s of should.filter(s => !s.ok)) console.log(`   should ~ ${JSON.stringify(s.spec)}`);
       if (failed || show) {
         // The conversation, so a failure can be read without rerunning it.
-        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "objective", "retry", "turn", "dangling", "end_call", "barge_in", "nudge", "heard_check", "prepared_dropped", "note_sent"].includes(e.event))) {
+        for (const e of events.filter(e => ["heard", "say", "tool", "tool_latency", "objective", "retry", "turn", "dangling", "end_call", "barge_in", "nudge", "heard_check", "prepared_dropped", "note_sent", "speculate", "speculation_used", "speculation_dropped", "recovered", "latency"].includes(e.event))) {
           console.log(`   ${e.at.toFixed(1).padStart(5)}s ${describeEvent(e) ?? e.event}`);
         }
       }

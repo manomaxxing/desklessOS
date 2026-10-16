@@ -30,3 +30,15 @@ export function affirmed(heard, lex) {
 export function holdOn(heard, lex) {
   return Boolean(lex?.hold.test(String(heard ?? "").trim()));
 }
+
+// What the model wrote down, but nobody said, checked in code before anything is spoken:
+//   a goodbye to words without a single word in them ("00:00", "(unclear)", nothing): no hang-up;
+//   his previous turn again, word for word (the model copied it instead of hearing him), unless
+//   the agent just asked him to say it again. Returns why, or "".
+const normalised = s => String(s ?? "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+export function misheard(heard, { next, lastUser = "", askedToRepeat = false } = {}) {
+  const words = normalised(heard);
+  if (next === "hangup" && !/\p{L}{2,}/u.test(words)) return "a goodbye to words nobody understood";
+  if (!askedToRepeat && words.length >= 12 && words === normalised(lastUser)) return "the transcript repeats his last turn";
+  return "";
+}

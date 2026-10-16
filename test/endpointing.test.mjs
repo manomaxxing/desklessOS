@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dangling, holdOn } from "../src/engine/endpointing.mjs";
+import { dangling, holdOn, misheard } from "../src/engine/endpointing.mjs";
 import { loadLocales } from "../src/locale/index.mjs";
 
 const L = loadLocales(undefined, { only: "de,en" });
@@ -45,4 +45,17 @@ test("a plain yes, for actions with consequences: a yes word and nothing that ta
   for (const t of ["Ja, aber erst morgen", "Nee, warte mal", "Schick es nicht", "Moment", "", "(not transcribed)", "Hm."]) assert.equal(affirmed(t, de), false, t);
   assert.equal(affirmed("Sure, send it", en), true);
   assert.equal(affirmed("Yeah, but wait", en), false);
+});
+
+test("misheard, checked in code: no goodbye to words nobody said, no answer to a copied transcript", () => {
+  assert.equal(misheard("00:00", { next: "hangup" }), "a goodbye to words nobody understood", "the call that hung up on \"00:00\"");
+  assert.equal(misheard("(unclear)", { next: "hangup" }), "a goodbye to words nobody understood");
+  assert.equal(misheard("", { next: "hangup" }), "a goodbye to words nobody understood");
+  assert.equal(misheard("Tschüss!", { next: "hangup" }), "", "a real goodbye");
+  assert.equal(misheard("00:00", { next: "ask" }), "", "not ending the call: the model's own unclear handling");
+  const last = "Genau, erinner mich dran, dass wir es bis Freitag ausschicken.";
+  assert.equal(misheard("genau erinner mich dran dass wir es bis freitag ausschicken", { next: "confirm", lastUser: last }), "the transcript repeats his last turn");
+  assert.equal(misheard(last, { next: "confirm", lastUser: last, askedToRepeat: true }), "", "after \"say that again?\" he may well say it again");
+  assert.equal(misheard("Ja.", { next: "listen", lastUser: "Ja." }), "", "short answers repeat for real");
+  assert.equal(misheard("Ja, passt.", { next: "listen", lastUser: last }), "");
 });

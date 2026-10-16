@@ -159,6 +159,12 @@ test("buildContext: fewer notes before fewer customers, and never over budget", 
   }
 });
 
+test("buildContext: the to-do list says how many are open, so \"and two more\" needs no counting", () => {
+  const tasks = [{ text: "a", due: "2026-10-12", contactName: "X" }, { text: "b", due: "2026-10-13", contactName: "Y" }];
+  assert.match(buildContext({ today: "2026-10-12", tasks, openTaskCount: 14 }).text, /^OPEN TO-DOS \(14 open; customer \| task \| due\):/m);
+  assert.match(buildContext({ today: "2026-10-12", tasks }).text, /^OPEN TO-DOS \(2 open;/m);
+});
+
 test("objectives: create for the user, pick for a call (best first), record answers, done or expired", async () => {
   const question = { template: "inquiry", params: { questions: [{ ask: "Wie lange hat dein letztes Angebot gedauert?" }] } };
   await assert.rejects(() => mem.objectives.create({ template: "nope", params: {} }), /unknown objective template/);

@@ -67,3 +67,22 @@ test("gain scales and clips PCM", () => {
   assert.ok(Math.abs(rms(gain(loud, 0.5)) - rms(loud) / 2) < 0.002, "half as loud");
   assert.equal(gain(Buffer.from([0xff, 0x7f]), 2).readInt16LE(0), 32767, "clipped, not wrapped");
 });
+
+test("a pause inside the utterance is reported once, with the speech so far; his voice coming back too", () => {
+  const events = [];
+  const vad = createVad({ onPause: pcm => events.push(["pause", Math.round(pcm.length / 32)]), onResume: () => events.push(["resume"]), onSpeechEnd: pcm => events.push(["end", Math.round(pcm.length / 32)]), pauseMs: 350, endSilenceMs: 800 });
+  feed(vad, tone(1000));
+  feed(vad, silence(500));
+  assert.equal(events.length, 1, "one report per pause");
+  assert.equal(events[0][0], "pause");
+  assert.ok(events[0][1] >= 1000 && events[0][1] <= 1400, `the speech so far, with a bit of the pause: ${events[0][1]} ms`);
+  feed(vad, tone(600));
+  assert.deepEqual(events[1], ["resume"], "he goes on");
+  feed(vad, silence(1000));
+  assert.deepEqual(events.map(e => e[0]), ["pause", "resume", "pause", "end"], "the next pause is reported again, then the end");
+  assert.ok(events[3][1] >= 2000, "the end hands over the whole utterance");
+  const quiet = [];
+  const off = createVad({ onPause: () => quiet.push(1), endSilenceMs: 800 });
+  feed(off, tone(800)); feed(off, silence(1000));
+  assert.equal(quiet.length, 0, "pauseMs 0: no reports");
+});
