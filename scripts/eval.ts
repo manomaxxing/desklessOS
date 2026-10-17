@@ -67,7 +67,7 @@ const S = [
 // asked something, and some rated what he said.
 const DAY = { user: NIKO, direction: "outbound" as const, objectives: [{ id: "errand_1", template: "discovery.day", params: { focus: "" }, stored: false }] };
 const DAY_OPEN = H(["model", "Hallo, hier ist Toni."], ["user", "Ja, hallo?"], ["model", "Ich ruf an, weil Max besser verstehen will, wie dein Arbeitsalltag so läuft. Hast du ein paar Minuten?"], ["user", "Ja, hab ich."], ["model", "Super. Wie war dein Tag heute?"]);
-const NO_JUDGMENT = "no_judgment: no opinion on or rating of what he told (nothing like \"das ist mühsam\", \"anstrengend\", \"Respekt\", \"das geht ja fix\", \"eigentlich Zeit zum Ausruhen\", \"zähneknirschend\"); a plain reaction like \"Verstehe.\" is fine";
+const NO_JUDGMENT = "no_judgment: no opinion on or rating of what he told (nothing like \"das ist mühsam\", \"anstrengend\", \"Respekt\", \"das geht ja fix\", \"eigentlich Zeit zum Ausruhen\", \"zähneknirschend\"); a plain reaction like \"Verstehe.\" is fine, and so is mirroring a feeling he named himself (he said it was good: \"Schön zu hören.\")";
 const NO_QUESTION = "no_question: his answer was to Toni's question, so this reply asks nothing (no question at all): a short reaction only, NEXT listen";
 S.push(
   { id: "day_story", setup: DAY, history: DAY_OPEN,
@@ -78,6 +78,10 @@ S.push(
     says: "Sonntagabends, so fünf Minuten, alles im Kopf.", checks: [NO_QUESTION, NO_JUDGMENT] },
   { id: "day_after_reaction", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Ganz okay, war auf einer Baustelle."], ["model", "Okay."]), ...H(["user", "Ja."], ["model", "Verstehe."])],
     says: "Ja, war halt ein normaler Tag.", checks: ["one_easy_question: asks exactly one concrete, easy, open question tied to what he said (the building site, his day); or, if it reads him as not in the mood, thanks him and says goodbye"] },
+  { id: "day_vague", setup: DAY, history: DAY_OPEN,
+    says: "Es war sehr gut.", checks: ["concrete: his answer was vague, so it asks one concrete, easy question about what he did today (e.g. where he was, what was on); it may mirror his \"gut\" in a word; it does not wrap up or ask whether there's anything else", NO_JUDGMENT] },
+  { id: "day_quiet_after_reaction", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Es war sehr gut."], ["model", "Schön zu hören."])],
+    says: "(Silence: he didn't go on after your short reaction. Your turn: take the conversation on from here.)", checks: ["goes_on: asks one concrete, easy, open question about his day (what he did, where he was); does NOT wrap up, say goodbye or ask whether there's anything else"] },
   { id: "day_terse", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Nicht viel passiert."], ["model", "Okay. Warst du auf einer Baustelle?"], ["user", "Ja."], ["model", "Verstehe. Und wie lief's da?"], ["user", "Ging so."], ["model", "Okay."])],
     says: "Weiß nicht.", checks: ["wraps_up: he's given short answers in a row and isn't in the mood: thanks him warmly and says goodbye (NEXT hangup); asks nothing more", NO_JUDGMENT] },
 );

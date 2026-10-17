@@ -287,7 +287,7 @@ export function createCallSession({
       if (lastOnlyReacted) {
         lastOnlyReacted = false;
         debug("nudge", { kind: "after_reaction" });
-        runTurn({ text: "(Silence: he didn't go on after your short reaction. He's done; continue with the next step.)" });
+        runTurn({ text: "(Silence: he didn't go on after your short reaction. Your turn: take the conversation on from here.)" });
         return;
       }
       nudges += 1;
