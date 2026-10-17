@@ -221,3 +221,16 @@ test("his lists on his People card; the note on WhatsApp shows what was measured
     "_Stimmt was nicht? Ruf mich kurz an, dann korrigier ich's._",
   ].join("\n"), "what he has to do: its own list to work through");
 });
+
+test("HOW IT WORKS: the basics always; quotes when they're on for him, how his lists price only when he has some", () => {
+  const parsed = parseLists(NIKO);
+  const quotes = { name: "Niko", lang: "de", profile: { features: { quotes: "2026-10-15T00:00:00Z" } } };
+  const p = (user: object, lists: ReturnType<typeof parseLists> | null = parsed) => skill.createAgenda({ user, lists } as never).prompt({ lang: "de" });
+  const off = p({ name: "Niko", lang: "de", profile: {} });
+  assert.match(off, /HOW IT WORKS:[^]*\n- basics: Ruf mich einfach an/);
+  assert.doesNotMatch(off, /- quotes:|- quoteLists:/, "nothing about quotes when they're off");
+  const on = p(quotes);
+  assert.match(on, /\n- quotes: Angebote gehen bei einem Anruf über WhatsApp/, "also on a line without the tool: it says where they work");
+  assert.match(on, /\n- quoteLists: [^\n]*Listenpreis mal dem Faktor der Ausführung/);
+  assert.doesNotMatch(p(quotes, null), /- quoteLists:/, "no lists: nothing about them");
+});

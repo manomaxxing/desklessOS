@@ -87,6 +87,12 @@
       "looking": "Moment, ich schau nach.",
       "outboundGreeting": "Hallo, hier ist Toni.",
       "callPermission": "Hallo, hier ist Toni, deine KI-Assistentin fürs Telefon. Darf ich dich ab und zu anrufen? Dann tipp unten auf Erlauben.",
+      "help": {
+        "basics": "Ruf mich einfach an, am besten direkt nach einem Termin beim Kunden: Du erzählst, ich schreib mit. Am Ende fass ich kurz zusammen, du bestätigst, dann ist die Notiz gespeichert. Vor einem Termin sag ich dir, was du zu dem Kunden schon notiert hast. Und ich führe deine To-dos: sag mir, was ansteht, oder frag mich, was offen ist.",
+        "note_whatsapp": "Nach einem Anruf über WhatsApp schick ich dir die Notiz, die du bestätigt hast, in den Chat.",
+        "quotes": "Angebote gehen bei einem Anruf über WhatsApp: Du erzählst mir den Auftrag, was zu machen ist und wie viel. Ich fass zusammen, du bestätigst, dann frag ich, ob ich dir das Angebot schicken soll. Auf dein Ja kommt es als PDF in deinen WhatsApp-Chat, noch während wir telefonieren. Einen Preis nehm ich nur, wenn du ihn sagst oder er auf deiner Liste steht; sonst bleibt die Zeile ohne Preis.",
+        "quoteLists": "Mit deinen Listen geh ich bei deinen Auftragsarten vor der Zusammenfassung durch, was noch fehlt: die Punkte der Liste, dann die Baustelle, dann die Ausführung. Der Preis einer Zeile ist dein Listenpreis mal dem Faktor der Ausführung, zum Beispiel hochwertig; und wenn auf der Baustelle alles ungünstig ist, noch mal dem Baustellenfaktor. Einen Preis, den du im Gespräch sagst, nehm ich genau so. Die Listen trägt Max für dich ein; schick sie ihm einfach per WhatsApp."
+      },
       "features": {
         "note_whatsapp": "Ab jetzt schick ich dir nach jedem Anruf die Notiz auf WhatsApp, so wie du sie mir bestätigt hast. Dann hast du's schwarz auf weiß.",
         "quotes": "Wenn du mir einen Auftrag mit Mengen und Preisen durchgibst, kann ich dir daraus direkt ein Angebot als PDF auf WhatsApp schicken."

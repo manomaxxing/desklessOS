@@ -153,7 +153,7 @@ const tell: Primitive = {
     if (message.length < 3 || message.length > 400) throw new Error("message: what to tell him, up to 400 characters");
     return { feature: String(params.feature ?? "").slice(0, 40), message };
   },
-  prompt: (s, c) => `${c.r(s.title ?? "TELL HIM")}: news for him, not a question. Once, as a short heads-up in one or two sentences of your own (don't read it out word for word, don't start with "Kurze Frage", don't ask whether he likes it): "${view<TellParams>(c.params).message}" If he already used it in this call, skip it: it counts as told.`,
+  prompt: (s, c) => `${c.r(s.title ?? "TELL HIM")}: news for him, not a question. Once, as a short heads-up in one or two sentences of your own (don't read it out word for word, don't start with "Kurze Frage", don't ask whether he likes it): "${view<TellParams>(c.params).message}" If he already used it in this call, skip it: it counts as told. Then offer once to explain how it works (NEXT: confirm); on his yes, from HOW IT WORKS.`,
   output: () => ({ type: "OBJECT", properties: { told: { type: "BOOLEAN" } }, required: ["told"] }),
   rules: (s, c) => [`- agenda.${c.key}: told = true once the ${c.agentLabel.toLowerCase()} has told him this, in any wording, or he already used it in this call: "${view<TellParams>(c.params).message}".`],
   isDone: (s, out) => told(out),

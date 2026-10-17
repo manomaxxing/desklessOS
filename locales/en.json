@@ -81,6 +81,12 @@
       "looking": "Let me check.",
       "outboundGreeting": "Hi, it's Toni.",
       "callPermission": "Hi, it's Toni, your AI assistant on the phone. May I call you now and then? Then tap Allow below.",
+      "help": {
+        "basics": "Just call me, ideally right after a customer appointment: you talk, I take notes. At the end I sum it up briefly, you confirm, and the note is saved. Before an appointment I tell you what you've noted about that customer. And I keep your to-dos: tell me what's coming up, or ask me what's open.",
+        "note_whatsapp": "After a WhatsApp call I send the note you confirmed into our chat.",
+        "quotes": "Quotes work on a WhatsApp call: you tell me about the job, what needs doing and how much. I sum it up, you confirm, then I ask whether to send you the quote. On your yes it arrives as a PDF in your WhatsApp chat while we're still on the phone. I only use a price you say or one on your list; otherwise the line has no price.",
+        "quoteLists": "With your lists, for your kinds of job I go through what's still missing before the summary: the items on the list, then the site, then the quality level. A line's price is your list price times the factor of the quality level, say premium; and if everything on the site is unfavourable, times the site factor too. A price you say in the call I take exactly as you said it. Max enters the lists for you; just send them to him on WhatsApp."
+      },
       "features": {
         "note_whatsapp": "From now on, after each call I'll send you the note on WhatsApp, just as you confirmed it, so you have it in writing.",
         "quotes": "When you give me a job with quantities and prices, I can send you a quote as a PDF on WhatsApp right away."

@@ -10,6 +10,7 @@ import { primitives } from "../agenda/primitives.ts";
 import { render } from "../agenda/render.ts";
 import { loadFramework } from "../memory/research.ts";
 import { locales as sharedLocales, promptWeekday } from "../locale/index.ts";
+import { FEATURES, hasFeature } from "../features.ts";
 import { parseLists } from "../quotes/lists.ts";
 import { isRecord } from "../shared/is-record.ts";
 import type { Agenda, AgendaObjective, AgendaProfile, Capability } from "../agenda/agenda.ts";
@@ -184,7 +185,7 @@ export function loadSkillFromTemplates(name: string, { locales = sharedLocales()
       const items = direction === "outbound" || standalone || asks ? first : [...first, ...always];
       // His lists (People card), for templates with a checklist step.
       const parsed = lists !== undefined ? lists : user?.profile?.lists ? parseLists(user.profile.lists) : null;
-      return createAgenda({ persona, capabilities, objectives: items, profile: user ? profileOf(user) : profile, locales, discovery, framework, direction, lists: parsed });
+      return createAgenda({ persona, capabilities, objectives: items, profile: user ? profileOf(user) : profile, locales, discovery, framework, direction, lists: parsed, features: FEATURES.filter(f => hasFeature(user, f)) });
     },
 
     objectiveParams(templateId, params) {

@@ -15,6 +15,7 @@ import { promptDate, promptWeekday, promptTime } from "../locale/index.ts";
 import { isRecord } from "../shared/is-record.ts";
 import type { Text } from "./render.ts";
 import type { Discovery, Framework, Locales, StepContext } from "./primitives.ts";
+import { hasLists } from "../quotes/lists.ts";
 import type { Lists } from "../quotes/lists.ts";
 import type { LangId, Turn } from "../types/common.ts";
 import type { Schema } from "../types/gemini.ts";
@@ -63,6 +64,8 @@ export interface AgendaOptions {
   framework?: Framework | null;
   direction?: Direction;
   lists?: Lists | null;
+  /** His features switched on (src/features.ts): their HOW IT WORKS lines go into the prompt. */
+  features?: readonly string[];
 }
 
 export interface PromptOptions {
@@ -116,7 +119,7 @@ const P = (step: Step) => primitives[step.primitive];
  * objectives: [{ id, key, template, params, stored, questionLang }] (key: where its answers go in the extraction).
  * profile: who the persona serves ({{profile.*}}). lists: his own lists (src/quotes/lists.ts, parsed), for the checklist primitive.
  */
-export function createAgenda({ persona, capabilities, objectives = [], profile, locales, discovery = null, framework = null, direction = "inbound", lists = null }: AgendaOptions): Agenda {
+export function createAgenda({ persona, capabilities, objectives = [], profile, locales, discovery = null, framework = null, direction = "inbound", lists = null, features = [] }: AgendaOptions): Agenda {
   const items: AgendaItem[] = objectives.map(o => ({ ...o, output: undefined, done: false }));
   const outbound = direction === "outbound";
   let last: Record<string, unknown> = {}; // the latest extraction, his note and the objectives' answers
@@ -151,6 +154,14 @@ export function createAgenda({ persona, capabilities, objectives = [], profile, 
   const capSteps = () => capabilities.flatMap(t => t.steps.map(s => ({ s, t })));
   const capContext = (lang: LangId) => capSteps().map(({ s, t }) => P(s).context?.(s, stepContext(null, lang, [], t)) ?? "").filter(Boolean);
   const capStatus = (note: Note | null, lang: LangId) => capSteps().map(({ s, t }) => P(s).status?.(s, note, stepContext(null, lang, [], t)) ?? "").filter(Boolean);
+  // HOW IT WORKS: the basics and his features (on any line: the text says where one works), how his lists price with quotes.
+  const helpText = (lang: LangId) => {
+    const help = locales.persona(lang, persona.id)?.help;
+    if (!help || !persona.sections.help) return "";
+    const on = ["basics", ...features, ...(features.includes("quotes") && hasLists(lists) ? ["quoteLists"] : [])];
+    const lines = on.filter(k => help[k]).map(k => `- ${k}: ${help[k]}`);
+    return lines.length ? `${renderer(lang, `personas/${persona.id}`)(persona.sections.help)}\n${lines.join("\n")}` : "";
+  };
   const tidy = (note: Note) => capSteps().reduce((n, { s, t }) => P(s).tidy?.(s, n, stepContext(null, profile.lang, [], t)) ?? n, note);
 
   function missing(note: Note | null | undefined): string[] {
@@ -204,6 +215,7 @@ ${section("next")}`;
         `YOUR JOBS\n\n${jobs.join("\n\n")}`,
         section("closing"),
         section("sound"),
+        helpText(lang),
         section("interruptions"),
         section("silence"),
         format,

@@ -44,6 +44,8 @@ export interface PersonaLines {
   looking?: string;
   callPermission?: string;
   features?: Record<string, string>;
+  /** How things work, for when he asks (basics, a feature's id, quoteLists): Toni explains from these. */
+  help?: Record<string, string>;
   examples?: Record<string, string | string[]>;
   [key: string]: unknown;
 }
