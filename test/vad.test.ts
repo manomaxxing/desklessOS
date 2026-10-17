@@ -56,6 +56,18 @@ test("strict mode (agent talking) needs louder, longer speech", () => {
   assert.equal(started, true);
 });
 
+test("while the agent talks, her echo and his voice don't raise the bar: he can still cut her off", () => {
+  let started = false;
+  const vad = createVad({ onSpeechStart: () => { started = true; } });
+  feed(vad, tone(2000, 0.003));
+  const floor = vad.level.floor;
+  vad.setStrict(true);
+  feed(vad, tone(3000, 0.012)); // her echo, under the raised bar
+  assert.equal(vad.level.floor, floor, "the floor stays where it was before she spoke");
+  for (let i = 0; i < 6; i++) { feed(vad, tone(160, 0.05)); feed(vad, tone(90, 0.012)); } // him, syllable by syllable, over her
+  assert.equal(started, true);
+});
+
 test("right after the agent starts, a shorter burst cuts it off (false start)", () => {
   const starts: string[] = [];
   const vad = createVad({ onSpeechStart: () => starts.push("start"), interruptMs: 500 });

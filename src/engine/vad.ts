@@ -67,7 +67,7 @@ export function createVad({
     return Buffer.concat(utterance.slice(0, end));
   };
 
-  const threshold = () => Math.max(minThreshold, floor * floorFactor) * (strict ? 1.8 : 1);
+  const threshold = () => Math.max(minThreshold, floor * floorFactor) * (strict ? 1.5 : 1);
 
   return {
     get speaking() { return speaking; },
@@ -88,13 +88,17 @@ export function createVad({
       const level = rms(frame);
       const voiced = level > threshold();
       if (!speaking) {
-        if (!voiced) floor = floor * 0.97 + level * 0.03; // learn the background only from non-speech
+        // Learn the background only from non-speech, and not while the agent talks: her echo and his
+        // voice under the raised bar aren't background, and learning them raised the bar until he
+        // couldn't cut her off at all.
+        if (!voiced && !strict) floor = floor * 0.97 + level * 0.03;
         preRoll.push(frame);
         preRollLen += ms;
         let old = 0; // the oldest frames beyond what's kept (never the newest)
         while (preRollLen > preRollMs + (strict ? interruptMs : startMs) && old < preRoll.length - 1) preRollLen -= durationMs(preRoll[old++]);
         preRoll.splice(0, old);
-        voicedMs = voiced ? voicedMs + ms : Math.max(0, voicedMs - ms * 0.5);
+        // The gaps between syllables take back less while the agent talks: his speech over hers adds up.
+        voicedMs = voiced ? voicedMs + ms : Math.max(0, voicedMs - ms * (strict ? 0.25 : 0.5));
         if (voicedMs >= (strict ? interruptMs : startMs)) {
           speaking = true;
           silenceMs = 0;
