@@ -149,7 +149,7 @@ test("a plain turn: thought about at his pause, played when the pause ends his t
     const used = c.events.find(e => e.event === "speculation_used");
     assert.ok(spec && used, "started at the pause, used at the end of his turn");
     assert.ok(used.at - spec.at >= 400 && used.at - spec.at <= 500, `the pause (0.35 s) to the end of turn (0.8 s): ${used.at - spec.at} ms`);
-    assert.equal(c.gemini.calls.length, 1, "one model call");
+    assert.equal(c.gemini.calls.filter(x => x.audioBytes > 0).length, 1, "one model call for his turn (\"Okay, erzähl.\" only reacts: her next words are prepared too)");
     const lat = c.events.find(e => e.event === "latency");
     assert.equal(lat.speculative, true);
     assert.ok(c.frames.some(f => f.type === "media" && f.at >= used.at), "his answer's audio goes out after the end of his turn, not before");
@@ -168,13 +168,14 @@ test("he goes on after a pause: what was prepared is dropped unheard, and both p
     await c.wait(500);
     assert.deepEqual(c.events.filter(e => e.event.startsWith("specul")).map(e => e.event), ["speculate", "speculation_dropped", "speculate", "speculation_used"]);
     assert.deepEqual(c.said(), ["Bad beim Huber, okay."], "the dropped answer is never heard");
-    assert.equal(c.gemini.calls.length, 2);
-    assert.ok(c.gemini.calls[1].audioBytes > c.gemini.calls[0].audioBytes * 1.5, "the second request has all of his speech");
+    const heard = c.gemini.calls.filter(x => x.audioBytes > 0); // (a reply that only reacts also prepares her next words: no audio)
+    assert.equal(heard.length, 2);
+    assert.ok(heard[1].audioBytes > heard[0].audioBytes * 1.5, "the second request has all of his speech");
   } finally { await c.done(); }
 });
 
 test("he stops mid-thought: NEXT wait keeps quiet, a soft mhm after 2.5 s, the prepared answer at 5 s", async () => {
-  const c = call({ replies: [reply("Und dann", "wait", ""), reply("Und dann", "listen", "Alles klar.")] });
+  const c = call({ replies: [reply("Und dann", "wait", ""), reply("Und dann", "listen", "Alles klar, das hab ich.")] });
   try {
     await c.connect();
     await c.speak(1000);
@@ -185,12 +186,12 @@ test("he stops mid-thought: NEXT wait keeps quiet, a soft mhm after 2.5 s, the p
     const done = c.events.find(e => e.event === "nudge" && e.kind === "dictation_done");
     assert.ok(mhm && Math.abs(mhm.at - lastVoice - 2500) <= 60, `mhm 2.5 s after his last word: ${mhm && mhm.at - lastVoice}`);
     assert.ok(done && Math.abs(done.at - lastVoice - 5000) <= 60, `the answer at 5 s: ${done && done.at - lastVoice}`);
-    assert.deepEqual(c.said(), ["Alles klar."]);
+    assert.deepEqual(c.said(), ["Alles klar, das hab ich."]);
   } finally { await c.done(); }
 });
 
 test("Gemini stalls: the same model again after 1.6 s answers; the stalled one is cancelled", async () => {
-  const c = call({ replies: [reply("Hallo", "listen", "Stalled.", { stallMs: 10000 }), reply("Hallo", "listen", "Da bin ich.")] });
+  const c = call({ replies: [reply("Hallo", "listen", "Stalled.", { stallMs: 10000 }), reply("Hallo", "listen", "Da bin ich, jetzt hör ich dich.")] });
   try {
     await c.connect();
     await c.speak(800);
@@ -200,7 +201,7 @@ test("Gemini stalls: the same model again after 1.6 s answers; the stalled one i
     assert.ok(retry, "a second request");
     assert.equal(retry.next, PRIMARY, "the same model first, not the fallback");
     assert.equal(c.gemini.calls[1].at - c.gemini.calls[0].at, 1600, "after 1.6 s");
-    assert.deepEqual(c.said(), ["Da bin ich."]);
+    assert.deepEqual(c.said(), ["Da bin ich, jetzt hör ich dich."]);
     assert.equal(c.events.find(e => e.event === "recovered")?.attempt, 2);
   } finally { await c.done(); }
 });
@@ -339,16 +340,51 @@ test("a tool that changes something: run once his turn can't be taken back, and 
   } finally { await c.done(); }
 });
 
-test("a reply that only reacts (\"Verstehe.\"): if he doesn't go on, she does after 3 s, not 9", async () => {
+test("a reply that only reacts (\"Verstehe.\"): her next words are prepared at once and come after a breath", async () => {
   const c = call({ replies: [reply("Ich war heute auf einer Baustelle und hab selbst angepackt.", "listen", "Verstehe."), reply("", "ask", "Wie lief's da?")] });
   try {
     await c.connect();
     await c.speak(1500);
     await c.quiet(1000);
-    await c.wait(1500); // "Verstehe." plays
-    await c.wait(2500);
-    const nudge = c.events.find(e => e.event === "nudge");
-    assert.equal(nudge?.kind, "after_reaction", "nudged within 3 s of the reaction");
-    assert.ok(c.said().some(t => /Wie lief's da\?/.test(t)), "and she goes on");
+    await c.wait(2000);
+    const prep = c.gemini.calls[1];
+    const nudge = c.events.find(e => e.event === "nudge" && e.kind === "after_reaction");
+    const heard = c.events.find(e => e.event === "say" && /Wie lief's da\?/.test(e.text));
+    assert.equal(c.gemini.calls.length, 2, "the follow-up is asked for as soon as the reaction has played");
+    assert.ok(prep && nudge && heard);
+    assert.ok(Math.abs(nudge.at - prep.at - 400) <= 30, `a breath, not a hole: ${nudge.at - prep.at} ms`);
+    assert.ok(heard.at >= nudge.at && heard.at - nudge.at < 50, "and it plays as the breath ends");
+  } finally { await c.done(); }
+});
+
+test("…and if he goes on during the beat, what she prepared is dropped unheard and his words are answered", async () => {
+  const c = call({ replies: [reply("Ich war heute auf einer Baustelle.", "listen", "Verstehe."), reply("", "ask", "Wie lief's da?"), reply("Und dann hat der Kunde noch was gewollt.", "listen", "Ah, okay.")] });
+  try {
+    await c.connect();
+    await c.speak(1500);
+    await c.quiet(1000);
+    await c.wait(400); // the reaction is out; the breath has barely started
+    await c.speak(1500); // he goes on within it
+    await c.quiet(1000);
+    await c.wait(300); // "Ah, okay." is out; the breath after it has not released
+    assert.ok(c.kinds().includes("prepared_dropped"));
+    assert.ok(!c.said().some(t => /Wie lief's da\?/.test(t)), "never heard");
+    assert.ok(c.said().some(t => /Ah, okay\./.test(t)), "his words answered");
+    await c.session.close("test"); // her next words after "Ah, okay." are prepared, unheard
+    const saved = c.ends[0].final.turns.map(t => t.text).join(" | ");
+    assert.doesNotMatch(saved, /Silence|interrupted/, "what he never heard isn't in the transcript");
+  } finally { await c.done(); }
+});
+
+test("a reply without its header (it happens on a very short one): his words are written down separately", async () => {
+  const c = call({ replies: [{ text: "Mhm." }] }); // no HEARD/LANG/NEXT; the transcript check answers "ok" (scriptedGemini)
+  try {
+    await c.connect();
+    await c.speak(1500);
+    await c.quiet(1000);
+    await c.wait(1000);
+    assert.ok(c.events.some(e => e.event === "heard_late" && e.text === "ok"));
+    await c.session.close("test");
+    assert.deepEqual(c.ends[0].final.turns.map(t => t.text).slice(0, 2), ["ok", "Mhm."], "his words, not \"(not transcribed)\"");
   } finally { await c.done(); }
 });

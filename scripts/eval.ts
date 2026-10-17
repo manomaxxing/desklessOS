@@ -68,6 +68,7 @@ const S = [
 const DAY = { user: NIKO, direction: "outbound" as const, objectives: [{ id: "errand_1", template: "discovery.day", params: { focus: "" }, stored: false }] };
 const DAY_OPEN = H(["model", "Hallo, hier ist Toni."], ["user", "Ja, hallo?"], ["model", "Ich ruf an, weil Max besser verstehen will, wie dein Arbeitsalltag so läuft. Hast du ein paar Minuten?"], ["user", "Ja, hab ich."], ["model", "Super. Wie war dein Tag heute?"]);
 const NO_JUDGMENT = "no_judgment: no opinion on or rating of what he told (nothing like \"das ist mühsam\", \"anstrengend\", \"Respekt\", \"das geht ja fix\", \"eigentlich Zeit zum Ausruhen\", \"zähneknirschend\"); a plain reaction like \"Verstehe.\" is fine, and so is mirroring a feeling he named himself (he said it was good: \"Schön zu hören.\")";
+const OPEN = "open: any question is open (how, what, when, how long), not a yes/no or either-or question that suggests an answer (\"Macht dir das viel Arbeit?\", \"Hat dich das viel Zeit gekostet?\" fail)";
 const NO_QUESTION = "no_question: his answer was to Toni's question, so this reply asks nothing (no question at all): a short reaction only, NEXT listen";
 S.push(
   { id: "day_story", setup: DAY, history: DAY_OPEN,
@@ -81,7 +82,11 @@ S.push(
   { id: "day_vague", setup: DAY, history: DAY_OPEN,
     says: "Es war sehr gut.", checks: ["concrete: his answer was vague, so it asks one concrete, easy question about what he did today (e.g. where he was, what was on); it may mirror his \"gut\" in a word; it does not wrap up or ask whether there's anything else", NO_JUDGMENT] },
   { id: "day_quiet_after_reaction", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Es war sehr gut."], ["model", "Schön zu hören."])],
-    says: "(Silence: he didn't go on after your short reaction. Your turn: take the conversation on from here.)", checks: ["goes_on: asks one concrete, easy, open question about his day (what he did, where he was); does NOT wrap up, say goodbye or ask whether there's anything else"] },
+    says: "(Silence: he didn't go on after your short reaction. Your turn: take the conversation on from here.)", checks: ["goes_on: asks one concrete, easy, open question about his day (what he did, where he was); does NOT wrap up, say goodbye or ask whether there's anything else", OPEN] },
+  { id: "day_variety", setup: DAY, history: [...DAY_OPEN, ...H(["user", "War gut, war noch mal bei Familie Weber."], ["model", "Familie Weber, okay."], ["user", "Mussten Fliesen rausreißen, fünfzig Stück."], ["model", "Fünfzig Stück, verstehe."], ["user", "(Silence: he didn't go on after your short reaction. Your turn: take the conversation on from here.)"], ["model", "Wie lange hat dich das gekostet?"])],
+    says: "Acht Stunden.", checks: ["varied: a short reaction that does NOT pick up his words (her last two reactions already echoed his words) and isn't word for word one of her earlier reactions", NO_QUESTION, NO_JUDGMENT] },
+  { id: "day_probe_open", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Ganz okay. Jetzt sitz ich noch an der Buchhaltung, so zwei Stunden."], ["model", "Verstehe."])],
+    says: "(Silence: he didn't go on after your short reaction. Your turn: take the conversation on from here.)", checks: ["follows_up: asks one question about the bookkeeping he mentioned", OPEN] },
   { id: "day_terse", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Nicht viel passiert."], ["model", "Okay. Warst du auf einer Baustelle?"], ["user", "Ja."], ["model", "Verstehe. Und wie lief's da?"], ["user", "Ging so."], ["model", "Okay."])],
     says: "Weiß nicht.", checks: ["wraps_up: he's given short answers in a row and isn't in the mood: thanks him warmly and says goodbye (NEXT hangup); asks nothing more", NO_JUDGMENT] },
 );
@@ -114,7 +119,7 @@ async function replyOnce(model, s) {
   }
   const next = (text.match(/NEXT:\s*(\w+)/) ?? [])[1] ?? "?";
   const spoken = text.split("\n").filter(l => !/^\s*(HEARD|LANG|NEXT|DO):/.test(l)).join(" ").replace(/\s+/g, " ").trim();
-  return { next, spoken: call ? `${spoken} [CALLED TOOL ${call.name} ${JSON.stringify(call.args)}]`.trim() : spoken, firstMs: Math.round(first ?? -1) };
+  return { next, spoken: call ? `${spoken} [CALLED TOOL ${call.name} ${JSON.stringify(call.args)}]`.trim() : spoken, firstMs: Math.round(first ?? -1), raw: text };
 }
 const JUDGE: Schema = { type: "OBJECT", properties: { checks: { type: "ARRAY", items: { type: "OBJECT", properties: { id: { type: "STRING" }, pass: { type: "BOOLEAN" }, why: { type: "STRING" } }, required: ["id", "pass", "why"] } } }, required: ["checks"] };
 async function judge(s, r) {

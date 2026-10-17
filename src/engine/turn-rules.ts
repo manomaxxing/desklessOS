@@ -21,8 +21,8 @@ export function sameStart(a: string | null | undefined, b: string | null | undef
 
 /**
  * A reply that only reacts: a backchannel ("Mhm.", "Okay, erzähl.") or a few words that ask nothing
- * ("Verstehe.", "Ah, okay."). He may go on; if he doesn't, she does, soon (not after the long
- * silence that follows a statement he's meant to answer).
+ * ("Verstehe.", "Ah, okay."). He may go on; if he doesn't, she does after a breath. A question
+ * mark means she already asked, in this same reply.
  */
 export function onlyReacts(reply: string, lex: Pick<Lexicon, "agentBackchannel"> | null | undefined): boolean {
   if (!reply.trim() || reply.includes("?")) return false;

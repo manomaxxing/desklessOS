@@ -225,6 +225,11 @@ for (const folder of folders) {
       // What the server logged that went wrong (the after-call job runs after the call's events end).
       if (failed) for (const line of server.log.filter(l => process.env.REGRESS_LOG || /error|failed|unhandled|uncaught/i.test(l)).slice(-40)) console.log(`   server log: ${line.slice(0, 300)}`);
     }
+  } catch (err) {
+    // The folder's server or its setup failed: that folder fails, the others still run.
+    results.push({ name: folder, failed: true, must: [], should: [], p50: null, error: err });
+    console.log(`${folder} … FAIL: ${err instanceof Error ? err.message : err}`);
+    for (const line of server.log.slice(-15)) console.log(`   server log: ${line.slice(0, 300)}`);
   } finally {
     server.stop();
     if (!keep) rmSync(dataDir, { recursive: true, force: true });

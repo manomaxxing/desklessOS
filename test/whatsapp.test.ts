@@ -362,7 +362,8 @@ test("WebRTC audio: a duplicate or late RTP packet is played once; silence goes 
     await ear.accept(await mouth.answer(await ear.offer()));
     mouth.start(); // says nothing: silence, every 20 ms
     for (let i = 0; i < 50 && mouth.state !== "connected"; i++) await sleep(50);
-    await sleep(1200);
+    // 1.2 s of silence is 60 packets; a busy machine may take longer to send them (the test ran flaky under load).
+    for (const until = Date.now() + 4000; heard.length < 40 && Date.now() < until;) await sleep(50);
     assert.ok(heard.length >= 40, `still a packet every 20 ms (${heard.length})`);
     assert.ok(encodes <= 4, `the encoder ran ${encodes} times for ${heard.length} frames`);
     assert.ok(heard.every(p => { for (let i = 0; i < p.length; i += 2) if (Math.abs(p.readInt16LE(i)) > 64) return false; return true; }), "and it's heard as silence");

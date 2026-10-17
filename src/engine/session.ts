@@ -42,8 +42,8 @@ import { createHedgedStream, type TurnRequest } from "./hedged-stream.ts";
 import { drain, readyClip, startClip, type Clip } from "./clips.ts";
 import { isStageDirection, judgeNext, onlyReacts, pick, sameStart } from "./turn-rules.ts";
 import {
-  BACKCHANNEL_IDLE_MS, CUT_OFF_GRACE_MS, FALSE_START_INTERRUPT_MS, FALSE_START_MS, FILLER_AFTER_MS, GREETING_INTERRUPT_MS, HOLD_MS,
-  INTERRUPT_MS, MAX_PENDING_MS, OUTBOUND_GREET_MS, PREFACE_WAIT_MS, SPECULATE_MAX, SPECULATE_MS, TYPING_AFTER_MS, VOICEMAIL_MS,
+  CUT_OFF_GRACE_MS, FALSE_START_INTERRUPT_MS, FALSE_START_MS, FILLER_AFTER_MS, GREETING_INTERRUPT_MS, HOLD_MS,
+  INTERRUPT_MS, MAX_PENDING_MS, OUTBOUND_GREET_MS, PREFACE_WAIT_MS, REACTION_BEAT_MS, SPECULATE_MAX, SPECULATE_MS, TYPING_AFTER_MS, VOICEMAIL_MS,
   WAIT_DONE_MS, WAIT_MHM_MS, WRAP_UP_GRACE_MS, endSilenceFor, idleMsFor, realClock, startMsFor,
 } from "./timing.ts";
 
@@ -237,7 +237,7 @@ export function createCallSession({
   // How long a pause ends his next utterance, from the NEXT of the answer. An answer still held
   // while his utterance is open (prepared at a pause) keeps it until it's released.
   function turnVad(turn: ActiveTurn, n: Next) {
-    if (!turn.released && (turn.speculative || vad.speaking)) { turn.vadNext = n; return; }
+    if (!turn.released) { turn.vadNext = n; return; }
     vadFor(n);
   }
   // Typing doesn't count as the agent talking: no strict VAD, no marks.
@@ -279,21 +279,35 @@ export function createCallSession({
   // Caller silent after the agent finished: nudge once, then wrap up.
   function armIdle() {
     clock.clearTimeout(idleTimer);
-    const ms = lastHold ? HOLD_MS : lastOnlyReacted ? BACKCHANNEL_IDLE_MS : idleMsFor(lastNext);
-    if (ended || hangupMark || current || !ms) return;
+    if (ended || hangupMark || current) return;
+    if (lastOnlyReacted && !lastHold) { armBeat(); return; }
+    const ms = lastHold ? HOLD_MS : idleMsFor(lastNext);
+    if (!ms) return;
     idleTimer = clock.setTimeout(() => {
       if (ended || current || marks.size) return;
       if (vad.speaking) { armIdle(); return; }
-      if (lastOnlyReacted) {
-        lastOnlyReacted = false;
-        debug("nudge", { kind: "after_reaction" });
-        runTurn({ text: "(Silence: he didn't go on after your short reaction. Your turn: take the conversation on from here.)" });
-        return;
-      }
       nudges += 1;
       debug("nudge", { kind: nudges === 1 ? "first" : "second" });
       runTurn({ text: nudges === 1 ? "(Silence: the caller has said nothing for a few seconds.)" : "(Silence: the caller has said nothing for a while, the second time.)" });
     }, ms);
+  }
+
+  // After a reply that only reacted ("Verstehe."): what she'd say next is prepared at once and held.
+  // A breath (REACTION_BEAT_MS from the end of her reaction) and it plays; if he goes on instead,
+  // it's dropped unheard (onSpeechStart). A question that's due is said with the reaction, not here.
+  function armBeat() {
+    lastOnlyReacted = false;
+    if (vad.speaking || timeUp) return;
+    let release = () => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const prepared = runTurn({ text: "(Silence: he didn't go on after your short reaction. Your turn: take the conversation on from here.)", held });
+    const tryRelease = () => {
+      if (ended || current !== prepared) return;
+      if (vad.speaking || vad.stirring) { idleTimer = clock.setTimeout(tryRelease, 200); return; }
+      debug("nudge", { kind: "after_reaction" });
+      release();
+    };
+    idleTimer = clock.setTimeout(tryRelease, REACTION_BEAT_MS);
   }
 
   // After a "wait" (he paused mid-thought): if he stays quiet, a soft "mhm" says
@@ -638,7 +652,7 @@ export function createCallSession({
     const lastUserWords = () => [...turns].reverse().find(t => t.role === "user" && !t.text.startsWith("("))?.text;
     const parser = createReplyParser({
       langs: locales().enabled(),
-      onHeader: ({ heard, lang: l, next: said }) => {
+      onHeader: ({ heard, lang: l, next: said, present }) => {
         const judged = judgeNext({ next: said, answerNow: force || Boolean(text) || lastNext === "confirm", heard, heardMs, turnEnd: turn.turnEnd, lex: lex(l || lang) });
         let n = judged.next;
         if (judged.by) debug("dangling", { turn: turn.id, text: heard, by: judged.by });
@@ -662,12 +676,22 @@ export function createCallSession({
           return;
         }
         turnVad(turn, n);
-        if (!text) { turn.userAudio = pendingUser; turn.turnsBefore = turns.length; } // to undo a false start
+        if (!text) turn.userAudio = pendingUser; // to undo a false start
+        if (!text || held) turn.turnsBefore = turns.length; // …and a held answer he never hears
         const entry: Turn = { role: "user", text: text ?? (turn.misheard ? "(unclear)" : heard || "(not transcribed)") };
         turns.push(entry);
         if (!text) {
           turn.userEntry = entry; // a tool follow-up may still say what he said
           pendingUser = []; // answered (even if the caller cuts in later)
+        }
+        // No header at all (the model sometimes skips it on a very short reply): his words are
+        // written down separately, off the reply's path, so the transcript and the note have them.
+        if (!present && audio) {
+          void transcribe({ endpoint, model: FALLBACK_MODEL, audio }).then(words => {
+            if (!words || entry.text !== "(not transcribed)") return;
+            entry.text = words;
+            debug("heard_late", { turn: turn.id, text: words });
+          });
         }
         debug("heard", { turn: turn.id, text: heard, next: n, lang, audio: inFile });
       },
@@ -877,6 +901,10 @@ export function createCallSession({
     // model can pick up where it was cut off instead of assuming it said it all.
     function finishAborted() {
       if (turn.falseStart || turn.dropped) return; // a false start, or a prepared answer he never heard
+      if (!turn.released) { // held when the call ended (or the time ran out): he never heard any of it
+        if (turn.turnsBefore !== null) turns.splice(turn.turnsBefore);
+        return;
+      }
       const heard = turn.marks.map(m => markText.get(m)).filter(m => m?.heard).map(m => m!.text);
       for (const m of turn.marks) markText.delete(m);
       const unsaid = clips.map(c => c.text).slice(heard.length).join(" ");

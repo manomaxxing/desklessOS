@@ -146,7 +146,8 @@ test("his day: a conversation by his time of day, picking up where the last call
   assert.match(morning, /it's 08:40, early morning, his day has barely started for him/);
   assert.match(morning, /"Wie war's gestern\? Oder was steht heute an\?"/);
   assert.match(morning, /LISTEN MORE THAN YOU ASK/);
-  assert.match(morning, /react in\s+two or three plain words and stop there \("Verstehe\.", "Ah, okay\."/, "neutral reactions from the locale pack");
+  assert.match(morning, /A reaction on its own \("Verstehe\.", "Ah, okay\."[^]*two or three plain words, then stop/, "neutral reactions from the locale pack");
+  assert.match(morning, /When a question is due, say it in THIS reply/);
   assert.doesNotMatch(morning, /FROM EARLIER CALLS/);
   assert.match(first.prompt({ lang: "de", now: new Date("2026-10-14T16:10:00Z") }), /it's 18:10, evening for him/);
 
