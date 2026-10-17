@@ -40,7 +40,7 @@ import { createTelemetry } from "./telemetry.ts";
 import { createCallRecord } from "./call-record.ts";
 import { createHedgedStream, type TurnRequest } from "./hedged-stream.ts";
 import { drain, readyClip, startClip, type Clip } from "./clips.ts";
-import { isStageDirection, judgeNext, pick, sameStart } from "./turn-rules.ts";
+import { isStageDirection, judgeNext, onlyReacts, pick, sameStart } from "./turn-rules.ts";
 import {
   BACKCHANNEL_IDLE_MS, CUT_OFF_GRACE_MS, FALSE_START_INTERRUPT_MS, FALSE_START_MS, FILLER_AFTER_MS, GREETING_INTERRUPT_MS, HOLD_MS,
   INTERRUPT_MS, MAX_PENDING_MS, OUTBOUND_GREET_MS, PREFACE_WAIT_MS, SPECULATE_MAX, SPECULATE_MS, TYPING_AFTER_MS, VOICEMAIL_MS,
@@ -211,7 +211,7 @@ export function createCallSession({
   let finalized: Promise<void> | null = null;
   let ended = false;
   let lastNext: Next = "listen";
-  let lastWasBackchannel = false;
+  let lastOnlyReacted = false; // her last reply only reacted ("Mhm.", "Verstehe."): a short silence and she goes on
   let lastHold = false; // he said "Moment" and got a reply: give him longer before nudging
   let retryable = false; // a write failed last turn: his "yes, try again" may run it again
   let lastSpoken: Spoken | null = null;
@@ -279,15 +279,15 @@ export function createCallSession({
   // Caller silent after the agent finished: nudge once, then wrap up.
   function armIdle() {
     clock.clearTimeout(idleTimer);
-    const ms = lastHold ? HOLD_MS : lastWasBackchannel ? BACKCHANNEL_IDLE_MS : idleMsFor(lastNext);
+    const ms = lastHold ? HOLD_MS : lastOnlyReacted ? BACKCHANNEL_IDLE_MS : idleMsFor(lastNext);
     if (ended || hangupMark || current || !ms) return;
     idleTimer = clock.setTimeout(() => {
       if (ended || current || marks.size) return;
       if (vad.speaking) { armIdle(); return; }
-      if (lastWasBackchannel) {
-        lastWasBackchannel = false;
-        debug("nudge", { kind: "after_mhm" });
-        runTurn({ text: "(Silence: he didn't continue after your Mhm. He's done; continue with the next step.)" });
+      if (lastOnlyReacted) {
+        lastOnlyReacted = false;
+        debug("nudge", { kind: "after_reaction" });
+        runTurn({ text: "(Silence: he didn't go on after your short reaction. He's done; continue with the next step.)" });
         return;
       }
       nudges += 1;
@@ -868,7 +868,7 @@ export function createCallSession({
     letGo(turn);
     lastNext = next;
     lastHold = turn.hold;
-    lastWasBackchannel = next === "listen" && lex().agentBackchannel.test(reply);
+    lastOnlyReacted = next === "listen" && onlyReacts(reply, lex());
     if (!text) void record.refresh();
     if (next === "hangup") hangupMark = sendMark("bye");
     else if (!marks.size) armIdle();

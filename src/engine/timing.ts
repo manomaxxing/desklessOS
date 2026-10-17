@@ -49,6 +49,7 @@ export const TURN_DEADLINE_MS = 12000; // give up and say sorry
 export const STREAM_IDLE_MS = envMs("STREAM_IDLE_MS", 4000);
 // He says nothing after the agent finished: a nudge after this long (0: none; after a wait or a bye, none).
 export const IDLE_MS: Readonly<Record<Next, number>> = { listen: 9000, ask: 10000, confirm: 7000, wait: 0, hangup: 0 };
+// After a reply that only reacted ("Mhm.", "Verstehe."): he goes on, or after this much silence she does.
 export const BACKCHANNEL_IDLE_MS = 3000;
 export const INTERRUPT_MS = envMs("INTERRUPT_MIN_MS", 500); // loud speech needed to cut the agent off
 // While the greeting plays, a "Hallo?" said over it (people do, the moment a call connects) mustn't

@@ -63,6 +63,24 @@ const S = [
   { id: "mid_thought", setup: { user: NIKO }, history: H(["model", "Hey, hier ist Toni."], ["user", "Familie Huber in Allensbach, Bad neu."], ["model", "Okay."]),
     says: "Und dann wollten die noch, äh,", checks: ["waits: NEXT is wait and there is no spoken reply"], noGeneric: true },
 ];
+// His day (discovery.day), from a rehearsal that felt like an interview (2026-10-17): every reply
+// asked something, and some rated what he said.
+const DAY = { user: NIKO, direction: "outbound" as const, objectives: [{ id: "errand_1", template: "discovery.day", params: { focus: "" }, stored: false }] };
+const DAY_OPEN = H(["model", "Hallo, hier ist Toni."], ["user", "Ja, hallo?"], ["model", "Ich ruf an, weil Max besser verstehen will, wie dein Arbeitsalltag so läuft. Hast du ein paar Minuten?"], ["user", "Ja, hab ich."], ["model", "Super. Wie war dein Tag heute?"]);
+const NO_JUDGMENT = "no_judgment: no opinion on or rating of what he told (nothing like \"das ist mühsam\", \"anstrengend\", \"Respekt\", \"das geht ja fix\", \"eigentlich Zeit zum Ausruhen\", \"zähneknirschend\"); a plain reaction like \"Verstehe.\" is fine";
+const NO_QUESTION = "no_question: his answer was to Toni's question, so this reply asks nothing (no question at all): a short reaction only, NEXT listen";
+S.push(
+  { id: "day_story", setup: DAY, history: DAY_OPEN,
+    says: "Wir haben noch mal ein Bad ausreißen müssen, und wir hatten heute nicht genug Männer, weil ja Wochenende ist.", checks: [NO_JUDGMENT, "light: at most one light follow-up, about this concrete case (e.g. how he handled it); no new topic"] },
+  { id: "day_answered", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Wir haben noch mal ein Bad ausreißen müssen, und wir hatten heute nicht genug Männer, weil ja Wochenende ist."], ["model", "Ah, verstehe. Wie hast du das dann gelöst?"])],
+    says: "Ich bin selbst hingefahren und hab selbst wieder angepackt.", checks: [NO_QUESTION, NO_JUDGMENT] },
+  { id: "day_short_answer", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Ganz okay, war auf einer Baustelle."], ["model", "Okay. Und die Planung für nächste Woche, wann machst du die?"])],
+    says: "Sonntagabends, so fünf Minuten, alles im Kopf.", checks: [NO_QUESTION, NO_JUDGMENT] },
+  { id: "day_after_reaction", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Ganz okay, war auf einer Baustelle."], ["model", "Okay."]), ...H(["user", "Ja."], ["model", "Verstehe."])],
+    says: "Ja, war halt ein normaler Tag.", checks: ["one_easy_question: asks exactly one concrete, easy, open question tied to what he said (the building site, his day); or, if it reads him as not in the mood, thanks him and says goodbye"] },
+  { id: "day_terse", setup: DAY, history: [...DAY_OPEN, ...H(["user", "Nicht viel passiert."], ["model", "Okay. Warst du auf einer Baustelle?"], ["user", "Ja."], ["model", "Verstehe. Und wie lief's da?"], ["user", "Ging so."], ["model", "Okay."])],
+    says: "Weiß nicht.", checks: ["wraps_up: he's given short answers in a row and isn't in the mood: thanks him warmly and says goodbye (NEXT hangup); asks nothing more", NO_JUDGMENT] },
+);
 const GENERIC = [
   "one_question: at most one question in the reply (a yes/no question at the end of a summary counts as the one)",
   "no_echo: doesn't repeat or rephrase back what he just said (echoing a short name, or the bare numbers he just gave, is fine)",

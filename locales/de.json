@@ -101,6 +101,7 @@
         "dayPickUp": "Letztes Mal hast du mir noch von … erzählt. Wie ging's da weiter?",
         "dayAnythingElse": "Sonst noch was, was dir gerade durch den Kopf geht?",
         "dayThanks": "Danke dir, war gut zu hören. Gute Fahrt!",
+        "dayReact": ["Verstehe.", "Ah, okay.", "Mhm."],
         "twoMinutes": "Hast du zwei Minuten?",
         "address": "du",
         "acks": ["Okay.", "Alles klar.", "Verstehe.", "Gut.", "Notiert.", "Ah, okay.", "Mhm, und?"],

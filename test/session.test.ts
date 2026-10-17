@@ -338,3 +338,17 @@ test("a tool that changes something: run once his turn can't be taken back, and 
     assert.ok(c.said().some(t => /Ist raus/.test(t)), "and the answer after it");
   } finally { await c.done(); }
 });
+
+test("a reply that only reacts (\"Verstehe.\"): if he doesn't go on, she does after 3 s, not 9", async () => {
+  const c = call({ replies: [reply("Ich war heute auf einer Baustelle und hab selbst angepackt.", "listen", "Verstehe."), reply("", "ask", "Wie lief's da?")] });
+  try {
+    await c.connect();
+    await c.speak(1500);
+    await c.quiet(1000);
+    await c.wait(1500); // "Verstehe." plays
+    await c.wait(2500);
+    const nudge = c.events.find(e => e.event === "nudge");
+    assert.equal(nudge?.kind, "after_reaction", "nudged within 3 s of the reaction");
+    assert.ok(c.said().some(t => /Wie lief's da\?/.test(t)), "and she goes on");
+  } finally { await c.done(); }
+});

@@ -19,6 +19,16 @@ export function sameStart(a: string | null | undefined, b: string | null | undef
   return x.length >= 2 && y.length === x.length && x.every((w, i) => w === y[i]);
 }
 
+/**
+ * A reply that only reacts: a backchannel ("Mhm.", "Okay, erzähl.") or a few words that ask nothing
+ * ("Verstehe.", "Ah, okay."). He may go on; if he doesn't, she does, soon (not after the long
+ * silence that follows a statement he's meant to answer).
+ */
+export function onlyReacts(reply: string, lex: Pick<Lexicon, "agentBackchannel"> | null | undefined): boolean {
+  if (!reply.trim() || reply.includes("?")) return false;
+  return Boolean(lex?.agentBackchannel.test(reply)) || words(reply).length <= 4;
+}
+
 /** The i-th of a list, round and round (none of an empty one). */
 export const pick = <T>(list: readonly T[] | null | undefined, i: number): T | undefined => (list?.length ? list[i % list.length] : undefined);
 

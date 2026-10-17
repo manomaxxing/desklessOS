@@ -95,6 +95,7 @@
         "dayPickUp": "Last time you were telling me about … How did that go?",
         "dayAnythingElse": "Anything else on your mind?",
         "dayThanks": "Thanks, good to hear. Safe drive!",
+        "dayReact": ["I see.", "Ah, okay.", "Mhm."],
         "twoMinutes": "Got two minutes?",
         "address": "you",
         "acks": ["Got it.", "Okay.", "Sure.", "Makes sense.", "Noted."],
