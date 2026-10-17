@@ -6,23 +6,9 @@
 <title>DesklessOS Monitor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/shared/theme.css">
 <style>
-  :root {
-    --bg: #f5f5f7; --bg2: #ffffff; --glass: rgba(255,255,255,.72);
-    --ink: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6; --sep: rgba(0,0,0,.08); --fill: rgba(118,118,128,.12);
-    --blue: #0a84ff; --green: #30d158; --red: #ff453a; --orange: #ff9f0a;
-    --bubble-agent: #e9e9eb; --bubble-agent-ink: #1d1d1f; --sel: rgba(10,132,255,.09);
-    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06);
-    --g1: #4285f4; --g2: #9b72cb; --g3: #d96570; --g4: #f6b26b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
-      --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
-      --bubble-agent: #262628; --bubble-agent-ink: #f5f5f7; --sel: rgba(10,132,255,.18);
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
-    }
-  }
+  /* The colours: /shared/theme.css. */
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.47 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
   button { font: inherit; color: inherit; }
@@ -36,12 +22,15 @@
   .right { margin-left: auto; display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .pill { background: var(--fill); padding: 3px 10px; border-radius: 99px; }
   .pill.live { color: #1f9e46; } .pill.lost { color: var(--red); }
-  .toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .toggle { position: relative; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
   .switch { width: 34px; height: 20px; border-radius: 99px; background: var(--fill); position: relative; transition: background .2s; }
   .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
   input:checked + .switch { background: var(--green); } input:checked + .switch::after { transform: translateX(14px); }
-  .toggle input { display: none; }
+  .toggle input { position: absolute; left: 0; top: 50%; width: 1px; height: 1px; margin: 0; opacity: 0; }
+  .toggle input:focus-visible + .switch { outline: 2px solid var(--blue); outline-offset: 2px; }
   @media (max-width: 900px) { .right .hide-s { display: none; } }
+  /* A phone: the brand's name goes, and the live status and Follow live wrap to a second line if they must. */
+  @media (max-width: 560px) { .bar { height: auto; min-height: 56px; flex-wrap: wrap; padding: 8px 16px; gap: 8px 10px; } .brand span { display: none; } }
 
   .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; height: calc(100vh - 56px); }
   @media (max-width: 1180px) { .layout { grid-template-columns: 270px minmax(0, 1fr); } .rightcol { grid-column: 2; } }
@@ -53,6 +42,8 @@
   h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 16px 6px 8px; }
 
   .call { padding: 10px 12px; border-radius: 12px; cursor: pointer; margin-bottom: 2px; }
+  button.call { display: block; width: 100%; text-align: left; border: 0; background: none; font: inherit; color: inherit; }
+  .call .sub { display: block; }
   .call:hover { background: var(--fill); }
   .call.sel { background: var(--sel); }
   .call .top { display: flex; gap: 6px; align-items: center; font-weight: 600; flex-wrap: wrap; }
@@ -105,10 +96,10 @@
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><i></i>DesklessOS</div>
-  <nav class="seg"><a href="/" id="navPhone">Phone</a><a class="on" href="/monitor">Monitor</a></nav>
+  <div class="brand"><i></i><span>DesklessOS</span></div>
+  <nav class="seg" aria-label="Pages"><a href="/" id="navPhone">Phone</a><a class="on" href="/monitor" aria-current="page">Monitor</a></nav>
   <div class="right">
-    <span class="pill" id="feed">connecting…</span>
+    <span class="pill" id="feed" role="status">connecting…</span>
     <span class="pill hide-s" id="total">—</span>
     <span class="pill hide-s" id="rec"></span>
     <label class="toggle"><input type="checkbox" id="follow" checked><span class="switch"></span>Follow live</label>
@@ -124,215 +115,6 @@
   <div class="main" id="main"><div class="empty">Select a call.</div></div>
   <div class="rightcol" id="rightcol"></div>
 </div>
-<script>
-// A language id's own name ("de" → "Deutsch"), from the browser.
-const langName = id => { try { return new Intl.DisplayNames([id], { type: "language" }).of(id) ?? id; } catch { return id ?? "?"; } };
-const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const token = new URLSearchParams(location.search).get("token");
-const q = token ? `?token=${encodeURIComponent(token)}` : "";
-if (token) $("navPhone").href = "/" + q;
-const usd = v => (v == null ? "—" : v === 0 ? "$0" : v < 0.01 ? "$" + v.toFixed(4) : "$" + v.toFixed(3));
-const ktok = n => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n ?? 0));
-
-let calls = [], selected = null, showVad = false, player = null, systemEntries = [];
-
-const fmtTime = ms => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const fmtDur = ms => { const s = Math.round(ms / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
-const latClass = ms => (ms == null ? "" : ms <= 2500 ? "good" : ms <= 4000 ? "warn" : "bad");
-const audioUrl = (id, file) => `/api/calls/${encodeURIComponent(id)}/audio/${encodeURIComponent(file)}${q}`;
-const sourceLabel = s => ({ dial: "Dial", browser: "Browser", script: "Script" })[s] ?? s ?? "?";
-
-function renderCalls() {
-  const total = calls.reduce((s, c) => s + (c.usd || 0), 0);
-  $("total").textContent = `${calls.length} calls · ${usd(total)}`;
-  if (!calls.length) { $("calls").innerHTML = '<div class="empty">No calls yet.</div>'; return; }
-  $("calls").innerHTML = calls.map(c => `
-    <div class="call ${selected?.id === c.id ? "sel" : ""}" data-id="${esc(c.id)}">
-      <div class="top">${c.endedAt ? "" : '<span class="livedot"></span>'}<span>${esc(c.from || c.id)}</span>
-        <span class="badge ${c.source === "dial" ? "blue" : ""}">${esc(sourceLabel(c.source))}</span>${c.lang ? `<span class="badge">${esc(c.lang.toUpperCase())}</span>` : ""}${c.savedNoteId ? '<span class="badge green">note</span>' : ""}</div>
-      <div class="sub">${fmtTime(c.startedAt)} · ${c.endedAt ? fmtDur(c.endedAt - c.startedAt) : "live"} · ${c.turns} turns${c.usd != null ? " · " + usd(c.usd) : ""}</div>
-      ${c.mode ? `<div class="sub">${esc(c.mode)}</div>` : ""}
-      ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}
-    </div>`).join("");
-  for (const el of document.querySelectorAll(".call")) el.onclick = () => { $("follow").checked = false; select(el.dataset.id); };
-}
-function renderSystem() {
-  $("system").innerHTML = systemEntries.slice(-25).reverse().map(e => `<div class="sys ${e.level}">${fmtTime(e.t)} · ${esc(e.text)}</div>`).join("") || '<div class="sys">No connections yet.</div>';
-}
-
-function items(call) {
-  const out = [];
-  const agentByTurn = new Map();
-  const turnCost = {};
-  for (const e of call.events) if (e.event === "cost" && e.step === "turn" && e.turn) turnCost[e.turn] = (turnCost[e.turn] || 0) + (e.usd || 0);
-  for (const e of call.events) {
-    const t = ((e.t - call.startedAt) / 1000).toFixed(1);
-    switch (e.event) {
-      case "heard": out.push({ t, kind: "user", text: e.text || "(nothing transcribed)", lang: e.lang, next: e.next, audio: e.audio }); break;
-      case "say": {
-        let a = agentByTurn.get(e.turn);
-        if (!a || out[out.length - 1] !== a) { a = { t, kind: "agent", text: "", turn: e.turn }; out.push(a); agentByTurn.set(e.turn, a); }
-        a.text += (a.text && !e.delta ? " " : "") + e.text + (e.note ? ` (${e.note})` : "");
-        break;
-      }
-      case "agent_audio": { const a = agentByTurn.get(e.turn); if (a) { a.audio = e.audio; a.interrupted = e.interrupted; } break; }
-      case "turn_start": out.push({ t, kind: "chip", text: e.text ? `turn ${e.turn} · ${e.text}` : `turn ${e.turn} · ${(e.utteranceMs / 1000).toFixed(1)} s speech${e.merged > 1 ? ` · ${e.merged} pieces merged` : ""}` }); break;
-      case "latency": out.push({ t, kind: "chip", cls: latClass(e.sinceSpeechMs ?? e.firstAudioMs), text: `${e.prepared ? "prepared answer, played " : ""}first audio ${(e.firstAudioMs / 1000).toFixed(2)} s${e.sinceSpeechMs != null ? ` (${(e.sinceSpeechMs / 1000).toFixed(2)} s after his last word)` : ""} · Gemini ${(e.firstTokenMs / 1000).toFixed(2)} s · Fish ${e.fishFirstByteMs ?? "?"} ms${turnCost[e.turn] != null ? " · " + usd(turnCost[e.turn]) : ""}` }); break;
-      case "heard_check": out.push({ t, kind: "chip", text: `his words, written down separately for his yes: ${e.text || "(nothing)"}` }); break;
-      case "prepared_dropped": out.push({ t, kind: "chip", text: "he went on: the prepared answer was dropped unheard" }); break;
-      case "note_sent": out.push({ t, kind: "chip", cls: "good", text: "note sent to his WhatsApp" }); break;
-      case "recap": out.push({ t, kind: "chip", cls: "good", text: `summary written · ${e.title ?? ""}` }); break;
-      case "filler": out.push({ t, kind: "chip", text: "filler" }); break;
-      case "retry": out.push({ t, kind: "chip", cls: "warn", text: `Gemini retry${e.next ? " → " + e.next : ""} · ${e.reason}` }); break;
-      case "recovered": out.push({ t, kind: "chip", cls: "good", text: `recovered on ${e.model} (attempt ${e.attempt})` }); break;
-      case "fallback": out.push({ t, kind: "chip", cls: "warn", text: `${e.what}: ${e.from} failed → ${e.to} · ${e.reason ?? ""}` }); break;
-      case "mask": out.push({ t, kind: "chip", text: "typing sound (masking the wait)" }); break;
-      case "tool": out.push({ t, kind: "chip", cls: e.ignored ? "warn" : e.status === "ok" || e.status === "repeated" ? "good" : "warn", text: e.ignored ? `tool call ignored (${e.reason}) · ${e.ignored.join(", ")}` : `tool ${e.name} · ${e.status} · ${e.ms} ms${e.summary ? " · " + e.summary : ""}` }); break;
-      case "context": out.push({ t, kind: "chip", text: `memory · ${e.tokens} of ${e.budget} tokens · ${e.customers} customers + ${e.names} names · ${e.tasks} to-dos · ${e.ms} ms` }); break;
-      case "turn": out.push({ t, kind: "chip", cls: e.complete ? "" : "warn", text: `Smart Turn · ${e.complete ? "done" : "not done"} (${e.probability}) · ${e.ms} ms` }); break;
-      case "objective": out.push({ t, kind: "chip", cls: e.done ? "good" : "", text: `${e.template} ${e.done ? "done" : "open"} · ${e.status}` }); break;
-      case "tool_latency": out.push({ t, kind: "chip", text: `answer after tool · ${(e.hopMs / 1000).toFixed(2)} s after the call · ${(e.totalMs / 1000).toFixed(2)} s after he stopped` }); break;
-      case "live": out.push({ t, kind: "chip", cls: e.level === "error" ? "bad" : "", text: `live · ${e.text}` }); break;
-      case "barge_in": out.push({ t, kind: "chip", cls: "warn", text: "barge-in · playback cleared" }); break;
-      case "nudge": out.push({ t, kind: "chip", cls: "warn", text: `silence nudge · ${e.kind}` }); break;
-      case "note": out.push({ t, kind: "chip", text: `note · ${e.missing?.length ? "missing " + e.missing.join(", ") : "complete"}` }); break;
-      case "saved": out.push({ t, kind: "chip", cls: "good", text: `note saved · ${e.id}` }); break;
-      case "memory": out.push({ t, kind: "chip", cls: "good", text: `memory · ${e.callType}${e.added?.length ? ` · +${e.added.length} to-do` : ""}${e.completed?.length ? ` · ${e.completed.length} done` : ""}` }); break;
-      case "error": out.push({ t, kind: "chip", cls: "bad", text: `${e.where} error · ${e.message}` }); break;
-      case "connected": out.push({ t, kind: "chip", text: `connected · ${langName(e.lang)} · ${e.formats?.inbound ?? "?"}` }); break;
-      case "hangup": out.push({ t, kind: "chip", text: "agent hung up" }); break;
-      case "ended": out.push({ t, kind: "chip", text: `ended · ${e.reason}` }); break;
-      case "duration_warning": out.push({ t, kind: "chip", cls: "warn", text: "Dial duration warning" }); break;
-      case "vad": if (showVad) out.push({ t, kind: "chip", text: e.speaking ? "speech start" : `speech end · ${e.ms} ms` }); break;
-    }
-  }
-  return out;
-}
-
-function stats(c) {
-  const lat = c.events.filter(e => e.event === "latency");
-  const avg = k => (lat.length ? lat.reduce((s, e) => s + (e[k] || 0), 0) / lat.length : null);
-  const n = ev => c.events.filter(e => e.event === ev).length;
-  const fa = avg("firstAudioMs");
-  return [
-    [n("heard"), "turns"],
-    [fa == null ? "—" : (fa / 1000).toFixed(2) + " s", "avg first audio", latClass(fa)],
-    [usd(c.cost?.usd ?? null), "cost"],
-    [n("barge_in"), "barge-ins"],
-    [n("retry") + n("error"), "retries / errors", n("error") ? "bad" : n("retry") ? "warn" : ""],
-  ];
-}
-
-function renderMain() {
-  if (!selected) { $("main").innerHTML = '<div class="empty">Select a call.</div>'; $("rightcol").innerHTML = ""; return; }
-  const c = selected;
-  const dur = (c.endedAt ?? Date.now()) - c.startedAt;
-  $("main").innerHTML = `
-    <div class="head"><h2>${esc(c.from || "Call")}</h2><span class="badge ${c.source === "dial" ? "blue" : ""}">${esc(sourceLabel(c.source))}</span>${c.endedAt ? "" : '<span class="badge" style="color:var(--red)">LIVE</span>'}</div>
-    <div class="meta">${c.mode ? `<b>${esc(c.mode)}</b> · ` : ""}${fmtTime(c.startedAt)} · ${fmtDur(dur)}${c.endedReason ? " · " + esc(c.endedReason) : ""} · <span style="font-family:ui-monospace,monospace;font-size:11px">${esc(c.id)}</span></div>
-    <div class="stats">${stats(c).map(([v, l, cls]) => `<div class="stat"><b class="${cls || ""}">${v}</b><span>${l}</span></div>`).join("")}</div>
-    <div class="controls"><label class="toggle"><input type="checkbox" id="vad" ${showVad ? "checked" : ""}><span class="switch"></span>VAD events</label><span>▶ plays exactly what Gemini heard and what Fish said</span></div>
-    <div id="timeline">${items(c).map(rowHtml).join("") || '<div class="empty">Waiting for the first turn…</div>'}</div>`;
-  $("vad").onchange = e => { showVad = e.target.checked; renderMain(); };
-  for (const b of document.querySelectorAll("button.play")) b.onclick = () => play(b.dataset.src, b);
-  renderRight(c);
-  if ($("follow").checked && !c.endedAt) $("main").scrollTop = $("main").scrollHeight;
-}
-
-function rowHtml(it) {
-  if (it.kind === "chip") return `<div class="row"><div class="t">+${it.t}</div><div><span class="chip ${it.cls || ""}">${esc(it.text)}</span></div></div>`;
-  const who = it.kind === "user" ? `Caller${it.lang ? " · " + it.lang : ""}${it.next ? " · next " + it.next : ""}` : `Agent${it.interrupted ? " · interrupted" : ""}`;
-  const btn = it.audio ? `<button class="play" data-src="${audioUrl(selected.id, it.audio)}">▶ Play</button>` : "";
-  return `<div class="row"><div class="t">+${it.t}</div><div style="display:grid"><div class="bubble ${it.kind}"><div class="who">${esc(who)} ${btn}</div>${esc(it.text)}</div></div></div>`;
-}
-
-function play(src, btn) {
-  if (player) { player.pause(); document.querySelectorAll("button.play").forEach(b => (b.textContent = "▶ Play")); if (player.src.endsWith(src)) { player = null; return; } }
-  player = new Audio(src); btn.textContent = "■ Stop";
-  player.onended = () => { btn.textContent = "▶ Play"; player = null; };
-  player.play();
-}
-
-function renderRight(c) {
-  const n = c.note;
-  const missing = c.events.filter(e => e.event === "note").at(-1)?.missing ?? [];
-  const mem = c.events.filter(e => e.event === "memory").at(-1);
-  const t = c.cost, s = t?.byStep || {};
-  const noteRows = n ? [
-    ["Mode", n.mode], ["Customer", [n.customer_name, n.address, n.place].filter(Boolean).join(", ")],
-    ["Work", (n.work || []).map(w => [w.area, w.quantity, w.material, w.description].filter(Boolean).join(" ")).join(" · ")],
-    ["Next", (n.next_steps || []).map(s => s.what + (s.due ? ` (${s.due})` : "")).join(" · ")],
-    ["Timeframe", n.timeframe], ["Budget", n.budget], ["Open", (n.open_questions || []).join(" · ")], ["Missing", missing.join(", ")],
-  ].filter(([, v]) => v) : [];
-  const crow = (name, sub, v) => `<div class="crow"><div>${name}<small>${sub}</small></div><div class="usd">${v}</div></div>`;
-  $("rightcol").innerHTML = `
-    <h3>Cost</h3>
-    ${t ? `<div class="card"><div class="big">${usd(t.usd)}</div><div class="bigsub">${t.llmCalls} model calls · ${ktok(t.inputTokens)} in (${ktok(t.audioTokens)} audio) · ${ktok(t.outputTokens)} out</div>
-      ${crow("Conversation", `${s.turn?.calls ?? 0} turns`, usd(s.turn?.usd ?? 0))}${crow("Note", `${s.note?.calls ?? 0} extractions`, usd(s.note?.usd ?? 0))}${crow("Memory", "after the call", usd(s.memory?.usd ?? 0))}
-      ${crow("Voice", `Fish · ${(t.ttsBytes / 1000).toFixed(1)} kB · paid tier ${usd(t.ttsPaidUsd)}`, usd(t.ttsUsd))}${crow("Phone", t.phoneMinutes ? t.phoneMinutes.toFixed(1) + " min" : "—", t.phoneUsd == null ? "—" : usd(t.phoneUsd))}</div>` : '<div class="card"><div class="empty" style="padding:18px">No cost yet.</div></div>'}
-    <h3>Note</h3>
-    ${n ? `<div class="card">${noteRows.map(([k, v]) => `<div class="rowi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join("")}${n.summary ? `<div class="rowi"><div class="v">${esc(n.summary)}</div></div>` : ""}<details><summary>Raw JSON</summary><pre>${esc(JSON.stringify(n, null, 2))}</pre></details></div>` : '<div class="card"><div class="empty" style="padding:18px">No note yet.</div></div>'}
-    <h3>Memory changes</h3>
-    ${mem ? `<div class="card">
-      <div class="rowi"><div class="k">Type</div><div class="v">${esc(mem.callType)}</div></div>
-      <div class="rowi"><div class="k">Summary</div><div class="v">${esc(mem.summary)}</div></div>
-      ${mem.customer ? `<div class="rowi"><div class="k">Customer</div><div class="v">${esc(mem.customer.name)} <span style="color:var(--faint)">${esc(mem.customer.id)}</span></div></div>` : ""}
-      ${(mem.added || []).map(a => `<div class="rowi"><div class="k good">+ to-do</div><div class="v">${esc(a.text)}${a.due ? ` · ${esc(a.due)}` : ""}</div></div>`).join("")}
-      ${(mem.completed || []).map(a => `<div class="rowi"><div class="k good">✓ done</div><div class="v">${esc(a.text)}</div></div>`).join("")}
-      ${(mem.updated || []).map(a => `<div class="rowi"><div class="k warn">updated</div><div class="v">${esc(a.text)}${a.due ? ` · ${esc(a.due)}` : ""}</div></div>`).join("")}
-    </div>` : `<div class="card"><div class="empty" style="padding:18px">${c.endedAt ? "No memory update." : "Written after the call."}</div></div>`}`;
-}
-
-async function select(id) {
-  const res = await fetch(`/api/calls/${encodeURIComponent(id)}${q}`);
-  if (!res.ok) return;
-  selected = await res.json();
-  renderCalls(); renderMain();
-}
-async function load() {
-  const body = await (await fetch("/api/calls" + q)).json();
-  calls = body.calls; systemEntries = body.system;
-  $("rec").textContent = body.recording ? "Recording on" : "Recording off";
-  renderCalls(); renderSystem();
-  // /monitor?call=<id> (the admin page links a request's call): open that call.
-  const wanted = new URLSearchParams(location.search).get("call");
-  if (wanted && !selected) { $("follow").checked = false; select(wanted); }
-  else if (calls.length && !selected) select(calls[0].id);
-}
-function connect() {
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/monitor-ws${q}`);
-  ws.onopen = () => { $("feed").textContent = "● Live"; $("feed").className = "pill live"; };
-  ws.onclose = () => { $("feed").textContent = "Reconnecting…"; $("feed").className = "pill lost"; setTimeout(connect, 2000); };
-  ws.onmessage = e => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === "call") {
-      const i = calls.findIndex(c => c.id === msg.call.id);
-      if (i >= 0) calls[i] = msg.call; else calls.unshift(msg.call);
-      if (!msg.call.endedAt && $("follow").checked && selected?.id !== msg.call.id) { select(msg.call.id); return; }
-      if (selected?.id === msg.call.id) Object.assign(selected, { endedAt: msg.call.endedAt, endedReason: msg.call.endedReason });
-      renderCalls(); if (selected?.id === msg.call.id) renderMain();
-    } else if (msg.type === "event") {
-      const c = calls.find(c => c.id === msg.id);
-      if (c) {
-        if (msg.ev.event === "heard") c.turns += 1;
-        if (msg.ev.event === "note") c.summary = msg.ev.note?.summary ?? c.summary;
-        if (msg.ev.event === "memory") c.summary = msg.ev.summary ?? c.summary;
-        if (msg.ev.event === "cost") c.usd = msg.ev.totals?.usd ?? c.usd;
-        if ((msg.ev.event === "connected" || msg.ev.event === "heard") && msg.ev.lang) c.lang = msg.ev.lang;
-      }
-      if (selected?.id === msg.id) {
-        selected.events.push(msg.ev);
-        if (msg.ev.event === "note") selected.note = msg.ev.note;
-        if (msg.ev.event === "cost") selected.cost = msg.ev.totals;
-        if (msg.ev.event !== "vad" || showVad) renderMain();
-      }
-      if (["heard", "note", "saved", "connected", "memory", "cost"].includes(msg.ev.event)) renderCalls();
-    } else if (msg.type === "system") { systemEntries.push(msg.entry); renderSystem(); }
-  };
-}
-load().then(connect);
-setInterval(() => { if (selected && !selected.endedAt) renderCalls(); }, 5000);
-</script>
+<script type="module" src="/monitor/main.ts"></script>
 </body>
 </html>

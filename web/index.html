@@ -6,23 +6,9 @@
 <title>DesklessOS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/shared/theme.css">
 <style>
-  :root {
-    --bg: #f5f5f7; --bg2: #ffffff; --glass: rgba(255,255,255,.72);
-    --ink: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6; --sep: rgba(0,0,0,.08); --fill: rgba(118,118,128,.12);
-    --blue: #0a84ff; --green: #30d158; --red: #ff453a; --orange: #ff9f0a;
-    --bubble-agent: #e9e9eb; --bubble-agent-ink: #1d1d1f;
-    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06);
-    --g1: #4285f4; --g2: #9b72cb; --g3: #d96570; --g4: #f6b26b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
-      --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
-      --bubble-agent: #262628; --bubble-agent-ink: #f5f5f7;
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
-    }
-  }
+  /* The colours: /shared/theme.css. */
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; }
   body {
@@ -45,7 +31,8 @@
   .seg .on { background: var(--bg2); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
   .bar .status { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; white-space: nowrap; overflow: hidden; }
   .pill { background: var(--fill); padding: 3px 10px; border-radius: 99px; }
-  @media (max-width: 560px) { .bar .status { display: none; } }
+  /* A phone: the brand's name makes room for the Mode button (its label shortened if it must). */
+  @media (max-width: 560px) { .bar { padding: 0 16px; gap: 10px; } .brand span { display: none; } .bar .status { min-width: 0; } .modebtn { max-width: 100%; } .modebtn span { overflow: hidden; text-overflow: ellipsis; min-width: 0; } }
 
   /* ---------- mode sheet ---------- */
   .modebtn { border: 0; background: var(--fill); border-radius: 99px; padding: 5px 12px 5px 10px; font-size: 12px; font-weight: 500; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
@@ -245,25 +232,27 @@
   .item .usd { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 500; }
   .acts { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 14px 12px; border-top: 1px solid var(--sep); }
   .chip.done { background: rgba(48,209,88,.15); color: #1f9e46; }
+  .todo-err { color: var(--red); font-size: 12px; text-align: center; }
+  .todo-err:not(:empty) { padding: 8px 4px 0; }
 
 </style>
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><i></i>DesklessOS</div>
-  <nav class="seg"><a class="on" href="/" id="navPhone">Phone</a><a href="/monitor" id="navMonitor">Monitor</a></nav>
-  <div class="status"><button class="modebtn" id="modeBtn" title="Model and latency mask for this test phone"><i></i><span id="modeLabel">Mode</span></button></div>
+  <div class="brand"><i></i><span>DesklessOS</span></div>
+  <nav class="seg" aria-label="Pages"><a class="on" href="/" id="navPhone" aria-current="page">Phone</a><a href="/monitor" id="navMonitor">Monitor</a></nav>
+  <div class="status"><button class="modebtn" id="modeBtn" title="Model and latency mask for this test phone" aria-haspopup="dialog" aria-expanded="false" aria-controls="sheet"><i></i><span id="modeLabel">Mode</span></button></div>
 </header>
 <div class="sheet-bg" id="sheetBg"></div>
-<div class="sheet" id="sheet" data-engine="cascade">
-  <h4>Mode</h4>
-  <div class="field"><span>Engine</span><div class="seg" id="engineSeg"><button data-v="cascade" class="on">Gemini + Fish</button><button data-v="live">Gemini Live</button></div></div>
+<div class="sheet" id="sheet" data-engine="cascade" role="dialog" aria-labelledby="sheetTitle">
+  <h4 id="sheetTitle">Mode</h4>
+  <div class="field"><span>Engine</span><div class="seg" id="engineSeg" role="group" aria-label="Engine"><button data-v="cascade" class="on">Gemini + Fish</button><button data-v="live">Gemini Live</button></div></div>
   <div class="hint cascade-only">Gemini listens and writes; Fish speaks. Our own turn-taking (waits when he pauses mid-sentence).</div>
   <div class="hint live-only">Gemini's native audio model hears and speaks by itself. Fastest, least control over turn-taking.</div>
-  <div class="field cascade-only"><span>Gemini model</span><select id="modelSel"></select></div>
-  <div class="field"><span>While thinking</span><div class="seg" id="maskSeg"><button data-v="typing" class="on">Typing</button><button data-v="filler">“Mhm”</button><button data-v="none">Silence</button></div></div>
-  <div class="field live-only"><span>Live model</span><select id="liveModelSel"></select></div>
-  <div class="field live-only"><span>Live voice</span><select id="liveVoiceSel"></select></div>
+  <div class="field cascade-only"><span>Gemini model</span><select id="modelSel" aria-label="Gemini model"></select></div>
+  <div class="field"><span>While thinking</span><div class="seg" id="maskSeg" role="group" aria-label="While thinking"><button data-v="typing" class="on">Typing</button><button data-v="filler">“Mhm”</button><button data-v="none">Silence</button></div></div>
+  <div class="field live-only"><span>Live model</span><select id="liveModelSel" aria-label="Live model"></select></div>
+  <div class="field live-only"><span>Live voice</span><select id="liveVoiceSel" aria-label="Live voice"></select></div>
   <div class="hint">This test phone only: phone calls use the server's settings (ENGINE, GEMINI_MODEL, …).</div>
   <div class="actions"><button class="btn primary" id="sheetDone">Done</button></div>
   <div class="hint" id="phoneMode" style="margin:10px 2px 0"></div>
@@ -279,7 +268,7 @@
       <div class="screen">
         <div class="statusbar"><span id="clock">9:41</span><span class="sig"><i></i><i></i><i></i><i></i></span></div>
         <div class="contact"><div class="avatar"></div><div class="who">DesklessOS</div><div class="num">Notebook · phone call</div></div>
-        <div class="orb" id="orb" data-state="idle" title="Tap to call">
+        <div class="orb" id="orb" data-state="idle" title="Tap to call" role="button" tabindex="0" aria-label="Call">
           <div class="scale"><div class="glow"></div><div class="ring"></div><div class="core"></div></div>
         </div>
         <div style="position:relative;z-index:1">
@@ -288,14 +277,14 @@
         </div>
         <div class="caption" id="caption" style="position:relative;z-index:1"></div>
         <div class="controls">
-          <div class="seg" id="langSeg" title="Greeting language. After that it follows the caller.">
-            <button data-lang="de" class="on">Deutsch</button><button data-lang="en">English</button><button data-lang="auto">Auto</button>
+          <div class="seg" id="langSeg" title="Greeting language. After that it follows the caller." role="group" aria-label="Greeting language">
+            <button data-lang="de" class="on" aria-pressed="true">Deutsch</button><button data-lang="en" aria-pressed="false">English</button><button data-lang="auto" aria-pressed="false">Auto</button>
           </div>
           <button class="callbtn" id="call" aria-label="Call">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg>
           </button>
-          <button class="round" id="mute" aria-label="Mute" disabled title="Mute microphone">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          <button class="round" id="mute" aria-label="Mute" aria-pressed="false" disabled title="Mute microphone">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
           </button>
         </div>
       </div>
@@ -303,317 +292,15 @@
   </section>
 
   <aside class="side">
-    <div class="tabs"><div class="seg" id="tabs">
-      <button data-tab="call" class="on">Call</button><button data-tab="todos">To-dos</button><button data-tab="cost">Cost</button>
+    <div class="tabs"><div class="seg" id="tabs" role="tablist" aria-label="Call, to-dos, cost">
+      <button data-tab="call" class="on" role="tab" id="tab-call" aria-controls="pane-call" aria-selected="true">Call</button><button data-tab="todos" role="tab" id="tab-todos" aria-controls="pane-todos" aria-selected="false" tabindex="-1">To-dos</button><button data-tab="cost" role="tab" id="tab-cost" aria-controls="pane-cost" aria-selected="false" tabindex="-1">Cost</button>
     </div></div>
-    <div class="pane on" id="pane-call"><div id="order"></div><div class="msgs" id="msgs"><div class="empty">Call and say something like: “Ich komm grad von der Frau Weber in Radolfzell. Die will ihr Bad komplett neu machen, so zwölf Quadratmeter. Angebot bis Freitag.”</div></div></div>
-    <div class="pane" id="pane-todos"><div id="memory"><div class="empty">Loading…</div></div></div>
-    <div class="pane" id="pane-cost"><div id="cost"><div class="empty">Costs appear once the call starts.</div></div></div>
+    <div class="pane on" id="pane-call" role="tabpanel" aria-labelledby="tab-call"><div id="order"></div><div class="msgs" id="msgs"><div class="empty">Call and say something like: “Ich komm grad von der Frau Weber in Radolfzell. Die will ihr Bad komplett neu machen, so zwölf Quadratmeter. Angebot bis Freitag.”</div></div></div>
+    <div class="pane" id="pane-todos" role="tabpanel" aria-labelledby="tab-todos"><div id="todoErr" class="todo-err" role="status"></div><div id="memory"><div class="empty">Loading…</div></div></div>
+    <div class="pane" id="pane-cost" role="tabpanel" aria-labelledby="tab-cost"><div id="cost"><div class="empty">Costs appear once the call starts.</div></div></div>
   </aside>
 </div>
 
-<script>
-// A language id's own name ("de" → "Deutsch"), from the browser.
-const langName = id => { try { return new Intl.DisplayNames([id], { type: "language" }).of(id) ?? id; } catch { return id ?? "?"; } };
-const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const token = new URLSearchParams(location.search).get("token");
-const tq = token ? "?token=" + encodeURIComponent(token) : "";
-if (token) $("navMonitor").href = "/monitor" + tq;
-const usd = v => (v == null ? "n/a" : v === 0 ? "$0" : v < 0.01 ? "$" + v.toFixed(4) : "$" + v.toFixed(3));
-const ktok = n => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n ?? 0));
-
-// ---------- mic worklet: 16 kHz PCM16, 20 ms frames ----------
-const WORKLET = `
-class Mic extends AudioWorkletProcessor {
-  constructor() { super(); this.ratio = sampleRate / 16000; this.pos = 0; this.buf = new Int16Array(320); this.n = 0; this.muted = false;
-    this.port.onmessage = e => { this.muted = !!e.data.muted; }; }
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (!ch) return true;
-    let peak = 0;
-    for (; this.pos < ch.length; this.pos += this.ratio) {
-      const i = Math.floor(this.pos), f = this.pos - i, a = ch[i], b = i + 1 < ch.length ? ch[i + 1] : a;
-      const s = this.muted ? 0 : Math.max(-1, Math.min(1, a + (b - a) * f));
-      peak = Math.max(peak, Math.abs(s));
-      this.buf[this.n++] = s * 32767;
-      if (this.n === 320) { this.port.postMessage({ frame: this.buf.slice(0), peak }); this.n = 0; peak = 0; }
-    }
-    this.pos -= ch.length;
-    return true;
-  }
-}
-registerProcessor("mic", Mic);`;
-
-// ---------- mode (this test phone only) ----------
-let mode = { engine: "cascade", model: "gemini-3.5-flash", mask: "typing", liveModel: "", liveVoice: "Kore" };
-try { Object.assign(mode, JSON.parse(localStorage.getItem("deskless-mode") || "{}")); } catch {}
-const modeLabel = m => (m.engine === "live" ? `Gemini Live · ${m.liveVoice}` : `${String(m.model).replace("gemini-", "")} + Fish · ${m.mask}`);
-function segBind(id, key) {
-  const seg = document.getElementById(id);
-  const paint = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === mode[key]));
-  seg.querySelectorAll("button").forEach(b => (b.onclick = () => { mode[key] = b.dataset.v; paint(); saveMode(); }));
-  paint();
-}
-function saveMode() {
-  try { localStorage.setItem("deskless-mode", JSON.stringify(mode)); } catch {}
-  document.getElementById("sheet").dataset.engine = mode.engine;
-  document.getElementById("modeLabel").textContent = modeLabel(mode);
-}
-async function loadModes() {
-  const r = await (await fetch("/api/config" + tq)).json();
-  const fill = (id, list, key) => {
-    const el = $(id);
-    el.innerHTML = list.map(v => `<option>${v}</option>`).join("");
-    if (!list.includes(mode[key])) mode[key] = list[0];
-    el.value = mode[key];
-    el.onchange = () => { mode[key] = el.value; saveMode(); };
-  };
-  fill("modelSel", r.modes.models, "model"); fill("liveModelSel", r.modes.liveModels, "liveModel"); fill("liveVoiceSel", r.modes.liveVoices, "liveVoice");
-  segBind("engineSeg", "engine"); segBind("maskSeg", "mask");
-  $("phoneMode").textContent = "Phone calls use: " + modeLabel(r.phone);
-  saveMode();
-}
-
-let ws, ctx, stream, node, outGain, analyser, seq = 0, ping, nextTime = 0, sources = [], markTimers = [];
-let lang = "de", inCall = false, muted = false, startedAt = 0, timer = null;
-let callerSpeaking = false, awaiting = false, awaitingSince = 0, micLevel = 0, level = 0;
-let agentBubble = null, lastLang = null, turnMeta = {}, costTotals = null, turnCosts = {};
-
-function b64FromInt16(arr) {
-  const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
-  let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
-function int16FromB64(b64) {
-  const bin = atob(b64); const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Int16Array(bytes.buffer, 0, bytes.length >> 1);
-}
-
-// Playback paced like Dial; marks echo once their audio has played.
-function play(pcm) {
-  const buf = ctx.createBuffer(1, pcm.length, 16000);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < pcm.length; i++) data[i] = pcm[i] / 32768;
-  const src = ctx.createBufferSource(); src.buffer = buf; src.connect(outGain);
-  const at = Math.max(ctx.currentTime + 0.04, nextTime);
-  src.start(at); nextTime = at + buf.duration;
-  sources.push(src); src.onended = () => { sources = sources.filter(s => s !== src); };
-  awaiting = false;
-}
-function clearPlayback() {
-  for (const s of sources) { try { s.stop(); } catch {} }
-  sources = []; nextTime = ctx ? ctx.currentTime : 0;
-  markTimers.forEach(clearTimeout); markTimers = [];
-}
-const send = f => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(f)); };
-
-// ---------- orb: state and level ----------
-function speakingNow() { return ctx && sources.length > 0 && nextTime > ctx.currentTime; }
-// Preview for screenshots and slides: ?orb=listening|thinking|speaking  ?tab=note|memory|cost
-const params = new URLSearchParams(location.search);
-const forcedOrb = params.get("orb");
-function state() {
-  if (forcedOrb && !inCall) return forcedOrb;
-  if (!inCall) return ws ? "connecting" : "idle";
-  if (speakingNow()) return "speaking";
-  if (awaiting && performance.now() - awaitingSince < 15000) return "thinking";
-  return "listening";
-}
-const LABEL = { idle: "Tap to call", connecting: "Connecting…", listening: "Listening", thinking: "Thinking", speaking: "Speaking" };
-let shown = "";
-function frame() {
-  const s = state();
-  if (s !== shown) { shown = s; $("orb").dataset.state = s; $("stage").dataset.state = s; $("label").textContent = LABEL[s]; }
-  let target = 0;
-  if (s === "speaking" && analyser) {
-    const d = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(d);
-    let sum = 0; for (let i = 0; i < d.length; i++) { const v = (d[i] - 128) / 128; sum += v * v; }
-    target = Math.min(1, Math.sqrt(sum / d.length) * 5);
-  } else if (s === "listening") target = Math.min(1, micLevel * 2.2);
-  else if (s === "thinking") target = 0.12 + Math.sin(performance.now() / 260) * 0.05;
-  if (forcedOrb && !inCall && s !== "thinking") target = 0.35 + Math.sin(performance.now() / 180) * 0.2 + Math.sin(performance.now() / 97) * 0.12;
-  level += (target - level) * (target > level ? 0.35 : 0.12);
-  $("orb").style.setProperty("--level", level.toFixed(3));
-  micLevel *= 0.9;
-  requestAnimationFrame(frame);
-const tickClock = () => { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M$/i, ""); };
-tickClock(); setInterval(tickClock, 10000);
-}
-requestAnimationFrame(frame);
-
-// ---------- call ----------
-async function start() {
-  ctx = new AudioContext();
-  outGain = ctx.createGain(); analyser = ctx.createAnalyser(); analyser.fftSize = 512;
-  outGain.connect(analyser); analyser.connect(ctx.destination);
-  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
-  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-  node = new AudioWorkletNode(ctx, "mic");
-  ctx.createMediaStreamSource(stream).connect(node);
-  const callId = "dev-" + Math.random().toString(36).slice(2, 10);
-  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/dial/${callId}?dev=1${token ? "&token=" + encodeURIComponent(token) : ""}`);
-  resetPanels();
-  ws.onopen = () => {
-    const pick = lang === "auto" ? (navigator.language || "de").slice(0, 2) : lang;
-    const en = pick === "en";
-    send({ type: "call_connected", call_id: callId, direction: "inbound", from: en ? "+1-browser" : "+49-browser", to: "+1-dev", instruction: null, language: en ? "en-US" : "de-DE", formats: { inbound: "l16_16000", outbound: "l16_16000" }, reconnect: false, config: mode });
-    node.port.onmessage = e => { send({ type: "media", payload: b64FromInt16(e.data.frame), seq: ++seq }); micLevel = Math.max(micLevel, e.data.peak); };
-    ping = setInterval(() => send({ type: "ping_pong", timestamp: Date.now() }), 2000);
-    inCall = true; startedAt = Date.now();
-    $("call").classList.add("live"); $("call").setAttribute("aria-label", "Hang up"); $("mute").disabled = false;
-    timer = setInterval(() => { const s = Math.floor((Date.now() - startedAt) / 1000); $("sublabel").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }, 500);
-  };
-  ws.onmessage = e => onFrame(JSON.parse(e.data));
-  ws.onclose = () => stop(false);
-}
-
-function stop(sendEnd = true) {
-  if (sendEnd) send({ type: "call_ended", reason: "caller_hangup" });
-  clearInterval(ping); clearInterval(timer);
-  try { ws && ws.close(); } catch {}
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  const c = ctx; if (c) setTimeout(() => c.close(), 400);
-  ws = null; stream = null; ctx = null; inCall = false; awaiting = false; muted = false;
-  $("call").classList.remove("live"); $("call").setAttribute("aria-label", "Call");
-  $("mute").disabled = true; $("mute").classList.remove("on");
-  $("sublabel").textContent = "Call ended";
-  $("caption").innerHTML = "";
-  setTimeout(loadMemory, 4000); setTimeout(loadMemory, 12000); setTimeout(loadMemory, 30000); // the after-call job updates memory
-}
-
-function onFrame(f) {
-  switch (f.type) {
-    case "media": play(int16FromB64(f.payload)); break;
-    case "mark": { const delay = Math.max(0, nextTime - ctx.currentTime) * 1000; markTimers.push(setTimeout(() => send({ type: "mark", name: f.name }), delay)); break; }
-    case "clear": clearPlayback(); break;
-    case "end_call": setTimeout(() => stop(false), 300); break;
-    case "debug": onDebug(f); break;
-  }
-}
-
-// ---------- transcript ----------
-function resetPanels() {
-  $("msgs").innerHTML = ""; agentBubble = null; lastLang = null; turnMeta = {}; turnCosts = {}; costTotals = null;
-  $("order").innerHTML = "";
-  renderCost();
-}
-function scrollMsgs() { const p = $("pane-call"); p.scrollTop = p.scrollHeight; }
-function addEl(cls, text) { const el = document.createElement("div"); el.className = cls; el.textContent = text; $("msgs").append(el); scrollMsgs(); return el; }
-
-function onDebug(d) {
-  switch (d.event) {
-    case "connected": lastLang = d.lang; addEl("sys", `${langName(d.lang)} · ${d.config ? modeLabel(d.config) : ""} · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`); break;
-    case "fallback": addEl("sys warn", `${d.from} failed → ${d.to}`); break;
-    case "recovered": addEl("sys warn", `Recovered on ${d.model}`); break;
-    case "vad":
-      callerSpeaking = d.speaking;
-      if (!d.speaking && d.ms > 250) { awaiting = true; awaitingSince = performance.now(); }
-      if (d.speaking) $("caption").innerHTML = "";
-      break;
-    case "turn_start": if (d.text) { awaiting = true; awaitingSince = performance.now(); } break;
-    case "heard":
-      if (d.lang && lastLang && d.lang !== lastLang) addEl("sys", `Switched to ${langName(d.lang)}`);
-      lastLang = d.lang || lastLang;
-      if (d.text) { addEl("msg user", d.text); $("caption").innerHTML = `<b>${esc(d.text)}</b>`; }
-      agentBubble = null; break;
-    case "say":
-      if (d.note === "already said as filler") break;
-      if (!agentBubble) { agentBubble = addEl("msg agent", d.text.trimStart()); turnMeta[d.turn] = addEl("meta", ""); }
-      else { agentBubble.textContent += (d.delta ? "" : " ") + d.text; scrollMsgs(); }
-      $("caption").textContent = d.delta ? agentBubble.textContent.slice(-140) : d.text; break;
-    case "latency": { const m = turnMeta[d.turn]; if (m) { m.dataset.lat = (d.firstAudioMs / 1000).toFixed(1) + " s"; paintMeta(d.turn); } break; }
-    case "cost":
-      if (d.totals) costTotals = d.totals;
-      if (d.turn && d.step === "turn") { turnCosts[d.turn] = (turnCosts[d.turn] || 0) + (d.usd || 0); paintMeta(d.turn); }
-      renderCost(); break;
-    case "barge_in": addEl("sys warn", "You interrupted"); agentBubble = null; break;
-    case "retry": addEl("sys warn", `Gemini hiccup → retrying${d.next ? " with " + d.next : ""}`); break;
-    case "error": addEl("sys bad", `${d.where} error`); break;
-    case "note": renderNote(d.note, d.missing); break;
-  }
-}
-function paintMeta(turn) { const m = turnMeta[turn]; if (!m) return; m.textContent = [m.dataset.lat, turnCosts[turn] != null ? usd(turnCosts[turn]) : ""].filter(Boolean).join(" · "); }
-
-// ---------- note: the draft as it grows ----------
-function renderNote(n, missing) {
-  if (!n || !n.mode || n.mode === "unclear") return;
-  const work = (n.work || []).map(w => [w.area, w.quantity, w.material, w.description].filter(Boolean).join(" · ")).filter(Boolean);
-  const steps = (n.next_steps || []).map(s => s.what + (s.due ? ` (${s.due})` : ""));
-  const row = (label, text) => `<div class="item"><div><small>${esc(label)}</small>${esc(text)}</div></div>`;
-  $("order").innerHTML = `<div class="card order">
-    <div class="head"><b>${esc([n.customer_name, n.place].filter(Boolean).join(", ") || "Note")}</b><span>${esc(n.mode)}</span></div>
-    ${work.length ? row("Work", work.join("; ")) : ""}${steps.length ? row("Next", steps.join("; ")) : ""}${n.summary ? row("Summary", n.summary) : ""}
-    ${(missing || []).length ? `<div class="acts">${missing.map(m => `<span class="chip orange">${esc(m)}</span>`).join("")}</div>` : ""}
-  </div>`;
-}
-
-// ---------- memory ----------
-function duePill(due) {
-  if (!due) return "";
-  const days = Math.round((new Date(due + "T00:00") - new Date(new Date().toDateString())) / 86400000);
-  const label = days < 0 ? `Overdue ${-days} d` : days === 0 ? "Today" : days === 1 ? "Tomorrow" : new Date(due + "T00:00").toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
-  return `<span class="chip ${days < 0 ? "red" : days <= 1 ? "orange" : "blue"}">${label}</span>`;
-}
-async function loadMemory() {
-  try {
-    const m = await (await fetch("/api/memory" + tq)).json();
-    const open = m.actions.filter(a => a.status === "open").sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
-    const done = m.actions.filter(a => a.status === "done").sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt))).slice(0, 5);
-    const tick = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
-    const todo = a => `<div class="todo ${a.status === "done" ? "done" : ""}"><button class="check" data-id="${esc(a.id)}" data-status="${a.status === "done" ? "open" : "done"}" aria-label="Toggle">${a.status === "done" ? tick : ""}</button>
-      <div style="min-width:0"><div class="t1">${esc(a.text)}</div><div class="t2">${esc(a.customerName || "")} ${a.status === "open" ? duePill(a.due) : ""}</div></div></div>`;
-    const people = m.customers.sort((a, b) => String(b.lastContact).localeCompare(String(a.lastContact)));
-    $("memory").innerHTML =
-      `<h3>To-dos · ${open.length} open</h3><div class="card">${open.length ? open.map(todo).join("") : '<div class="empty" style="padding:20px">Nothing open.</div>'}</div>
-       ${done.length ? `<h3>Recently done</h3><div class="card">${done.map(todo).join("")}</div>` : ""}
-       <h3>Customers · ${people.length}</h3><div class="card">${people.length ? people.map(c => `<div class="rowi cust"><div class="v"><div class="n">${esc(c.name)}${c.place ? ` <span style="color:var(--muted);font-weight:400">· ${esc(c.place)}</span>` : ""}</div><div class="s">${esc(c.summary || "")}</div><div class="t2" style="margin-top:6px"><span class="chip">${esc(c.lastContact || "")}</span><span class="chip">${(c.history || []).length} call${(c.history || []).length === 1 ? "" : "s"}</span></div></div></div>`).join("") : '<div class="empty" style="padding:20px">Customers appear after the first call.</div>'}</div>
-       <div class="foot">The notebook reads this at the start of every call.</div>`;
-    for (const b of document.querySelectorAll(".check")) b.onclick = async () => { await fetch(`/api/actions/${encodeURIComponent(b.dataset.id)}${tq ? tq + "&" : "?"}status=${b.dataset.status}`, { method: "POST" }); loadMemory(); };
-  } catch { $("memory").innerHTML = '<div class="empty">Memory unavailable.</div>'; }
-}
-
-// ---------- cost ----------
-function renderCost() {
-  const t = costTotals;
-  if (!t) { $("cost").innerHTML = '<div class="empty">Costs appear once the call starts.</div>'; return; }
-  const s = t.byStep || {};
-  const row = (name, sub, v) => `<div class="crow"><div>${name}<small>${sub}</small></div><div class="usd">${v}</div></div>`;
-  const turns = Object.values(turnCosts);
-  const max = Math.max(...turns, 1e-9);
-  $("cost").innerHTML =
-    `<div class="card"><div class="big">${usd(t.usd)}</div><div class="bigsub">this call · ${t.llmCalls} model calls · ${ktok(t.inputTokens)} tokens in (${ktok(t.audioTokens)} audio) · ${ktok(t.outputTokens)} out</div>
-      ${turns.length ? `<div class="bars">${turns.map(v => `<i style="height:${Math.max(8, (v / max) * 100)}%" title="${usd(v)}"></i>`).join("")}</div><div class="foot">cost per turn</div>` : ""}</div>
-     <div class="card">
-      ${row("Conversation", `Gemini · ${s.turn?.calls ?? 0} turns · ${ktok(s.turn?.inputTokens ?? 0)} in · ${ktok(s.turn?.outputTokens ?? 0)} out`, usd(s.turn?.usd ?? 0))}
-      ${row("Note extraction", `Gemini · ${s.note?.calls ?? 0} calls`, usd(s.note?.usd ?? 0))}
-      ${row("Memory", "Gemini · after the call", usd(s.memory?.usd ?? 0))}
-      ${row("Voice", `Fish · ${(t.ttsBytes / 1000).toFixed(1)} kB text · paid tier: ${usd(t.ttsPaidUsd)}`, usd(t.ttsUsd))}
-      ${row("Phone", `${t.phoneMinutes ? t.phoneMinutes.toFixed(1) + " min" : "after the call"} · rate via DIAL_USD_PER_MIN`, t.phoneUsd == null ? "—" : usd(t.phoneUsd))}
-     </div>
-     <div class="foot">Estimates at list prices as of ${esc(t.pricesAsOf || "")}${t.unpriced ? ` · ${t.unpriced} unpriced calls` : ""}</div>`;
-}
-
-// ---------- wiring ----------
-$("call").onclick = () => (ws ? stop() : start().catch(err => { addEl("sys bad", err.message); stop(false); }));
-$("orb").onclick = () => { if (!ws) $("call").click(); };
-$("mute").onclick = () => { muted = !muted; $("mute").classList.toggle("on", muted); node?.port.postMessage({ muted }); };
-for (const b of $("langSeg").querySelectorAll("button")) b.onclick = () => { lang = b.dataset.lang; $("langSeg").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); };
-for (const b of $("tabs").querySelectorAll("button")) b.onclick = () => {
-  $("tabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
-  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "pane-" + b.dataset.tab));
-  b.classList.remove("badge");
-  if (b.dataset.tab === "todos") loadMemory();
-};
-if (params.get("sheet")) setTimeout(() => openSheet(true), 300);
-if (params.get("tab")) document.querySelector(`#tabs [data-tab="${params.get("tab")}"]`)?.click();
-const openSheet = on => { $("sheet").classList.toggle("on", on); $("sheetBg").classList.toggle("on", on); };
-$("modeBtn").onclick = () => openSheet(!$("sheet").classList.contains("on"));
-$("sheetBg").onclick = $("sheetDone").onclick = () => openSheet(false);
-loadModes().catch(() => {});
-loadMemory();
-setInterval(() => { if (!inCall) loadMemory(); }, 15000);
-</script>
+<script type="module" src="/phone/main.ts"></script>
 </body>
 </html>

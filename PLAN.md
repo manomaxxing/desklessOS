@@ -51,11 +51,11 @@ loop with **zero npm dependencies**:
 
 | File | What we take |
 |---|---|
-| `src/gemini-endpoint.mjs` | Vertex AI endpoint plus ADC token cache (credits cover Vertex, not AI Studio) |
-| `src/buddy.mjs` | Pattern: audio goes straight to Gemini, so **hearing and answering are one call** (`HEARD:` line plus the reply) |
-| `src/reply.mjs` | Stream parser: releases the transcript, then each finished sentence |
-| `src/fish.mjs` | Fish Audio TTS, streamed per sentence, playback starts before Fish is done |
-| `src/cost.mjs` | Per-turn cost metering |
+| `src/gemini-endpoint.ts` | Vertex AI endpoint plus ADC token cache (credits cover Vertex, not AI Studio) |
+| `src/buddy.ts` | Pattern: audio goes straight to Gemini, so **hearing and answering are one call** (`HEARD:` line plus the reply) |
+| `src/reply.ts` | Stream parser: releases the transcript, then each finished sentence |
+| `src/fish.ts` | Fish Audio TTS, streamed per sentence, playback starts before Fish is done |
+| `src/cost.ts` | Per-turn cost metering |
 
 Measured there: audio turn to transcript 1.6–2.0 s; Fish first byte
 0.2–1.4 s after a sentence is ready.
@@ -188,7 +188,7 @@ End with "Soll ich noch was vorlesen?"
 speedhacks/
   .env                     # keys copied from mano-games (gitignored)
   package.json             # type: module; only dependency: ws (WebSocket server)
-  server.mjs               # HTTP + WS: /dev (browser), /dial/:call_id (Dial audio WS), /notes
+  server.ts               # HTTP + WS: /dev (browser), /dial/:call_id (Dial audio WS), /notes
   src/engine/
     session.mjs            # turn loop, states, barge-in
     vad.mjs                # energy VAD, adaptive floor, state-based endpointing
@@ -197,9 +197,9 @@ speedhacks/
     reply.mjs              # HEARD/sentence parser                   ← buddy-lab
     fish.mjs               # streamed TTS + filler cache              ← buddy-lab
     cost.mjs               #                                         ← buddy-lab
-  src/skills/termin-notiz.mjs   # prompt, schema, required fields, recall
-  src/transports/browser.mjs  dial.mjs   # dial.mjs: signature check, call_connected, media, mark/clear, ping_pong, end_call
-  src/store/notes.mjs      # notes/*.json
+  src/skills/termin-notiz.ts   # prompt, schema, required fields, recall
+  src/transports/browser.ts  dial.mjs   # dial.mjs: signature check, call_connected, media, mark/clear, ping_pong, end_call
+  src/store/notes.ts      # notes/*.json
   web/dev.html             # hands-free test client (mic, VAD meter, transcript)
   web/notes.html           # read-only notes view for the demo screen
   test/                    # node --test, plus audio fixtures
@@ -389,7 +389,7 @@ note by alphanumeric sender ID or WhatsApp instead.
 
 1. Twilio account and number in IE1. Check Twilio's list of Voice features that
    are unavailable in IE1.
-2. A Twilio adapter beside the Dial handler in `server.mjs`: a TwiML
+2. A Twilio adapter beside the Dial handler in `server.ts`: a TwiML
    `<Connect><Stream>` webhook; μ-law 8 kHz ↔ 16 kHz PCM (`resample` in
    `audio.mjs` exists); Twilio's `start`/`media`/`mark`/`clear`/`stop` events
    mapped to the session.
@@ -505,9 +505,9 @@ the notebook works as a field researcher.
 
 - `config/discovery.json`: participant, key question, hypotheses, areas and
   questions. Edit the framework there, no code change.
-- `src/skills/pilot.mjs`: note-taking for any trade, job D (research) in the
+- `src/skills/pilot.ts`: note-taking for any trade, job D (research) in the
   prompt, findings in the consolidation step after the call.
-- `src/store/discovery.mjs`: findings, question state, call log; picks the
+- `src/store/discovery.ts`: findings, question state, call log; picks the
   question for each call.
 - `SKILL=pilot` is the default; `SKILL=office` brings back the order demo.
 - `npm run report` writes `data/discovery/report.md`; `-- --synthesize` adds the
@@ -552,7 +552,7 @@ Done and tested locally (browser test phone and scripted fake-Dial calls):
   endpointing, fillers, barge-in, idle nudges ("Bist du noch dran?").
 - **M5:** briefing before the next visit.
 - **One protocol everywhere:** the server speaks Dial's self-hosted audio
-  protocol. `web/index.html` and `scripts/fake-dial.mjs` both pretend to be Dial.
+  protocol. `web/index.html` and `scripts/fake-dial.ts` both pretend to be Dial.
 - **Model:** `gemini-3.5-flash` on Vertex global with `thinkingLevel: MINIMAL`.
   Measured: Gemini first token 1.5–2.1 s, first audio 2.4–3.2 s after end of
   speech, filler at 0.7 s. The token and the model are warmed at startup and on

@@ -5,24 +5,26 @@
   "type": "module",
   "description": "DesklessOS: voice-first assistant for tradespeople. Phone call in, notes out.",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env server.mjs",
-    "smoke": "node --env-file-if-exists=.env scripts/smoke.mjs",
-    "live-probe": "node --env-file-if-exists=.env scripts/live-probe.mjs",
-    "fake-dial": "node --env-file-if-exists=.env scripts/fake-dial.mjs",
+    "dev": "node --env-file-if-exists=.env server.ts",
+    "smoke": "node --env-file-if-exists=.env scripts/smoke.ts",
+    "live-probe": "node --env-file-if-exists=.env scripts/live-probe.ts",
+    "fake-dial": "node --env-file-if-exists=.env scripts/fake-dial.ts",
     "tunnel": "cloudflared tunnel --url http://localhost:8787",
-    "dial": "node --env-file-if-exists=.env scripts/dial.mjs",
-    "test": "node --test test/*.test.mjs",
-    "report": "node --env-file-if-exists=.env scripts/report.mjs",
-    "regress": "node --env-file-if-exists=.env scripts/regress.mjs",
-    "eval": "node --env-file-if-exists=.env scripts/eval.mjs",
-    "locale:check": "node scripts/locale-check.mjs",
-    "admin:totp": "node scripts/admin-totp.mjs",
-    "migrate:pg": "node --env-file-if-exists=.env scripts/migrate-json-to-pg.mjs",
-    "smart-turn:fetch": "node scripts/smart-turn-fetch.mjs",
-    "whatsapp:setup": "node --env-file-if-exists=deploy/env.production scripts/whatsapp-setup.mjs"
+    "dial": "node --env-file-if-exists=.env scripts/dial.ts",
+    "test": "node --test test/*.test.ts",
+    "report": "node --env-file-if-exists=.env scripts/report.ts",
+    "regress": "node --env-file-if-exists=.env scripts/regress.ts",
+    "eval": "node --env-file-if-exists=.env scripts/eval.ts",
+    "locale:check": "node scripts/locale-check.ts",
+    "admin:totp": "node scripts/admin-totp.ts",
+    "migrate:pg": "node --env-file-if-exists=.env scripts/migrate-json-to-pg.ts",
+    "smart-turn:fetch": "node scripts/smart-turn-fetch.ts",
+    "whatsapp:setup": "node --env-file-if-exists=deploy/env.production scripts/whatsapp-setup.ts",
+    "typecheck": "tsc -p . && tsc -p tsconfig.tools.json && tsc -p web",
+    "check": "npm run typecheck && node --test test/*.test.ts"
   },
   "dependencies": {
     "opusscript": "0.1.1",
@@ -33,7 +35,10 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
-    "@electric-sql/pglite-pgvector": "0.0.9"
+    "@electric-sql/pglite-pgvector": "0.0.9",
+    "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
+    "typescript": "7.0.2"
   },
   "optionalDependencies": {
     "onnxruntime-node": "1.30.0"

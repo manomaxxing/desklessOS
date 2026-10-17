@@ -5,7 +5,7 @@
 --   plumbing            jobs (the queue for all background work), voice_clips, tool_runs
 -- Row level security is on with no policies: only the server's own login (it owns the
 -- tables, so RLS doesn't apply to it) reads and writes; Supabase's public API sees nothing.
--- The tables go into the first schema on the search path (DB_SCHEMA, src/db/client.mjs).
+-- The tables go into the first schema on the search path (DB_SCHEMA, src/db/client.ts).
 
 -- The extensions, unless they're there already: on a shared Supabase project an admin
 -- enables them once, and the app's own login can't create extensions.
@@ -66,7 +66,7 @@ create index contacts_recent on contacts (org_id, last_contact desc nulls last);
 
 -- Every call with a known caller, from the first turn on. The session saves its transcript and
 -- the latest note extraction as it goes (so a lost instance loses nothing), and the
--- after-call job (src/calls/after-call.mjs) does the rest from this row.
+-- after-call job (src/calls/after-call.ts) does the rest from this row.
 create table calls (
   id text primary key, -- the carrier's call id
   org_id uuid references orgs (id) on delete cascade,
@@ -208,7 +208,7 @@ create table tool_runs (
   created_at timestamptz not null default now()
 );
 
--- Max's requests (src/admin/requests.mjs): his instruction, the plan he approved, and
+-- Max's requests (src/admin/requests.ts): his instruction, the plan he approved, and
 -- what came of it. The request follows its objective.
 create table requests (
   id text primary key,
@@ -233,7 +233,7 @@ create table requests (
 create index requests_recent on requests (created_at desc);
 create index requests_objective on requests (objective_id);
 
--- Outbound calls (src/jobs/scheduler.mjs): one errand per user, with its tries. Claimed
+-- Outbound calls (src/jobs/scheduler.ts): one errand per user, with its tries. Claimed
 -- with FOR UPDATE SKIP LOCKED. It only ever dials a users row (consent, window, pause
 -- are checked against it); there is no way to dial a raw number.
 create table outbound_calls (
@@ -255,7 +255,7 @@ create table outbound_calls (
 create index outbound_calls_due on outbound_calls (status, next_attempt_at);
 create index outbound_calls_call on outbound_calls (call_id);
 
--- All background work (src/jobs/queue.mjs): at least once, retried with backoff, then
+-- All background work (src/jobs/queue.ts): at least once, retried with backoff, then
 -- "dead" for a human to look at. `key` makes enqueueing idempotent ("after_call:<call id>").
 -- A running job holds a lease (locked_until); a crashed worker's job is taken again after it.
 create table jobs (

@@ -33,7 +33,7 @@ names a language (a test enforces it).
   `FISH_VOICE` still overrides the default language's.
 - **Data:** notes use English keys (`customer_name`, `work`, `next_steps`,
   `summary`, …) with values in the spoken language and a `lang` field. Notes from
-  before v2 had German keys; `scripts/migrate-json-to-pg.mjs` renames them on the way in.
+  before v2 had German keys; `scripts/migrate-json-to-pg.ts` renames them on the way in.
 
 ## Skills, personas and templates
 
@@ -44,21 +44,21 @@ works is filed as findings. `npm run report` (`-- --synthesize` for an executive
 writes `pilot-report.md`. Method and rules: `PLAN.md` section 14. Max's own line by phone
 is a second persona (below).
 
-A skill is a persona plus templates, no code of its own (`src/skills/from-templates.mjs`):
+A skill is a persona plus templates, no code of its own (`src/skills/from-templates.ts`):
 
 - **Persona** (`personas/notebook.md`, `personas/admin.md`): who the agent is and
   how it sounds, in English, with `{{ex.*}}` slots filled from the locale pack.
 - **Templates** (`templates/*.json`): *capabilities* are what he can start (take a
   note, a briefing, the agenda); *objectives* are what the agent brings
   (the pilot's research, "find out X"). Each lists steps made of primitives
-  (`src/agenda/primitives.mjs`: capture, inform, ask, research), its tools and
+  (`src/agenda/primitives.ts`: capture, inform, ask, research), its tools and
   for capabilities the note fields.
-- **Agenda** (`src/agenda/agenda.mjs`): per call, the persona's capabilities plus at
+- **Agenda** (`src/agenda/agenda.ts`): per call, the persona's capabilities plus at
   most two of the agent's own items, always after his business. It writes the prompt
   (static first, so the prefix caches), one extraction schema for his note and the
   objectives' answers, and checks in code after every turn which objective is done.
 
-**Quotes, during the call** (`src/tools/quote.mjs`, `src/quotes/`): when he has described a job
+**Quotes, during the call** (`src/tools/quote.ts`, `src/quotes/`): when he has described a job
 and confirmed Toni's summary, Toni offers to send it as a quote ("Soll ich dir das als Angebot auf
 WhatsApp schicken?"). On his yes, the `quote_send` tool turns the line items into a quote (quantity,
 unit, a net price only where he said one; totals and VAT in code), makes the A4 PDF (pdf-lib, the
@@ -71,7 +71,7 @@ Each quote is numbered per business and year (2026-001), kept as data (`quotes`)
 the call's page, where its PDF is made again on demand.
 
 **Calls, on the admin page:** `/admin` opens on the calls, newest first (live ones with a red
-dot). A call has two tabs. **Summary** (`src/calls/recap.mjs`, written by the after-call job,
+dot). A call has two tabs. **Summary** (`src/calls/recap.ts`, written by the after-call job,
 in the call's language): the gist in a box, the topics with their points and his own words,
 action items (who, by when), and open questions worth asking next time. **Transcript**: who
 said what. The copy button copies the open tab as Markdown; the download button saves both
@@ -79,7 +79,7 @@ as one `.md` file. A call that ended before summaries existed gets a "Write the 
 (`POST /api/calls/:id/recap`), and "Write it again" redoes one.
 
 **Find out X, from the admin page:** `/admin`. Type what you want to know ("Frag Niko,
-wie lange sein letztes Angebot gedauert hat"). A planner (`src/admin/planner.mjs`, Gemini
+wie lange sein letztes Angebot gedauert hat"). A planner (`src/admin/planner.ts`, Gemini
 with thinking, a few seconds) picks the user and writes 1 to 5 questions in their language
 into an `inquiry` objective; it never writes rules for the agent. You get a card: who, when,
 the questions (editable), anything it needs to ask you back. **Approve** binds to exactly that
@@ -90,7 +90,7 @@ Results also go out by webhook (`NOTIFY_WEBHOOK_URL`) and/or email (`RESEND_API_
 `NOTIFY_EMAIL_TO`), with `PUBLIC_URL` for the link back; each message is a job, retried
 until it goes through.
 
-- **Login, for the team** (`src/admin/team.mjs`): everyone has their own email and password.
+- **Login, for the team** (`src/admin/team.ts`): everyone has their own email and password.
   An owner invites someone under People → "Who can log in here" and sends them the link
   (`/admin#invite=…`, works once, for 7 days); they choose their name and password on it.
   A new link for someone already on the team resets their password. Owners invite and
@@ -148,7 +148,7 @@ The model calls tools natively (Gemini function calling, `src/tools/`):
 - `memory_search`: offered only when memory holds more than the prompt shows; finds
   a customer by a sound-alike name, place or topic.
 - On Max's own line: `request_create`, `request_approve` (needs the PIN), `request_status`
-  (`src/tools/admin.mjs`).
+  (`src/tools/admin.ts`).
 
 The model hangs up through its header (`NEXT: hangup`), not a tool.
 
@@ -167,7 +167,7 @@ and plays the scripted calls in `test/calls/<folder>/*.json` (German capture wit
 pause, briefing, agenda, false start; Max's question, his own line, outbound calls, a call
 over the Twilio path), checking what each must and should produce, and printing first-audio
 latency. A folder's `_seed/` is old-style JSON memory, moved in through
-`scripts/migrate-json-to-pg.mjs` (`pilot+memory`: 30 customers, a briefing that needs
+`scripts/migrate-json-to-pg.ts` (`pilot+memory`: 30 customers, a briefing that needs
 `memory_search`). Run it before every merge; `npm test` stays offline (PGlite, Gemini stubbed).
 
 ## One protocol, several ways to call
@@ -175,7 +175,7 @@ latency. A folder's `_seed/` is old-style JSON memory, moved in through
 Inside, every call speaks Dial's self-hosted audio protocol (`call_connected`,
 `media`, `mark`, `clear`, `end_call`, `ping_pong`; 16 kHz PCM). Carriers come in
 through adapters (`src/telephony/`) that translate their protocol into it; the
-call host (`host.mjs`) keeps the calls, whichever line they came in on.
+call host (`host.ts`) keeps the calls, whichever line they came in on.
 
 | Caller | How | Use it for |
 |---|---|---|
@@ -202,7 +202,7 @@ registers the webhook and turns calling on. Webhooks are checked against the app
 ## Calls we make (outbound)
 
 When Max approves "Ruf Niko an und frag ihn …" (mode `outbound`, or `either`: whichever
-comes first), the scheduler (`src/jobs/scheduler.mjs`, run by the background tick) makes one
+comes first), the scheduler (`src/jobs/scheduler.ts`, run by the background tick) makes one
 errand per person and calls through `OUTBOUND` (`twilio` when configured, `fake` for tests,
 `off`). Guards, checked against the person's row before every try:
 
@@ -225,8 +225,8 @@ Two engines; phone calls use `ENGINE` (default `cascade`), the browser test phon
 
 | Engine | What happens | First audio (measured) |
 |---|---|---|
-| **Gemini + Fish** (`cascade`, `src/engine/session.mjs`) | Gemini hears his audio and writes the reply (`GEMINI_MODEL`); Fish speaks it sentence by sentence. Our own turn-taking (below) | ~2.2–3.4 s, masked by typing (`MASK`: `typing`, `filler`, `none`) |
-| **Gemini Live** (`live`, `src/engine/live-session.mjs`) | Gemini's native audio model hears and speaks itself (`LIVE_MODEL`, `LIVE_VOICE`); its own silence detection and barge-in; hangs up with an `end_call` tool | ~1.2 s (2.4 s before a spoken summary) |
+| **Gemini + Fish** (`cascade`, `src/engine/session.ts`) | Gemini hears his audio and writes the reply (`GEMINI_MODEL`); Fish speaks it sentence by sentence. Our own turn-taking (below) | ~2.2–3.4 s, masked by typing (`MASK`: `typing`, `filler`, `none`) |
+| **Gemini Live** (`live`, `src/engine/live-session.ts`) | Gemini's native audio model hears and speaks itself (`LIVE_MODEL`, `LIVE_VOICE`); its own silence detection and barge-in; hangs up with an `end_call` tool | ~1.2 s (2.4 s before a spoken summary) |
 
 - **Live connections** (`npm run live-probe`): `vertex-eu:gemini-3.8-live` (default: audio stays
   in the EU, Vertex credits), `vertex@us-central1:…`, the 2.5 native-audio model in europe-west4.
@@ -268,11 +268,11 @@ Realtime and Google's Live best practices.
     "nicht angekommen, nochmal?" instead), and neither does one that is just his previous turn
     again, word for word (the model copied it; `misheard()`).
   - **New things one at a time:** what Toni does beyond notes, briefings and to-dos is switched on
-    per person on the People card (`src/features.mjs`): the confirmed note into his WhatsApp
+    per person on the People card (`src/features.ts`): the confirmed note into his WhatsApp
     chat after each WhatsApp call (laid out from the note's fields, never written by a model), and
     quotes. Toni mentions a newly switched-on one once, at the end of the next call (a
     `feature.intro` objective).
-- **Turn-taking** (Gemini + Fish only; `src/engine/session.mjs`, `endpointing.mjs`):
+- **Turn-taking** (Gemini + Fish only; `src/engine/session.ts`, `endpointing.ts`):
   - A pause of 0.8 s ends his turn (0.6 s after a yes/no question, 1 s after an
     open one). The model answers `NEXT: wait` when he stopped mid-thought, and a
     word check overrides it when his words stop on "und", "die", "will" and the
@@ -329,25 +329,28 @@ Realtime and Google's Live best practices.
 
 ## Memory and cost
 
-- **Storage:** Postgres only (`src/memory/pg.mjs`, schema in `src/db/migrations/`, applied
+- **Storage:** Postgres only (`src/memory/pg.ts`, schema in `src/db/migrations/`, applied
   on start). `DATABASE_URL` is Supabase (EU) in production; locally it defaults to PGlite
   (Postgres compiled to WebAssembly, in the process) at `data/pg`. Only one process can open
   that at a time.
-- **Per user.** The caller ID picks the user (`users.phone_e164`); with one user every call
-  is theirs (the pilot); an unknown caller among several users gets an empty memory and
-  nothing is saved. The first start creates the org and user from the persona's profile.
+- **Per user.** The caller ID picks the user (`users.phone_e164`). A number that's nobody's
+  gets an empty memory and nothing is saved, however few users there are (a stranger never
+  hears the pilot's customers). The first start creates the org and user from the persona's
+  profile; put his number on his People card. Locally, scripted calls (`fake-dial`) come from
+  the locale's test number (`testing.from` in `locales/de.json`): put that on the user to
+  test with memory (`npm run regress` does it for its own servers).
 - **The demo.** A user of its own (`users.demo`, its own org, made on the first start): the
   online test phone (no caller ID) and the number on its People card (Max's) reach it. Its
   calls are saved and summarised into its own memory; it gets no research questions, and no
   one else's memory gets these calls.
 - **Budgeted context.** When the call connects, the MEMORY block is built once
-  (`src/memory/context.mjs`, 2,500 tokens): what we know about him, up to 10 open to-dos,
+  (`src/memory/context.ts`, 2,500 tokens): what we know about him, up to 10 open to-dos,
   the 8 most relevant customers (recent, open to-dos, due soon) with their latest notes,
   then the next 40 by name. Everything else is for `memory_search`: sound-alike names
   (trigram) and notes and facts by meaning (embeddings, `text-multilingual-embedding-002`).
 - **During the call** its transcript and latest note are saved after every turn, so an
   instance that dies loses nothing.
-- **After the call** (`src/calls/after-call.mjs`), one job, queued in the transaction
+- **After the call** (`src/calls/after-call.ts`), one job, queued in the transaction
   that ends the call:
   - the final note, saved (one per call);
   - Max's questions recorded and their requests closed;
@@ -358,10 +361,10 @@ Realtime and Google's Live best practices.
   - the call's summary for the admin page (`calls.recap`).
 
   Each step does its work once however often the job runs.
-- **Moving the pilot's old JSON data in:** `node scripts/migrate-json-to-pg.mjs --dry-run`,
+- **Moving the pilot's old JSON data in:** `node scripts/migrate-json-to-pg.ts --dry-run`,
   then with `DATABASE_URL` and `DATA_DIR` (the old data) set; re-runnable, checks the counts;
   `--embed` fills in the embeddings.
-- **Cost per call** (`src/engine/cost.mjs`): Gemini tokens (text, audio,
+- **Cost per call** (`src/engine/cost.ts`): Gemini tokens (text, audio,
   output) for the conversation, note extraction and memory step; Fish bytes
   (with what the paid tier would cost); call minutes (set `DIAL_USD_PER_MIN`).
   Shown live in the phone's Cost tab and per call in the monitor (the after-call
@@ -449,44 +452,64 @@ cost money. The details, the cost estimate and moving off Fly are in
 
 ## Layout
 
+TypeScript throughout, run as it is: Node 24 strips the types (no build step), so only
+erasable syntax (no enums, namespaces or parameter properties), `import type` for types and
+`.ts` in relative imports. `npm run typecheck` checks the server (strict), the tests and
+scripts, and the pages (`web/tsconfig.json`); `npm run check` adds the tests.
+
 ```
-server.mjs                 starts the app, drains calls on SIGTERM
-src/app.mjs                composition root: every part built once, here
-src/config.mjs             the server's settings, checked at boot
-src/http/api.mjs           routes and pages, one table with access levels; WebSocket upgrades
-src/calls/start.mjs        one call's wiring: memory, agenda, engine, its end
-src/calls/after-call.mjs   after the call: final note, objectives, requests, outbound outcome, memory, summary
-src/calls/recap.mjs        the call's summary for the admin page: overview, topics, action items, open questions
-src/quotes/                a quote as data (totals in code), its PDF (pdf-lib, texts from the locale pack), storage
-src/tools/quote.mjs        quote_send: the confirmed job as a PDF into his WhatsApp chat, during the call
-src/calls/voice.mjs        pre-recorded lines, cached in Postgres
-src/engine/session.mjs     one call: VAD → Gemini → Fish, barge-in, fillers, idle nudges, checkpoints
-src/engine/vad.mjs         energy VAD, adaptive noise floor, end-of-turn by state
-src/engine/gemini*.mjs     fast path (stream) + slow path (JSON schema); Vertex or AI Studio
-src/engine/fish.mjs        streamed TTS as 16 kHz PCM
-src/engine/reply.mjs       HEARD/NEXT header + sentence streaming
-src/engine/turn-*.mjs      Smart Turn v3: Whisper features in JS, the model in a worker thread
-src/tools/                 tool registry (idempotent writes, confirm gate), memory_search, the admin line's tools
-personas/<id>.md           who the agent is, how it sounds (English, locale slots)
-templates/<id>.json        capabilities (note, briefing, agenda) and objectives (research, inquiry)
-src/agenda/                primitives, per-call agenda, prompt and extraction assembly
-src/skills/from-templates.mjs  a skill from a persona and its templates
-src/memory/                Postgres: per-call scope, budgeted context, search, the after-call writes
-src/memory/research.mjs    the pilot's research state: which question to ask next
-src/db/                    Postgres client (Supabase or PGlite) and the schema
-src/jobs/queue.mjs         the job queue (all background work)
-src/jobs/background.mjs    the tick: lost calls, due jobs, outbound calls, embeddings
-src/jobs/scheduler.mjs     outbound errands, guards, call windows (time zones, DST)
-src/bus.mjs                messages between instances (Postgres NOTIFY)
-src/monitor.mjs            live call timelines, the call log
-src/admin/                 logins (the team's own, the owner's code + TOTP), planner, requests (plan → card → approve → result)
-src/notify.mjs             results to Max: webhook, email (Resend)
-src/telephony/             call host + carriers: Dial, Twilio (IE1, μ-law), a fake carrier for tests
-src/locale/                loads packs, picks the call's language, checks completeness
-src/testing/caller.mjs     scripted caller (fake-dial, regress)
-config/discovery.json      the research framework: key question, hypotheses, areas, questions
-locales/<id>.json          everything language-specific (see Languages)
-web/                       test phone (/), monitor (/monitor), admin (/admin: calls, requests, people)
-deploy/                    Cloud Run: deploy script, settings template
-scripts/                   smoke, fake-dial, dial admin, report, regress, the JSON → Postgres move
+server.ts                      starts the app, drains calls on SIGTERM
+src/app.ts                     composition root: every part built once, here
+src/config.ts                  the server's settings, checked at boot
+src/types/                     the shared contracts: frames, calls, users, notes, agenda, tools, Gemini
+src/shared/                    small helpers every layer uses (constant-time compare, isRecord)
+src/http/api.ts                the HTTP API: one route table (src/http/routes/*) with an access level per route
+src/http/{router,access,static}.ts  routing and bodies, who's asking, the pages' files (TS served as JS)
+src/calls/start.ts             one call's wiring: memory, agenda, engine, its end
+src/calls/call-now.ts          "Call now" from the People card: a WhatsApp call, or a rehearsal
+src/calls/after-call.ts        after the call: final note, objectives, requests, outbound outcome, memory, summary
+src/calls/recap.ts             the call's summary for the admin page: overview, topics, action items, open questions
+src/calls/voice.ts             pre-recorded lines, cached in Postgres
+src/engine/session.ts          one call on Gemini + Fish: the conversation's state machine
+src/engine/live-session.ts     one call on Gemini Live (falls back to Gemini + Fish)
+src/engine/timing.ts           turn-taking timing: end of turn, waits, hedges, deadlines
+src/engine/hedged-stream.ts    the model stream, hedged on the same model, then the fallback
+src/engine/clips.ts            the voice per sentence, streamed and played in order
+src/engine/turn-rules.ts       small decisions: is he done, is it a stage direction, is it a repeat
+src/engine/call-record.ts      the transcript, the note so far, checkpoints (both engines)
+src/engine/telemetry.ts        events for the monitor, errors, costs, recorded audio (both engines)
+src/engine/vad.ts              energy VAD, adaptive noise floor, end-of-turn by state
+src/engine/gemini*.ts          fast path (stream) + slow path (JSON schema); Vertex or AI Studio
+src/engine/fish.ts             streamed TTS as 16 kHz PCM
+src/engine/reply.ts            HEARD/LANG/NEXT header + sentence streaming
+src/engine/turn-*.ts           Smart Turn v3: Whisper features in JS, the model in a worker thread
+src/tools/                     tool registry (idempotent writes, confirm gate, audit), memory_search, the admin line's tools
+src/tools/quote.ts             quote_send: the confirmed job as a PDF into his WhatsApp chat, during the call
+src/quotes/                    a quote as data (totals in cents, in code), its PDF (pdf-lib, locale texts), his lists
+personas/<id>.md               who the agent is, how it sounds (English, locale slots)
+templates/<id>.json            capabilities (note, briefing, agenda) and objectives (research, inquiry)
+src/agenda/                    primitives, per-call agenda, prompt and extraction assembly
+src/skills/from-templates.ts   a skill from a persona and its templates
+src/memory/pg.ts               memory's front: one object over the modules below
+src/memory/{users,call-scope,calls,post-call}.ts  who's calling, one call's scope, the call log, the after-call writes
+src/memory/{context,context-data,search,embeddings}.ts  the budgeted MEMORY block, memory_search, embeddings
+src/memory/{objectives-store,requests-store,research-store,overviews}.ts  objectives, requests, research, the pages' views
+src/memory/research.ts         the pilot's research state: which question to ask next
+src/db/                        Postgres client (Supabase or PGlite) and the schema
+src/jobs/queue.ts              the job queue (all background work)
+src/jobs/background.ts         the tick: lost calls, due jobs, outbound calls, embeddings
+src/jobs/{scheduler,windows}.ts  outbound errands, guards, call windows (time zones, DST)
+src/bus.ts                     messages between instances (Postgres NOTIFY)
+src/monitor.ts                 live call timelines, the call log
+src/admin/                     logins (the team's own, the owner's code + TOTP), planner, requests (plan → card → approve → result)
+src/notify.ts                  results to Max: webhook, email (Resend)
+src/telephony/                 call host + carriers: Dial, Twilio (IE1, μ-law), WhatsApp (WebRTC), a fake carrier for tests
+src/locale/                    loads packs, picks the call's language, checks completeness
+src/testing/caller.ts          scripted caller (fake-dial, regress)
+config/discovery.json          the research framework: key question, hypotheses, areas, questions
+locales/<id>.json              everything language-specific (see Languages)
+web/                           the pages: test phone (/), monitor (/monitor), admin (/admin), as typed modules
+web/{shared,phone,monitor,admin}/  each page's modules; shared/ has the API client, escaping, formats, types
+deploy/                        Cloud Run: deploy script, settings template
+scripts/                       smoke, fake-dial, eval, regress, report, dial admin, the JSON → Postgres move
 ```

@@ -6,27 +6,10 @@
 <title>DesklessOS Admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/shared/theme.css">
 <style>
-  :root {
-    --bg: #f5f5f7; --bg2: #ffffff; --glass: rgba(255,255,255,.72);
-    --ink: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6; --sep: rgba(0,0,0,.08); --fill: rgba(118,118,128,.12);
-    --blue: #0a84ff; --green: #1f9e46; --red: #d70015; --orange: #c93400; --sel: rgba(10,132,255,.09);
-    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06);
-    --g1: #4285f4; --g2: #9b72cb; --g3: #d96570; --g4: #f6b26b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
-      --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
-      --green: #30d158; --red: #ff453a; --orange: #ff9f0a; --sel: rgba(10,132,255,.18);
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
-    --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
-    --green: #30d158; --red: #ff453a; --orange: #ff9f0a; --sel: rgba(10,132,255,.18);
-  }
+  /* The colours: /shared/theme.css. Here, in light mode, deeper green, red and orange: they're text on white. */
+  :root { --green: #1f9e46; --red: #d70015; --orange: #c93400; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
   button, input, textarea, select { font: inherit; color: inherit; }
@@ -44,7 +27,7 @@
   textarea, input[type=text], input[type=password], input[inputmode] { width: 100%; border: 1px solid var(--sep); background: var(--bg); border-radius: 10px; padding: 10px 12px; outline: none; }
   textarea:focus, input:focus { border-color: var(--blue); }
   textarea { resize: vertical; min-height: 72px; }
-  select { border: 1px solid var(--sep); background: var(--bg); border-radius: 10px; padding: 9px 10px; }
+  select { border: 1px solid var(--sep); background: var(--bg); border-radius: 10px; padding: 9px 10px; max-width: 100%; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
   .btn { border: 0; border-radius: 10px; padding: 8px 16px; font-weight: 600; cursor: pointer; background: var(--fill); }
   .btn.primary { background: var(--blue); color: #fff; }
@@ -58,7 +41,7 @@
   dt { color: var(--muted); } dd { margin: 0; }
   .q { border-top: 1px solid var(--sep); padding: 10px 0 2px; margin-top: 10px; }
   .q input { margin-top: 4px; }
-  .q .lab { font-size: 12px; color: var(--muted); }
+  .q .lab { display: block; font-size: 12px; color: var(--muted); }
   .note { border-radius: 10px; padding: 8px 12px; margin-top: 10px; font-size: 14px; background: var(--fill); }
   .note.warn { color: var(--orange); } .note.block { color: var(--red); }
   .answer { margin-top: 6px; } .quote { color: var(--muted); font-style: italic; }
@@ -72,11 +55,13 @@
   .callbox { margin-top: 14px; padding: 12px 14px; background: var(--fill); border-radius: 12px; }
   .callbox input[name=focus] { flex: 1; width: auto; min-width: 200px; }
   .callbox .btn:not(.primary) { background: var(--bg2); box-shadow: var(--shadow); }
+  .wa-err:empty { display: none; }
   .days label { display: flex; gap: 3px; align-items: center; font-size: 13px; color: var(--ink); }
   .seg { display: inline-flex; background: var(--fill); border-radius: 9px; padding: 2px; }
   .seg a { padding: 5px 14px; border-radius: 7px; font-size: 13px; font-weight: 500; color: var(--ink); white-space: nowrap; }
   .seg a.on { background: var(--bg2); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
   .item { cursor: pointer; transition: box-shadow .15s; }
+  a.card { display: block; color: inherit; }
   .item:hover { box-shadow: 0 0 0 1px var(--sep), var(--shadow); }
   .item.quiet { opacity: .6; }
   .sum { margin: 6px 0 0; font-size: 14px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -116,33 +101,36 @@
   .quote .st { color: var(--muted); } .quote .st.sent { color: var(--green); } .quote .st.failed { color: var(--red); }
   details.biz { margin-top: 10px; } details.biz summary { cursor: pointer; font-size: 14px; color: var(--muted); }
   details.biz > label { font-size: 12px; color: var(--muted); display: block; margin: 10px 0 4px; } details.biz code { font-size: 12px; background: var(--fill); border-radius: 4px; padding: 0 4px; color: var(--ink); }
-  @media (max-width: 520px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } .bar { padding: 0 16px; gap: 10px; } .brand span, .hide-s { display: none; } .doc { padding: 16px; } .tabs { gap: 16px; } .icon .lbl { display: none; } }
+  @media (max-width: 520px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } .bar { padding: 0 16px; gap: 10px; } .brand span, .hide-s { display: none; } .doc { padding: 16px; } .tabs { gap: 16px; } .icon .lbl { display: none; }
+    .grid2 { grid-template-columns: 1fr; } .callbox input[name=focus] { min-width: 0; } }
+  /* A small phone (under 360 px): the views and Log out still fit next to each other. */
+  @media (max-width: 359px) { .bar { gap: 8px; } .seg a { padding: 5px 10px; } .right { gap: 8px; } }
 </style>
 </head>
 <body>
 <div class="bar">
   <div class="brand"><i></i><span>DesklessOS</span></div>
-  <nav class="seg hide" id="nav"><a href="#calls" data-view="calls">Calls</a><a href="#requests" data-view="requests">Requests</a><a href="#people" data-view="people">People</a></nav>
+  <nav class="seg hide" id="nav" aria-label="Views"><a href="#calls" data-view="calls">Calls</a><a href="#requests" data-view="requests">Requests</a><a href="#people" data-view="people">People</a></nav>
   <div class="right"><span id="notify" class="pill hide-s"></span><span id="whoami" class="hide-s"></span><a id="monitorLink" class="hide-s" href="/monitor">Monitor</a><button id="logout" class="btn" style="padding:4px 10px;display:none">Log out</button></div>
 </div>
 <main>
   <section id="login" class="card" style="display:none">
     <div class="title">Log in</div>
     <p class="muted small" id="loginHint">Your email and password. (With the owner's admin code: leave the email empty.)</p>
-    <input id="email" type="text" inputmode="email" autocomplete="username" placeholder="Email">
-    <input id="code" type="password" autocomplete="current-password" placeholder="Password" style="margin-top:8px">
-    <input id="totp" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code from your authenticator" style="display:none;margin-top:8px">
+    <input id="email" type="text" inputmode="email" autocomplete="username" placeholder="Email" aria-label="Email">
+    <input id="code" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" style="margin-top:8px">
+    <input id="totp" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code from your authenticator" aria-label="6-digit code from your authenticator" style="display:none;margin-top:8px">
     <div class="row"><button id="loginBtn" class="btn primary">Log in</button></div>
-    <div id="loginErr" class="err"></div>
+    <div id="loginErr" class="err" aria-live="polite"></div>
   </section>
 
   <section id="invite" class="card" style="display:none">
     <div class="title">Set up your login</div>
     <p class="muted small" id="inviteHint"></p>
-    <input id="invName" type="text" autocomplete="name" placeholder="Your name">
-    <input id="invPass" type="password" autocomplete="new-password" placeholder="A password (at least 10 characters)" style="margin-top:8px">
+    <input id="invName" type="text" autocomplete="name" placeholder="Your name" aria-label="Your name">
+    <input id="invPass" type="password" autocomplete="new-password" placeholder="A password (at least 10 characters)" aria-label="A password (at least 10 characters)" style="margin-top:8px">
     <div class="row"><button id="invBtn" class="btn primary">Save and log in</button></div>
-    <div id="invErr" class="err"></div>
+    <div id="invErr" class="err" aria-live="polite"></div>
   </section>
 
   <section id="app" style="display:none">
@@ -157,20 +145,20 @@
     <div class="card">
       <div class="title">Find something out</div>
       <p class="muted small">Say what you want to know and from whom. You'll see the questions before anything happens; they're asked at the end of that person's next call, after their own business.</p>
-      <textarea id="instruction" placeholder="Frag Niko, wie lange sein letztes Angebot gedauert hat"></textarea>
-      <div class="row"><button id="planBtn" class="btn primary">Plan it</button><span id="planBusy" class="muted small"></span></div>
-      <div id="planErr" class="err"></div>
+      <textarea id="instruction" placeholder="Frag Niko, wie lange sein letztes Angebot gedauert hat" aria-label="What you want to know, and from whom"></textarea>
+      <div class="row"><button id="planBtn" class="btn primary">Plan it</button><span id="planBusy" class="muted small" aria-live="polite"></span></div>
+      <div id="planErr" class="err" aria-live="polite"></div>
     </div>
     <div class="card">
       <div class="title">Talk with him about his day</div>
       <p class="muted small">A relaxed conversation for problem discovery: Toni asks how his day went (or what's on today), mostly listens, and only now and then asks lightly about what went wrong, or about the problem behind an idea he has. If his drive ends, the next call picks up where it stopped. What he tells comes back here.</p>
-      <div class="row"><input type="text" id="convFocus" placeholder="Anything you're especially curious about? (optional)"></div>
+      <div class="row"><input type="text" id="convFocus" placeholder="Anything you're especially curious about? (optional)" aria-label="Anything you're especially curious about? (optional)"></div>
       <div class="row">
-        <select id="convUser" style="display:none"></select>
-        <select id="convMode"><option value="outbound">Toni calls him</option><option value="next_inbound">In his next call</option><option value="either">Whichever comes first</option></select>
+        <select id="convUser" style="display:none" aria-label="Who"></select>
+        <select id="convMode" aria-label="When"><option value="outbound">Toni calls him</option><option value="next_inbound">In his next call</option><option value="either">Whichever comes first</option></select>
         <button id="convBtn" class="btn primary">Plan it</button><span id="convBusy" class="muted small"></span>
       </div>
-      <div id="convErr" class="err"></div>
+      <div id="convErr" class="err" aria-live="polite"></div>
     </div>
     <h2>Requests</h2>
     <div id="list"><div class="empty">Nothing yet.</div></div>
@@ -187,571 +175,17 @@
         <div id="team"><div class="empty">…</div></div>
         <div id="inviteForm" class="hide" style="border-top:1px solid var(--sep);padding-top:12px;margin-top:4px">
           <div class="title" style="font-size:15px">Invite someone</div>
-          <div class="row" style="margin-top:8px"><input type="text" id="invEmail" inputmode="email" placeholder="their@email.com" style="flex:1;min-width:200px;width:auto">
-            <select id="invRole"><option value="member">Member</option><option value="owner">Owner (can invite and remove people)</option></select>
+          <div class="row" style="margin-top:8px"><input type="text" id="invEmail" inputmode="email" placeholder="their@email.com" aria-label="Their email" style="flex:1;min-width:200px;width:auto">
+            <select id="invRole" aria-label="Role"><option value="member">Member</option><option value="owner">Owner (can invite and remove people)</option></select>
             <button id="invCreate" class="btn primary">Create invite link</button></div>
           <div id="invOut"></div>
-          <div id="teamErr" class="err"></div>
+          <div id="teamErr" class="err" aria-live="polite"></div>
         </div>
         <div id="teamNote" class="muted small hide" style="margin-top:8px">Only an owner can invite or remove people.</div>
       </div>
     </div>
   </section>
 </main>
-<script>
-const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-// The login is an HttpOnly cookie the server sets; ?token=DEV_TOKEN still works for development.
-const devToken = new URLSearchParams(location.search).get("token") || "";
-const withDev = path => (devToken ? `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(devToken)}` : path);
-let requests = [];
-let scrolledTo = "";
-let me = null; // { admin, me: { name, email, role, id }, agent, … }
-const editing = new Map(); // request id → edited questions not yet saved
-
-async function api(path, body) {
-  const res = await fetch(withDev(path), {
-    method: body ? "POST" : "GET",
-    headers: { "content-type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401) { showLogin(); throw new Error(data.error || "log in"); }
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
-}
-
-// ---------- login ----------
-function showOnly(id) { for (const s of ["login", "invite", "app"]) $(s).style.display = s === id ? "" : "none"; $("nav").classList.toggle("hide", id !== "app"); }
-function showLogin() { showOnly("login"); $("logout").style.display = "none"; $("whoami").textContent = ""; }
-async function post(path, body) {
-  const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "didn't work");
-  return data;
-}
-async function login() {
-  $("loginErr").textContent = "";
-  try {
-    const email = $("email").value.trim();
-    const data = await post("/api/admin/login", email ? { email, password: $("code").value } : { code: $("code").value, totp: $("totp").value });
-    if (data.needTotp) { $("totp").style.display = ""; $("loginHint").textContent = "And the code from your authenticator app."; $("totp").focus(); return; }
-    $("code").value = ""; $("totp").value = "";
-    start();
-  } catch (err) { $("loginErr").textContent = err.message; }
-}
-$("loginBtn").onclick = login;
-for (const id of ["email", "code", "totp"]) $(id).onkeydown = e => { if (e.key === "Enter") login(); };
-$("logout").onclick = async () => { await fetch("/api/admin/logout", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {}); showLogin(); };
-
-// An invite link: /admin#invite=<token> (after the #, so it never reaches a server log).
-let inviteToken = "";
-async function showInvite(t) {
-  inviteToken = t;
-  showOnly("invite");
-  try {
-    const info = await post("/api/team/invite-info", { token: t });
-    $("inviteHint").textContent = info.existing ? `A new password for ${info.email}.` : `For ${info.email}. You'll log in with this email and the password you choose here.`;
-    if (info.name) $("invName").value = info.name;
-  } catch (err) { $("inviteHint").textContent = ""; $("invErr").textContent = err.message; $("invBtn").disabled = true; }
-}
-$("invBtn").onclick = async () => {
-  $("invErr").textContent = "";
-  try {
-    await post("/api/team/accept", { token: inviteToken, name: $("invName").value.trim(), password: $("invPass").value });
-    $("invPass").value = "";
-    history.replaceState(null, "", location.pathname + location.search + "#calls");
-    start();
-  } catch (err) { $("invErr").textContent = err.message; }
-};
-$("invPass").onkeydown = e => { if (e.key === "Enter") $("invBtn").click(); };
-
-// ---------- requests ----------
-const callLink = id => withDev(`/monitor?call=${encodeURIComponent(id)}`);
-const STATUS = { draft: "waiting for your OK", approved: "asked in his next call", done: "answered", expired: "expired", cancelled: "cancelled" };
-
-function questionsBlock(view) {
-  const r = view.request;
-  if (r.status === "draft") {
-    const qs = editing.get(r.id) ?? r.card.questions;
-    return qs.map((q, i) => `<div class="q"><div class="lab">Question ${i + 1}${q.required === false ? " · only if he has time" : ""}</div>
-      <input type="text" data-req="${r.id}" data-i="${i}" data-k="ask" value="${esc(q.ask)}">
-      <div class="lab" style="margin-top:6px">If his answer is vague, one follow-up</div>
-      <input type="text" data-req="${r.id}" data-i="${i}" data-k="probe" value="${esc(q.probe)}" placeholder="(none)"></div>`).join("");
-  }
-  const answers = r.result?.questions ?? r.card.questions.map(q => ({ ask: q.ask, status: "not_asked" }));
-  return answers.map(q => `<div class="q"><div>${esc(q.ask)}</div>
-    <div class="answer">${q.status === "answered" || q.status === "vague" ? `<b>${esc(q.answer)}</b>${q.quote ? ` <span class="quote">“${esc(q.quote)}”</span>` : ""}${q.status === "vague" ? ' <span class="chip">vague</span>' : ""}` : `<span class="muted">${esc((q.status || "not asked").replace("_", " "))}</span>`}</div></div>`).join("");
-}
-
-function render() {
-  if (!requests.length) { $("list").innerHTML = '<div class="empty">Nothing yet.</div>'; return; }
-  $("list").innerHTML = requests.map(view => {
-    const r = view.request, c = r.card;
-    const calls = r.result?.calls ?? [];
-    return `<div class="card${location.hash === `#${r.id}` ? " hl" : ""}" id="${r.id}">
-      <div class="title">${esc(c.title)} <span class="chip ${r.status}">${esc(STATUS[r.status] ?? r.status)}</span></div>
-      <div class="muted small" style="margin-top:2px">${esc(r.instruction)}</div>
-      ${c.summary ? `<p style="margin:10px 0 0">${esc(c.summary)}</p>` : ""}
-      <dl><dt>Who</dt><dd>${esc(c.who)}</dd><dt>When</dt><dd>${esc(c.when)}</dd>${c.purpose ? `<dt>Why</dt><dd>${esc(c.purpose)}</dd>` : ""}
-      ${calls.length ? `<dt>Calls</dt><dd>${calls.map((id, i) => `<a href="#call/${encodeURIComponent(id)}">call ${i + 1}</a>`).join(", ")}</dd>` : ""}</dl>
-      ${questionsBlock(view)}
-      ${(r.log ?? []).length ? `<div class="log">${r.log.map(l => `${esc(new Date(l.at).toLocaleString())}: ${esc(l.text)}`).join("<br>")}</div>` : ""}
-      ${r.status === "draft" ? [
-        ...c.blocked.map(b => `<div class="note block">Can't approve: ${esc(b)}</div>`),
-        ...c.warnings.map(w => `<div class="note warn">${esc(w)}</div>`),
-        ...c.clarifications.map(q => `<div class="note">${esc(q)}</div>`),
-      ].join("") : ""}
-      ${r.status === "draft" ? `
-        <div class="row"><input type="text" id="answer-${r.id}" placeholder="${c.clarifications.length ? "Answer, and it plans again" : "Change something? Say it, and it plans again"}"></div>
-        <div class="row">
-          <button class="btn primary" data-act="approve" data-id="${r.id}" ${view.confirmToken && !editing.has(r.id) ? "" : "disabled"}>Approve</button>
-          <button class="btn" data-act="save" data-id="${r.id}" ${editing.has(r.id) ? "" : "disabled"}>Save my edits</button>
-          <button class="btn" data-act="replan" data-id="${r.id}">Plan again</button>
-          <button class="btn danger" data-act="cancel" data-id="${r.id}">Discard</button>
-        </div><div class="err" id="err-${r.id}"></div>` : r.status === "approved" ? `<div class="row"><button class="btn danger" data-act="cancel" data-id="${r.id}">Withdraw</button></div><div class="err" id="err-${r.id}"></div>` : ""}
-    </div>`;
-  }).join("");
-  for (const input of document.querySelectorAll("input[data-req]")) input.oninput = () => {
-    const id = input.dataset.req;
-    const view = requests.find(v => v.request.id === id);
-    const qs = structuredClone(editing.get(id) ?? view.request.card.questions);
-    qs[Number(input.dataset.i)][input.dataset.k] = input.value;
-    editing.set(id, qs);
-    for (const b of document.querySelectorAll(`button[data-id="${id}"]`)) {
-      if (b.dataset.act === "save") b.disabled = false;
-      if (b.dataset.act === "approve") b.disabled = true; // approve exactly what's saved
-    }
-  };
-  for (const b of document.querySelectorAll("button[data-act]")) b.onclick = () => act(b.dataset.act, b.dataset.id, b);
-  if (location.hash.startsWith("#req_") && scrolledTo !== location.hash) { scrolledTo = location.hash; document.querySelector(location.hash)?.scrollIntoView({ block: "center" }); }
-}
-
-async function act(what, id, button) {
-  const view = requests.find(v => v.request.id === id);
-  const err = $(`err-${id}`);
-  if (err) err.textContent = "";
-  button.disabled = true;
-  try {
-    if (what === "approve") await api(`/api/requests/${id}/approve`, { confirmToken: view.confirmToken });
-    if (what === "save") { await api(`/api/requests/${id}/revise`, { edits: { questions: editing.get(id) } }); editing.delete(id); }
-    if (what === "replan") {
-      const answer = $(`answer-${id}`)?.value.trim();
-      if (!answer) throw new Error("say what should change");
-      button.textContent = "Planning…";
-      await api(`/api/requests/${id}/revise`, { answer });
-      editing.delete(id);
-    }
-    if (what === "cancel") await api(`/api/requests/${id}/cancel`, {});
-    await refresh();
-  } catch (e) { if (err) err.textContent = e.message; button.disabled = false; button.textContent = { approve: "Approve", save: "Save my edits", replan: "Plan again", cancel: "Discard" }[what] ?? button.textContent; }
-}
-
-$("convBtn").onclick = async () => {
-  $("convErr").textContent = "";
-  $("convBtn").disabled = true;
-  try {
-    const view = await api("/api/requests/conversation", { userId: $("convUser").value || null, focus: $("convFocus").value.trim(), mode: $("convMode").value });
-    $("convFocus").value = "";
-    location.hash = view.request.id;
-    await refresh();
-  } catch (e) { $("convErr").textContent = e.message; }
-  $("convBtn").disabled = false;
-};
-
-$("planBtn").onclick = async () => {
-  const instruction = $("instruction").value.trim();
-  if (!instruction) return;
-  $("planErr").textContent = "";
-  $("planBtn").disabled = true;
-  $("planBusy").textContent = "Planning… (a few seconds)";
-  try {
-    const view = await api("/api/requests", { instruction });
-    $("instruction").value = "";
-    location.hash = view.request.id;
-    await refresh();
-  } catch (e) { $("planErr").textContent = e.message; }
-  $("planBtn").disabled = false;
-  $("planBusy").textContent = "";
-};
-
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-// What Toni does for someone beyond notes, briefings and to-dos (src/features.mjs): one at a time.
-const FEATURES = [
-  ["note_whatsapp", "The note on WhatsApp after each call", "only what he confirmed, after WhatsApp calls"],
-  ["quotes", "Quotes as a PDF on WhatsApp", "offered after he confirms a job, on WhatsApp calls"],
-];
-function renderPeople(users, outbound) {
-  $("people").innerHTML = users.map(u => {
-    const w = { days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", ...(u.callWindow || {}) };
-    return `<div class="card" data-user="${esc(u.id)}">
-      <div class="title">${esc(u.name)} <span class="chip">${esc(u.lang)}</span>${u.demo ? '<span class="chip draft">demo</span>' : ""}${u.consentOutboundAt ? '<span class="chip done">may be called</span>' : ""}${u.outboundPaused ? '<span class="chip expired">paused</span>' : ""}</div>
-      ${u.demo ? '<div class="muted small" style="margin-top:4px">The online test phone, and calls from the number below. Its own memory; no research questions; nobody else\'s memory gets these calls.</div>' : ""}
-      <div class="grid2">
-        <div><label>Phone</label><input type="text" name="phone" value="${esc(u.phone)}" placeholder="+4915112345678"></div>
-        <div><label>Time zone</label><input type="text" name="timezone" value="${esc(u.timezone || "Europe/Berlin")}"></div>
-        <div><label>Calls from</label><input type="text" name="from" value="${esc(w.from)}"></div>
-        <div><label>until</label><input type="text" name="to" value="${esc(w.to)}"></div>
-      </div>
-      <div class="days">${DAYS.map((d, i) => `<label><input type="checkbox" name="day" value="${i + 1}" ${w.days.includes(i + 1) ? "checked" : ""}>${d}</label>`).join("")}</div>
-      <div class="callbox">
-        <div style="font-size:14px;font-weight:600">${esc(agentName())} calls ${esc(u.name)} on WhatsApp</div>
-        <div class="muted small" id="wa-${esc(u.id)}">${u.phone ? "Checking whether WhatsApp lets her call…" : "No phone number yet."}</div>
-        <div class="row"><input type="text" name="focus" placeholder="What should ${esc(agentName())} find out? (optional)" title="e.g. how his last inquiry went until the quote"></div>
-        <div class="row">
-          <button class="btn primary" data-call-now="${esc(u.id)}" ${u.phone ? "" : "disabled"}>Call now</button>
-          ${u.demo ? "" : `<button class="btn" data-rehearse="${esc(u.id)}" title="Rings the demo's number (yours) as if it were a call to ${esc(u.name)}: his memory, read only; the call is kept as the demo's">Rehearse on my phone</button>`}
-          <span class="muted small" id="callOut-${esc(u.id)}"></span>
-        </div>
-      </div>
-      <div style="margin-top:12px;font-size:14px;font-weight:600">What Toni does for ${esc(u.name)}</div>
-      <div class="muted small">Notes, briefings and to-dos always. Switch on the rest one at a time: Toni mentions a new one once, at the end of the next call.</div>
-      ${FEATURES.map(([id, label, sub]) => `<label class="check"><input type="checkbox" name="f_${id}" ${u.features?.[id] ? "checked" : ""}> ${esc(label)} <span class="muted small">(${esc(sub)}${u.features?.[id] ? `, on since ${esc(new Date(u.features[id]).toLocaleDateString())}` : ""})</span></label>`).join("")}
-      <details class="biz"><summary>Business details for quotes${u.business?.name ? `: ${esc(u.business.name)}` : " (without them, quotes are drafts)"}</summary>
-        <div class="grid2">
-          <div><label>Business name</label><input type="text" name="b_name" value="${esc(u.business?.name)}" placeholder="Fliesen Muster GmbH"></div>
-          <div><label>Address</label><input type="text" name="b_address" value="${esc(u.business?.address)}" placeholder="Hafenstraße 1, 78462 Konstanz"></div>
-          <div><label>Phone</label><input type="text" name="b_phone" value="${esc(u.business?.phone)}"></div>
-          <div><label>Email</label><input type="text" name="b_email" value="${esc(u.business?.email)}"></div>
-          <div><label>VAT no.</label><input type="text" name="b_taxId" value="${esc(u.business?.taxId)}" placeholder="DE123456789"></div>
-          <div><label>VAT % · currency</label><div style="display:flex;gap:6px"><input type="text" name="b_vatRate" value="${esc(u.business?.vatRate ?? "")}" placeholder="19"><input type="text" name="b_currency" value="${esc(u.business?.currency)}" placeholder="EUR"></div></div>
-        </div>
-      </details>
-      ${listsHtml(u)}
-      <label class="check"><input type="checkbox" name="consent" ${u.consentOutboundAt ? "checked" : ""}> Agreed to be called by the assistant${u.consentOutboundAt ? ` (since ${esc(new Date(u.consentOutboundAt).toLocaleDateString())})` : ""}</label>
-      <label class="check"><input type="checkbox" name="paused" ${u.outboundPaused ? "checked" : ""}> Pause calls to ${esc(u.name)}</label>
-      <div class="row"><button class="btn" data-save-user="${esc(u.id)}">Save</button>${outbound ? "" : '<span class="muted small">Planned calls (from requests) are off on this server; Call now works.</span>'}</div>
-      <div class="err" id="uerr-${esc(u.id)}"></div>
-    </div>`;
-  }).join("") || '<div class="empty">Nobody yet.</div>';
-  // Toni calls him: whether WhatsApp lets her (he allowed it in his chat), and the buttons.
-  for (const u of users.filter(x => x.phone)) callPermission(u);
-  const callNow = async (b, rehearse) => {
-    const id = b.dataset.callNow ?? b.dataset.rehearse;
-    const out = $(`callOut-${id}`);
-    const focus = b.closest("[data-user]").querySelector("[name=focus]").value.trim();
-    b.disabled = true; out.textContent = "Calling…";
-    try {
-      await api(`/api/users/${id}/call`, { focus, rehearse });
-      out.textContent = rehearse ? "Your phone rings now. The call shows up under Calls." : "It rings now (up to 45 seconds). The call shows up under Calls.";
-    } catch (e) { out.innerHTML = `<span class="err" style="display:inline">${esc(e.message)}</span>`; }
-    setTimeout(() => { b.disabled = false; }, 8000);
-  };
-  for (const b of document.querySelectorAll("[data-call-now]")) b.onclick = () => callNow(b, false);
-  for (const b of document.querySelectorAll("[data-rehearse]")) b.onclick = () => callNow(b, true);
-  for (const b of document.querySelectorAll("[data-save-user]")) b.onclick = async () => {
-    const card = b.closest("[data-user]");
-    const v = n => card.querySelector(`[name=${n}]`);
-    const patch = {
-      phone: v("phone").value.trim(), timezone: v("timezone").value.trim(),
-      callWindow: { days: [...card.querySelectorAll("[name=day]:checked")].map(x => Number(x.value)), from: v("from").value.trim(), to: v("to").value.trim() },
-      consentOutbound: v("consent").checked, outboundPaused: v("paused").checked,
-      business: Object.fromEntries(["name", "address", "phone", "email", "taxId", "vatRate", "currency"].map(k => [k, v(`b_${k}`).value.trim()])),
-      features: Object.fromEntries(FEATURES.map(([id]) => [id, v(`f_${id}`).checked])),
-      lists: { jobs: v("l_jobs").value, site: v("l_site").value, siteMax: v("l_siteMax").value.trim(), levels: v("l_levels").value },
-    };
-    const was = users.find(u => u.id === b.dataset.saveUser);
-    if (Boolean(was.consentOutboundAt) === patch.consentOutbound) delete patch.consentOutbound; // keep the original date
-    try { await api(`/api/users/${b.dataset.saveUser}`, patch); await refresh(true); } catch (e) { $(`uerr-${b.dataset.saveUser}`).textContent = e.message; }
-  };
-}
-// His lists (src/quotes/lists.mjs): what Toni goes through after he tells about a job, and how
-// the quote prices it. Plain text, so what he sends on WhatsApp can be pasted.
-function listsHtml(u) {
-  const l = u.lists || {};
-  const kinds = (l.jobs || "").split("\n").filter(x => x.trim().startsWith("#")).map(x => x.replace(/^#+/, "").trim()).filter(Boolean);
-  const summary = kinds.length ? `: ${kinds.join(", ")}` : (l.site || l.levels) ? "" : " (none yet)";
-  return `<details class="biz"><summary>Lists and prices for quotes${esc(summary)}</summary>
-    <div class="muted small" style="margin-top:6px">After ${esc(u.name)} tells about a job of one of these kinds, ${esc(agentName())} goes through what's still open: the job's list, the site, the quality level. He can say "reicht" anytime. A line with a price is priced on the quote: price × quality factor × site factor. A price he says in the call counts as it is.</div>
-    <label>Per kind of job: "# Badumbau", then one item per line: <code>Bodenfläche | m² | 65</code> (asked and priced), <code>Format Fliesen Boden</code> (just asked)</label>
-    <textarea name="l_jobs" rows="8" placeholder="# Badumbau&#10;Bodenfläche | m² | 65&#10;Wandfläche | m² | 60&#10;Format Fliesen Boden">${esc(l.jobs || "")}</textarea>
-    <label>The site: <code>Parkplatz | kein Parkplatz am Haus</code> (the question | when it makes the job harder); <code>Adresse</code> is just asked</label>
-    <textarea name="l_site" rows="5" placeholder="Adresse&#10;Haus oder Wohnung | Wohnung&#10;Stockwerk | ab 2. OG ohne Aufzug&#10;Laufweg | über 20 m&#10;Parkplatz | kein Parkplatz am Haus">${esc(l.site || "")}</textarea>
-    <div class="grid2"><div><label>Factor when all of it makes it harder</label><input type="text" name="l_siteMax" value="${esc(l.siteMax ?? "")}" placeholder="1,8"></div></div>
-    <label>Quality levels: <code>Hochwertig | 1,25</code></label>
-    <textarea name="l_levels" rows="4" placeholder="Low Budget | 0,85&#10;Standard | 1&#10;Hochwertig | 1,25&#10;Meisterstück | 1,5">${esc(l.levels || "")}</textarea>
-  </details>`;
-}
-async function callPermission(u) {
-  const el = $(`wa-${u.id}`);
-  if (!el) return;
-  let p;
-  try { p = await api(`/api/users/${u.id}/whatsapp`); } catch (e) { el.textContent = e.message; return; }
-  if (!p.available) { el.textContent = p.why; return; }
-  if (p.status === "permanent" || p.status === "temporary") {
-    el.textContent = `✅ ${u.name} allowed ${agentName()}'s calls${p.until ? ` until ${new Date(p.until).toLocaleDateString()}` : ""}.`;
-    return;
-  }
-  if (p.status !== "no_permission") { el.textContent = `Couldn't check with WhatsApp: ${p.error ?? p.status}`; return; }
-  el.innerHTML = `Not allowed yet: WhatsApp lets ${esc(agentName())} call ${esc(u.name)} only once he allows it.
-    <button class="link" data-ask="${esc(u.id)}">Ask him on WhatsApp</button> <span class="muted">(a message with an Allow button; works if he called or wrote to ${esc(agentName())} in the last 24 hours)</span>`;
-  el.querySelector("[data-ask]").onclick = async () => {
-    try { await api(`/api/users/${u.id}/whatsapp/ask`, {}); el.textContent = `Asked. Once ${u.name} taps Allow, ${agentName()} can call him (reload to check).`; }
-    catch (e) { el.innerHTML += `<div class="err">${esc(e.message)}</div>`; }
-  };
-}
-function renderJobs(jobs) {
-  $("jobsTitle").style.display = jobs.length ? "" : "none";
-  $("jobs").innerHTML = jobs.map(j => `<div class="card">
-    <div class="title">${esc(j.user_name)} <span class="chip ${j.status === "done" ? "done" : j.status === "failed" || j.status === "cancelled" ? "expired" : "approved"}">${esc(j.status)}</span>${j.outcome ? `<span class="chip">${esc(j.outcome)}</span>` : ""}</div>
-    <div class="muted small">try ${j.attempts} of ${j.max_attempts}${j.status === "queued" ? ` · next ${esc(new Date(j.next_attempt_at).toLocaleString())}` : ""}${j.call_id ? ` · <a href="#call/${encodeURIComponent(j.call_id)}">last call</a>` : ""}</div>
-    ${(j.log || []).length ? `<div class="log">${j.log.slice(-4).map(l => esc(l.text)).join("<br>")}</div>` : ""}
-  </div>`).join("");
-}
-
-// Jobs that keep failing (retrying, or given up): what after a call or a notification didn't go through.
-function renderQueue(queue) {
-  const trouble = queue.filter(j => j.status === "dead" || (j.status !== "done" && j.attempts > 1));
-  $("queueTitle").style.display = trouble.length ? "" : "none";
-  $("queue").innerHTML = trouble.map(j => `<div class="card">
-    <div class="title">${esc(j.kind)} <span class="chip ${j.status === "dead" ? "expired" : "approved"}">${j.status === "dead" ? "given up" : "retrying"}</span></div>
-    <div class="muted small">${esc(j.key)} · try ${j.attempts} of ${j.max_attempts}${j.status !== "dead" ? ` · next ${esc(new Date(j.run_at).toLocaleString())}` : ""}</div>
-    ${j.last_error ? `<div class="log">${esc(j.last_error)}</div>` : ""}
-  </div>`).join("");
-}
-
-// ---------- the team: who can log in ----------
-const isOwner = () => !me?.login || me?.me?.role === "owner";
-async function renderTeam() {
-  const { members } = await api("/api/team");
-  const self = me?.me?.id;
-  $("team").innerHTML = members.map(m => `<div class="member">
-      <div class="grow"><b>${esc(m.name || m.email)}</b> <span class="chip ${m.role === "owner" ? "approved" : ""}">${esc(m.role)}</span>${m.status === "invited" ? ' <span class="chip draft">invited</span>' : ""}${m.id === self ? ' <span class="chip">you</span>' : ""}
-        <div class="muted small">${esc(m.email)} · ${m.status === "invited" ? `link valid until ${esc(new Date(m.inviteExpiresAt).toLocaleDateString())}` : m.lastLoginAt ? `last login ${esc(new Date(m.lastLoginAt).toLocaleString())}` : "never logged in"}${m.invitedBy ? ` · invited by ${esc(m.invitedBy)}` : ""}</div></div>
-      ${isOwner() && m.id !== self ? `<button class="btn" data-reinvite="${esc(m.email)}" title="A new link; it also resets their password">New link</button><button class="btn danger" data-remove="${esc(m.id)}" data-name="${esc(m.name || m.email)}">Remove</button>` : ""}
-    </div>`).join("") || `<div class="muted small" style="padding:6px 0 10px">Nobody yet${me?.me?.id === "code" ? ": you're logged in with the admin code. Invite yourself too, so you have your own login." : "."}</div>`;
-  $("inviteForm").classList.toggle("hide", !isOwner());
-  $("teamNote").classList.toggle("hide", isOwner());
-  for (const b of document.querySelectorAll("[data-reinvite]")) b.onclick = () => invite(b.dataset.reinvite, "member");
-  for (const b of document.querySelectorAll("[data-remove]")) b.onclick = async () => {
-    if (!confirm(`Remove ${b.dataset.name}? They're logged out right away.`)) return;
-    try { await api(`/api/team/${b.dataset.remove}/remove`, {}); await renderTeam(); } catch (e) { $("teamErr").textContent = e.message; }
-  };
-}
-async function invite(email, role) {
-  $("teamErr").textContent = "";
-  try {
-    const { member, token } = await api("/api/team/invite", { email, role });
-    const link = `${location.origin}/admin#invite=${token}`;
-    $("invOut").innerHTML = `<div class="note">Send this link to ${esc(member.email)}${member.status === "active" ? " (it sets a new password)" : ""}. It works once, for 7 days.
-      <div class="row" style="margin-top:8px"><input type="text" readonly value="${esc(link)}" style="flex:1;width:auto;min-width:200px"><button class="btn" id="copyInvite">Copy</button></div></div>`;
-    $("copyInvite").onclick = () => copyText(link, $("copyInvite"));
-    $("invEmail").value = "";
-    await renderTeam();
-  } catch (e) { $("teamErr").textContent = e.message; }
-}
-$("invCreate").onclick = () => invite($("invEmail").value.trim(), $("invRole").value);
-
-// full: when a view opens (and after saving someone): the people and the team again too.
-async function refresh(full = false) {
-  if (view().name === "calls") return loadCalls();
-  if (view().name === "call") return loadCall(view().id);
-  if (view().name === "people" && full) await renderTeam().catch(e => { $("team").innerHTML = `<div class="err">${esc(e.message)}</div>`; });
-  const people = full;
-  const data = await api("/api/requests");
-  requests = data.requests;
-  if (people || !$("people").dataset.loaded) {
-    const u = await api("/api/users");
-    renderPeople(u.users, u.outbound);
-    // Who the day conversation is with: a choice once there's more than one person.
-    const pick = $("convUser"), was = pick.value;
-    pick.innerHTML = u.users.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
-    if (was) pick.value = was;
-    pick.style.display = u.users.length > 1 ? "" : "none";
-    $("people").dataset.loaded = "1";
-  }
-  api("/api/jobs").then(j => { renderJobs(j.jobs); renderQueue(j.queue || []); }).catch(() => {});
-  // Don't re-render under someone typing into a card.
-  if (document.activeElement?.matches?.("input[data-req], input[id^=answer-]")) return;
-  render();
-}
-
-// ---------- calls: the list, and one call's transcript and summary ----------
-const SOURCE = { whatsapp: "WhatsApp", dial: "Phone", twilio: "Phone", browser: "Test phone", script: "Script", fake: "Test" };
-const fmtWhen = ms => new Date(ms).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-const fmtDur = ms => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}`; };
-const agentName = () => me?.agent || "Toni";
-const callTitle = c => c.title || c.recap?.title || (c.rehearsalOf ? `Rehearsal: a call to ${c.rehearsalOf}` : c.userName ? `Call with ${c.userName}` : `Call from ${c.from || "an unknown number"}`);
-const callMeta = c => [c.rehearsalOf ? `rehearsal of a call to ${c.rehearsalOf}` : c.userName, c.direction === "outbound" ? `${agentName()} called ${c.to || ""}`.trim() : c.from, fmtWhen(c.startedAt), c.endedAt ? fmtDur(c.endedAt - c.startedAt) : "live now", SOURCE[c.source] ?? c.source].filter(Boolean);
-let calls = [], current = null, tab = null;
-
-async function loadCalls() {
-  calls = (await api("/api/calls")).calls;
-  const shown = calls.filter(c => !c.endedAt || c.turns > 0);
-  $("calls").innerHTML = shown.map(c => `<div class="card item${c.endedAt ? "" : " live"}" data-call="${esc(c.id)}">
-      <div class="title">${c.endedAt ? "" : '<span class="livedot"></span>'}${esc(callTitle(c))}${c.wishes?.length ? ` <span class="chip draft" title="${esc(c.wishes.map(w => w.what).join(" · "))}">asked for ${c.wishes.length === 1 ? "something new" : `${c.wishes.length} new things`}</span>` : ""}</div>
-      <div class="muted small">${callMeta(c).map(esc).join(" · ")}</div>
-      ${c.summary ? `<p class="sum">${esc(c.summary)}</p>` : ""}
-    </div>`).join("") || '<div class="empty">No calls yet.</div>';
-  const hidden = calls.length - shown.length;
-  $("callsHidden").textContent = hidden ? `${hidden} call${hidden > 1 ? "s" : ""} without a word not shown` : "";
-  for (const el of document.querySelectorAll("[data-call]")) el.onclick = () => { location.hash = `call/${encodeURIComponent(el.dataset.call)}`; };
-}
-
-// Who said what. Ended calls: the saved transcript; live ones: what the monitor has so far.
-const spoken = text => String(text ?? "").replace(/\s*\[(?:did|called|interrupted)[^\]]*\]/g, "").trim();
-function turnsOf(c) {
-  if (c.transcript?.length) return c.transcript.map(t => ({ role: t.role === "user" ? "user" : "agent", text: spoken(t.text), cut: /\[interrupted/.test(t.text) }))
-    .filter(t => t.text && !(t.role === "user" && /^\((?:You called him|System:|The caller is speaking)/.test(t.text)))
-    .map(t => (t.role === "user" && /^\(Silence/.test(t.text) ? { role: "hint", text: "(silence)" } : t));
-  const out = [];
-  for (const e of c.events ?? []) {
-    if (e.event === "heard" && e.text) out.push({ role: "user", text: e.text, turn: e.turn });
-    if (e.event === "say" && e.text) {
-      const last = out.at(-1);
-      if (last?.role === "agent" && last.turn === e.turn) last.text += (e.delta ? "" : " ") + e.text;
-      else out.push({ role: "agent", text: e.text, turn: e.turn });
-    }
-  }
-  return out;
-}
-const speaker = (c, t) => (t.role === "hint" ? "" : t.role === "user" ? (c.rehearsalOf ? `${c.rehearsalOf} (played)` : c.userName || "Caller") : agentName());
-
-// ---------- Markdown (what the copy buttons and the download give) ----------
-const mdHead = c => `# ${callTitle(c)}\n\n${callMeta(c).join(" · ")}\n`;
-function summaryMd(c) {
-  const r = c.recap;
-  if (!r) return "";
-  return ["## Summary", r.overview && r.overview.split("\n").map(l => `> ${l}`).join("\n"),
-    ...r.topics.map(t => `### ${t.heading}\n\n${t.points.map(p => `- ${p}`).join("\n")}`),
-    r.actions.length && `### Action items\n\n${r.actions.map(a => `- [ ] ${a.text}${[a.owner, a.due].filter(Boolean).length ? ` (${[a.owner, a.due].filter(Boolean).join(", ")})` : ""}`).join("\n")}`,
-    r.open_questions.length && `### Open questions\n\n${r.open_questions.map(q => `- ${q}`).join("\n")}`,
-  ].filter(Boolean).join("\n\n");
-}
-const transcriptMd = c => `## Transcript\n\n${turnsOf(c).map(t => (t.role === "hint" ? `_${t.text}_` : `**${speaker(c, t)}:** ${t.text}${t.cut ? " …" : ""}`)).join("\n\n")}`;
-// What the call was for: why Toni called, or her own item at the end of his call.
-const sentence = t => String(t ?? "").charAt(0) + String(t ?? "").slice(1).toLowerCase();
-const goalMd = c => (c.goal?.length ? `## ${c.direction === "outbound" ? `Why ${agentName()} called` : `${agentName()}'s own items`}\n\n${c.goal.map(g => `- **${sentence(g.title)}**${g.focus ? `: ${g.focus}` : ""}${g.questions?.length ? `\n${g.questions.map(q => `  - ${q}`).join("\n")}` : ""}`).join("\n")}\n` : "");
-function goalHtml(c) {
-  if (!c.goal?.length) return "";
-  return `<div class="goal"><div class="lbl">${c.direction === "outbound" ? `Why ${esc(agentName())} called` : `${esc(agentName())}'s own items`}${c.rehearsalOf ? ` · rehearsal, nothing kept in ${esc(c.rehearsalOf)}'s memory` : ""}</div>
-    ${c.goal.map(g => `<div style="margin-top:4px"><b>${esc(sentence(g.title))}</b>${g.focus ? `: ${esc(g.focus)}` : ""}
-      ${g.description ? `<div class="muted small">${esc(g.description)}</div>` : ""}
-      ${g.questions?.length ? `<ul>${g.questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul>` : ""}</div>`).join("")}</div>`;
-}
-// What he asked for that Toni can't do yet: for Max to build.
-const wishesMd = c => (c.wishes?.length ? `## Asked for, ${agentName()} can't do it yet\n\n${c.wishes.map(w => `- **${w.what}**${w.why ? ` (for: ${w.why})` : ""}${w.quote ? ` “${w.quote}”` : ""}`).join("\n")}\n` : "");
-function wishesHtml(c) {
-  if (!c.wishes?.length) return "";
-  return `<div class="goal wish"><div class="lbl">Asked for, ${esc(agentName())} can't do it yet: for you to build</div>
-    ${c.wishes.map(w => `<div style="margin-top:4px"><b>${esc(w.what)}</b>${w.why ? ` <span class="muted">(for: ${esc(w.why)})</span>` : ""}${w.quote ? ` <span class="quote">“${esc(w.quote)}”</span>` : ""}</div>`).join("")}</div>`;
-}
-async function copyText(text, button) {
-  try { await navigator.clipboard.writeText(text); } catch {
-    const ta = document.createElement("textarea"); ta.value = text; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove();
-  }
-  const was = button.innerHTML;
-  button.innerHTML = "Copied";
-  setTimeout(() => { button.innerHTML = was; }, 1400);
-}
-function download(c) {
-  const md = [mdHead(c), goalMd(c), wishesMd(c), summaryMd(c), transcriptMd(c)].filter(Boolean).join("\n");
-  const slug = callTitle(c).toLowerCase().replace(/[äöüß]/g, ch => ({ ä: "ae", ö: "oe", ü: "ue", ß: "ss" })[ch]).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([md + "\n"], { type: "text/markdown" })), download: `${new Date(c.startedAt).toISOString().slice(0, 10)}-${slug || "call"}.md` });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
-const ICON_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/></svg>';
-const ICON_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg>';
-
-async function loadCall(id) {
-  const c = await api(`/api/calls/${encodeURIComponent(id)}`);
-  const changed = JSON.stringify([c.endedAt, c.recap, turnsOf(c).length, c.quotes]) !== JSON.stringify([current?.endedAt, current?.recap, current && turnsOf(current).length, current?.quotes]) || current?.id !== c.id;
-  if (current?.id !== c.id) tab = null;
-  current = c;
-  if (changed) renderCall();
-}
-function renderCall() {
-  const c = current;
-  tab ??= c.endedAt ? "summary" : "transcript";
-  $("view-call").innerHTML = `<a href="#calls" class="back">‹ Calls</a>
-    <h1>${c.endedAt ? "" : '<span class="livedot" style="vertical-align:middle;margin-right:8px"></span>'}${esc(callTitle(c))}</h1>
-    <div class="muted small" style="margin-top:6px">${callMeta(c).map(esc).join(" · ")} · <a href="${callLink(c.id)}" target="_blank">timeline</a></div>
-    ${goalHtml(c)}
-    ${wishesHtml(c)}
-    ${quotesHtml(c)}
-    <div class="tabs">
-      <button class="tab ${tab === "transcript" ? "on" : ""}" data-tab="transcript">Transcript</button>
-      <button class="tab ${tab === "summary" ? "on" : ""}" data-tab="summary">✦ Summary</button>
-      <span class="tools">
-        <button class="icon" id="copyTab" title="Copy this tab as Markdown">${ICON_COPY}<span class="lbl">Copy</span></button>
-        <button class="icon" id="downloadMd" title="Download summary and transcript as a Markdown file">${ICON_DOWN}<span class="lbl">.md</span></button>
-      </span>
-    </div>
-    <div class="doc">${tab === "summary" ? summaryHtml(c) : transcriptHtml(c)}</div>`;
-  for (const b of document.querySelectorAll("[data-tab]")) b.onclick = () => { tab = b.dataset.tab; renderCall(); };
-  $("copyTab").onclick = () => copyText([mdHead(c), tab === "summary" ? [goalMd(c), wishesMd(c), summaryMd(c) || "(no summary yet)"].filter(Boolean).join("\n") : transcriptMd(c)].join("\n"), $("copyTab"));
-  $("downloadMd").onclick = () => download(c);
-  const write = $("writeRecap");
-  if (write) write.onclick = async () => {
-    write.disabled = true; write.textContent = "Writing… (about 10 seconds)";
-    try { const { recap } = await api(`/api/calls/${encodeURIComponent(c.id)}/recap`, {}); current = { ...c, recap }; tab = "summary"; renderCall(); }
-    catch (e) { write.disabled = false; write.textContent = "Try again"; $("recapErr").textContent = e.message; }
-  };
-}
-// Quotes made in this call (quote_send): the PDF, made again from its data.
-const money = (n, currency) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(n); } catch { return `${n} ${currency}`; } };
-const QUOTE_STATUS = { sent: "sent to WhatsApp", saved: "saved", failed: "not sent" };
-// How his list prices were worked out (src/quotes/lists.mjs): the quality level and the site's factor.
-const calcText = c => (c?.fromList ? ` · ${esc([c.quality ? `${c.quality.name} ×${c.quality.factor}` : "", c.site?.factor > 1 ? `site ×${c.site.factor} (${c.site.unfavourable.join(", ")})` : "", `${c.fromList} from his list`].filter(Boolean).join(", "))}` : "");
-function quotesHtml(c) {
-  if (!c.quotes?.length) return "";
-  return `<div class="quotes">${c.quotes.map(q => `<a class="quote" href="${withDev(`/api/quotes/${encodeURIComponent(q.id)}/pdf`)}" target="_blank" title="${esc(q.error || "Open the PDF")}">📄 ${q.draft ? "Draft quote" : "Quote"} ${esc(q.number)}${q.customer ? ` · ${esc(q.customer)}` : ""}${q.gross != null ? ` · ${esc(money(q.gross, q.currency))}` : ""}${calcText(q.calc)} <span class="st ${esc(q.status)}">· ${esc(QUOTE_STATUS[q.status] ?? q.status)}</span></a>`).join("")}</div>`;
-}
-function summaryHtml(c) {
-  const r = c.recap;
-  const spoke = turnsOf(c).some(t => t.role === "user");
-  if (!r) return `<div class="empty" style="padding:12px">${!c.endedAt ? "The summary is written when the call ends." : !spoke ? "Nothing was said in this call." : `No summary yet.<div class="row" style="justify-content:center"><button class="btn primary" id="writeRecap">Write the summary</button></div><div class="err" id="recapErr"></div>`}</div>`;
-  return `${r.overview ? `<div class="overview">${esc(r.overview)}</div>` : ""}
-    ${r.topics.map(t => `<h3>${esc(t.heading)}</h3><ul>${t.points.map(p => `<li>${esc(p)}</li>`).join("")}</ul>`).join("")}
-    ${r.actions.length ? `<h3>Action items</h3><ul class="todo">${r.actions.map(a => `<li><span class="box"></span><span>${esc(a.text)}${[a.owner, a.due].filter(Boolean).length ? ` <span class="muted">· ${esc([a.owner, a.due].filter(Boolean).join(", "))}</span>` : ""}</span></li>`).join("")}</ul>` : ""}
-    ${r.open_questions.length ? `<h3>Open questions</h3><ul>${r.open_questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul>` : ""}
-    <div class="foot">Written by Gemini from the transcript${r.writtenAt ? `, ${esc(new Date(r.writtenAt).toLocaleString())}` : ""} · <button class="link" id="writeRecap">Write it again</button><span class="err" id="recapErr"></span></div>`;
-}
-function transcriptHtml(c) {
-  const turns = turnsOf(c);
-  return turns.map(t => (t.role === "hint" ? `<div class="turn hint">${esc(t.text)}</div>` : `<div class="turn ${t.role}"><div class="who">${esc(speaker(c, t))}</div><div>${esc(t.text)}${t.cut ? ' <span class="muted">…</span>' : ""}</div></div>`)).join("")
-    || `<div class="empty" style="padding:12px">${c.endedAt ? "Nothing was said in this call." : "Waiting for the first words…"}</div>`;
-}
-
-// ---------- views: #calls, #call/<id>, #requests (and #req_… for one request), #people ----------
-function view() {
-  const h = decodeURIComponent(location.hash.slice(1));
-  if (h.startsWith("call/")) return { name: "call", id: h.slice(5) };
-  if (h === "requests" || h.startsWith("req_")) return { name: "requests" };
-  if (h === "people") return { name: "people" };
-  return { name: "calls" };
-}
-function showView() {
-  const v = view();
-  for (const el of document.querySelectorAll(".view")) el.style.display = el.id === `view-${v.name}` ? "" : "none";
-  for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", a.dataset.view === (v.name === "call" ? "calls" : v.name));
-  if (v.name !== "call") current = null;
-  else if (current?.id !== v.id) $("view-call").innerHTML = '<div class="empty">…</div>';
-  refresh(true).catch(e => { if (v.name === "call") $("view-call").innerHTML = `<a href="#calls" class="back">‹ Calls</a><div class="err">${esc(e.message)}</div>`; });
-  if (v.name !== "requests") scrollTo(0, 0);
-}
-addEventListener("hashchange", () => { if (location.hash.startsWith("#invite=")) return showInvite(location.hash.slice(8)); if ($("app").style.display !== "none") showView(); });
-
-async function start() {
-  if (location.hash.startsWith("#invite=")) return showInvite(location.hash.slice(8));
-  try {
-    me = await (await fetch(withDev("/api/admin/me"))).json();
-    if (!me.admin) return showLogin();
-    showOnly("app");
-    $("logout").style.display = me.login ? "" : "none";
-    $("devNote").style.display = me.login ? "none" : "";
-    $("whoami").textContent = me.me?.name ?? "";
-    $("notify").textContent = me.notify?.length ? `results by ${me.notify.join(" + ")}` : "results here only";
-    $("monitorLink").href = withDev("/monitor");
-    showView();
-  } catch (e) { showLogin(); }
-}
-start();
-// Every 10 s; a live call every 3 s.
-setInterval(() => { if ($("app").style.display !== "none" && !(view().name === "call" && current && !current.endedAt)) refresh().catch(() => {}); }, 10000);
-setInterval(() => { if ($("app").style.display !== "none" && view().name === "call" && current && !current.endedAt) loadCall(current.id).catch(() => {}); }, 3000);
-</script>
+<script type="module" src="/admin/main.ts"></script>
 </body>
 </html>

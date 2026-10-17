@@ -1,0 +1,22 @@
+{
+  // The pages' TypeScript: checked here (npx tsc -p web), never built. The server strips the
+  // types when it serves a .ts file (src/http/static.ts), so only erasable syntax: no enums,
+  // namespaces or parameter properties; `import type` for types; `.ts` in relative imports.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["**/*.ts"]
+}

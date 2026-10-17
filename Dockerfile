@@ -6,7 +6,7 @@ ENV NODE_ENV=production
 ARG SMART_TURN=0
 COPY package.json package-lock.json ./
 RUN if [ "$SMART_TURN" = "1" ]; then npm ci --omit=dev; else npm ci --omit=dev --omit=optional; fi
-COPY server.mjs ./
+COPY server.ts ./
 COPY src ./src
 COPY web ./web
 # read at startup: the research framework, languages, personas, templates
@@ -14,9 +14,9 @@ COPY config ./config
 COPY locales ./locales
 COPY personas ./personas
 COPY templates ./templates
-COPY scripts/smart-turn-fetch.mjs ./scripts/smart-turn-fetch.mjs
-RUN if [ "$SMART_TURN" = "1" ]; then node scripts/smart-turn-fetch.mjs; fi
+COPY scripts/smart-turn-fetch.ts ./scripts/smart-turn-fetch.ts
+RUN if [ "$SMART_TURN" = "1" ]; then node scripts/smart-turn-fetch.ts; fi
 # No state in the image or on its disk: everything lives in Postgres.
 USER node
 # Cloud Run sets PORT (8080). The secrets come as one file (Secret Manager, mounted at /secrets/env).
-CMD ["node", "--env-file-if-exists=/secrets/env", "server.mjs"]
+CMD ["node", "--env-file-if-exists=/secrets/env", "server.ts"]

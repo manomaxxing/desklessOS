@@ -1,0 +1,28 @@
+/* The pages' colours, light and dark (data-theme="light|dark" on <html> forces one).
+   The admin page darkens --green, --red and --orange in light mode, for text on white. */
+:root {
+  --bg: #f5f5f7; --bg2: #ffffff; --glass: rgba(255,255,255,.72);
+  --ink: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6; --sep: rgba(0,0,0,.08); --fill: rgba(118,118,128,.12);
+  --blue: #0a84ff; --green: #30d158; --red: #ff453a; --orange: #ff9f0a; --sel: rgba(10,132,255,.09);
+  --bubble-agent: #e9e9eb; --bubble-agent-ink: #1d1d1f;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 32px rgba(0,0,0,.06);
+  --g1: #4285f4; --g2: #9b72cb; --g3: #d96570; --g4: #f6b26b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
+    --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
+    --green: #30d158; --red: #ff453a; --orange: #ff9f0a; --sel: rgba(10,132,255,.18);
+    --bubble-agent: #262628; --bubble-agent-ink: #f5f5f7;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #000; --bg2: #1c1c1e; --glass: rgba(28,28,30,.66);
+  --ink: #f5f5f7; --muted: #98989d; --faint: #636366; --sep: rgba(255,255,255,.09); --fill: rgba(118,118,128,.24);
+  --green: #30d158; --red: #ff453a; --orange: #ff9f0a; --sel: rgba(10,132,255,.18);
+  --bubble-agent: #262628; --bubble-agent-ink: #f5f5f7;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
+}
+/* Hidden, but still read out and focusable (a checkbox drawn as a switch). */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

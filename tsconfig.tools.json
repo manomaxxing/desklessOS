@@ -1,0 +1,12 @@
+{
+  // Tests and dev scripts: type-checked for what breaks them (a renamed export, a changed
+  // signature, a wrong property), without strict mode: test fakes are partial on purpose, and
+  // one-off scripts needn't prove every value non-null. The server's own code (tsconfig.json) is strict.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": false,
+    "noImplicitAny": false,
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["scripts/**/*.ts", "test/**/*.ts"]
+}

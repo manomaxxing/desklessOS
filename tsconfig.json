@@ -1,0 +1,23 @@
+{
+  // TypeScript without a build step: Node 24 runs the .ts files itself by stripping the types
+  // (erasable syntax only: no enums, namespaces or parameter properties). tsc only checks.
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true
+  },
+  // The product is strict throughout. Tests and dev scripts: tsconfig.tools.json.
+  "include": ["server.ts", "src/**/*.ts"]
+}

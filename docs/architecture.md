@@ -86,22 +86,24 @@ flowchart LR
 
 | Component | Files | Responsibility |
 |---|---|---|
-| Composition root | `server.mjs`, `src/app.mjs`, `src/config.mjs` | builds every part once from validated config; start, drain on SIGTERM |
-| Telephony | `src/telephony/{dial,twilio,whatsapp,fake,host}.mjs` (+ `webrtc-audio.mjs`) | carrier protocols → one frame protocol; signatures; calls on this instance |
-| Call wiring | `src/calls/start.mjs` | who's calling, the agenda, the engine, and the call's end |
-| Engines | `src/engine/session.mjs` (+ vad, reply, gemini, fish, audio); `src/engine/live-session.mjs` | the conversation. Gemini + Fish: our turn-taking, hedged Gemini stream, Fish, tools. Gemini Live (`ENGINE=live`): native audio in and out, falls back to Gemini + Fish. Both checkpoint the call and end it the same way |
+| Composition root | `server.ts`, `src/app.ts`, `src/config.ts` | builds every part once from validated config; start, drain on SIGTERM |
+| Telephony | `src/telephony/{dial,twilio,whatsapp,fake,host}.ts` (+ `webrtc-audio.ts`) | carrier protocols → one frame protocol; signatures; calls on this instance |
+| Call wiring | `src/calls/start.ts` | who's calling, the agenda, the engine, and the call's end |
+| Engines | `src/engine/session.ts` (the state machine; its parts: `timing`, `hedged-stream`, `clips`, `turn-rules`, + vad, reply, gemini, fish, audio); `src/engine/live-session.ts`; shared: `call-record.ts` (transcript, note, checkpoints), `telemetry.ts` (events, costs, recordings) | the conversation. Gemini + Fish: our turn-taking, hedged Gemini stream, Fish, tools. Gemini Live (`ENGINE=live`): native audio in and out, falls back to Gemini + Fish. Both checkpoint the call, audit tool writes and end it the same way |
 | Agenda | `src/agenda/*`, `personas/`, `templates/`, `locales/` | what a call is about: persona, capabilities, objectives, prompts, note schema |
-| Memory | `src/memory/*` | the data layer: context per call, search, the call row, after-call writes |
-| After-call | `src/calls/after-call.mjs`, `recap.mjs` | final note, note saved, objectives, requests, outbound outcome, memory, the call's summary |
-| Job queue | `src/jobs/queue.mjs` | all background work, at least once, retried, dead letters |
-| Background tick | `src/jobs/background.mjs` | lost calls, due jobs, outbound calls, embeddings |
-| Outbound | `src/jobs/scheduler.mjs`, `windows.mjs` | errands, guard (consent, window, cap, on a call), retries |
-| Features | `src/features.mjs`, `templates/feature.intro.json` | what Toni does per person beyond notes, briefings and to-dos (People card switches): the confirmed note into his WhatsApp chat after a call (`src/calls/note-message.mjs`, from the after-call job), quotes; a switched-on one is mentioned once (`tell` primitive) |
-| Quotes | `src/quotes/*`, `src/tools/quote.mjs` | `quote_send` in the call (after his yes): line items → totals in code → PDF (locale pack texts) → his WhatsApp chat (`whatsappSender`: media upload, document message) |
-| Admin | `src/admin/*`, `src/notify.mjs`, `web/admin.html` | the team's logins (`team.mjs`) and the owner's code + TOTP, calls (summary, transcript, Markdown), planner, cards, approval, notifications |
-| Bus | `src/bus.mjs` | messages between instances (Postgres NOTIFY) |
-| Monitor | `src/monitor.mjs`, `web/monitor.html` | live timelines (all instances), call log from Postgres |
-| HTTP API | `src/http/api.mjs` | one route table with an access level per route |
+| Memory | `src/memory/*` (`pg.ts` is the front over `users`, `call-scope`, `calls`, `post-call`, `context`, `search`, `embeddings`, `*-store`, `overviews`) | the data layer: context per call, search, the call row, after-call writes |
+| After-call | `src/calls/after-call.ts`, `recap.ts` | final note, note saved, objectives, requests, outbound outcome, memory, the call's summary |
+| Job queue | `src/jobs/queue.ts` | all background work, at least once, retried, dead letters |
+| Background tick | `src/jobs/background.ts` | lost calls, due jobs, outbound calls, embeddings |
+| Outbound | `src/jobs/scheduler.ts`, `windows.ts` | errands, guard (consent, window, cap, on a call), retries |
+| Features | `src/features.ts`, `templates/feature.intro.json` | what Toni does per person beyond notes, briefings and to-dos (People card switches): the confirmed note into his WhatsApp chat after a call (`src/calls/note-message.ts`, from the after-call job), quotes; a switched-on one is mentioned once (`tell` primitive) |
+| Quotes | `src/quotes/*`, `src/tools/quote.ts` | `quote_send` in the call (after his yes): line items → totals in code → PDF (locale pack texts) → his WhatsApp chat (`whatsappSender`: media upload, document message) |
+| Admin | `src/admin/*`, `src/notify.ts`, `web/admin.html` | the team's logins (`team.ts`) and the owner's code + TOTP, calls (summary, transcript, Markdown), planner, cards, approval, notifications |
+| Bus | `src/bus.ts` | messages between instances (Postgres NOTIFY) |
+| Monitor | `src/monitor.ts`, `web/monitor.html` | live timelines (all instances), call log from Postgres |
+| HTTP API | `src/http/api.ts`, `routes/*`, `router.ts`, `access.ts`, `static.ts` | one route table with an access level per route; the pages' TypeScript served as JavaScript (types stripped, ETag) |
+| Pages | `web/{phone,monitor,admin,shared}/*.ts` | typed modules, no framework, no build; one escaping template for HTML |
+| Contracts | `src/types/*` | the shapes every layer shares: frames, calls, users, notes, agenda, tools |
 
 ## 4. Key flows
 
@@ -183,7 +185,7 @@ only the server's service role reads and writes. Schema: `src/db/migrations/` (`
 
 ## 6. API
 
-One table in `src/http/api.mjs`; each route has an access level.
+One table in `src/http/api.ts`; each route has an access level.
 
 | Access | Who | Routes |
 |---|---|---|
@@ -321,7 +323,7 @@ is a `pg_dump` of the schema.
 **Cutover from Fly:**
 1. Copy the volume: `fly ssh console -C "tar czf /tmp/data.tgz -C /data ."`, then
    `fly ssh sftp get /tmp/data.tgz`, and unpack it locally.
-2. Move it in: `DATA_DIR=<copy> DATABASE_URL=<supabase> node scripts/migrate-json-to-pg.mjs`.
+2. Move it in: `DATA_DIR=<copy> DATABASE_URL=<supabase> node scripts/migrate-json-to-pg.ts`.
    It's safe to re-run, and checks the counts.
 3. Deploy with `deploy/cloudrun.sh`.
 4. Point Dial (`npm run dial -- activate wss://…/dial`) and the Twilio number's webhook at
@@ -354,7 +356,7 @@ is a `pg_dump` of the schema.
    needs the room, or when the org goes to Pro.
 8. **Tests against real Postgres:** unit and regression tests run on PGlite. The first deploy
    found a difference: postgres.js JSON-encoded jsonb values a second time (fixed in
-   `src/db/client.mjs`, with a test). Add a test run against a throwaway Supabase schema.
+   `src/db/client.ts`, with a test). Add a test run against a throwaway Supabase schema.
 9. **Alerting:** a log-based alert on `severity>=ERROR` and on dead jobs (Cloud Monitoring, free tier).
 10. **Postgres down mid-call:** the call's end write is lost. Keep the final state in the
    job payload, or retry the end write.
@@ -365,8 +367,8 @@ is a `pg_dump` of the schema.
 
 ## 12. Audit: what changed and why
 
-Before: 7,351 lines of server code in 62 files, a 430-line `server.mjs`, and a 903-line test
-page. After: 6,348 lines in 60 files, a 22-line `server.mjs`, and a 609-line test page,
+Before: 7,351 lines of server code in 62 files, a 430-line `server.ts`, and a 903-line test
+page. After: 6,348 lines in 60 files, a 22-line `server.ts`, and a 609-line test page,
 with the queue, after-call job, bus, voice cache, config check and route table added.
 Everything removed is at git tag `pre-cloud-run`.
 
@@ -378,7 +380,7 @@ Everything removed is at git tag `pre-cloud-run`.
 | Three ad-hoc queues (consolidation status, notification outbox, in-process timers) | three retry policies, none visible | one `jobs` table: backoff, leases, dead letters, admin view |
 | Transcript only in memory until hang-up | an instance crash lost the whole call | checkpoint after every turn; lost-call sweep |
 | In-process facts used across instances: answering-machine map, "on a call" | wrong as soon as a second instance runs | bus (LISTEN/NOTIFY) and the `calls` table |
-| `server.mjs` did everything (430 lines: config, routes, auth, call wiring, timers) | no seams, hard to test | composition root + `config.mjs` (validated at boot) + route table + `calls/start.mjs` |
+| `server.ts` did everything (430 lines: config, routes, auth, call wiring, timers) | no seams, hard to test | composition root + `config.mjs` (validated at boot) + route table + `calls/start.mjs` |
 | API open to anyone when only `ADMIN_CODE` was set (`/api/notes`, `/api/memory`: customer data) | data exposure on a public deploy | any of `DEV_TOKEN` / `ADMIN_CODE` closes it; Cloud Run refuses to start open |
 | `POST /api/demo/reset` deleted the database's rows | one request from data loss | removed |
 | Vertex via a service-account JSON key in an env var | long-lived key to leak | metadata-server token on Cloud Run |
@@ -386,6 +388,28 @@ Everything removed is at git tag `pre-cloud-run`.
 | Deploys stopped the process with calls on it | calls cut and their notes lost | SIGTERM: calls end, are saved, and their jobs queued |
 | Unstructured logs | hard to search and alert on in Cloud Logging | JSON lines with severity on Cloud Run |
 | Features with no current user: office demo (orders, quotes, calendar, cockpit), Gemini Live engine, Gemini TTS | ~40% of the surface for demos | cut (tag `pre-cloud-run`); Dial kept: it's the live line until Twilio is set up. Gemini Live came back on 2026-10-14 as an option (`ENGINE=live`), on the same checkpoint and after-call contract |
+
+### 12.1 TypeScript, modules and a bug pass (2026-10-16)
+
+All server code, scripts, tests and the three pages are TypeScript, run without a build
+(Node 24 strips the types; the pages' modules are stripped when served). Server code is
+checked strictly (`tsc -p .`), the pages too (`tsc -p web`), tests and scripts less
+strictly (`tsconfig.tools.json`). Shared shapes live in `src/types/`; outside data (JSON
+bodies, webhooks, model answers, database JSON) stays `unknown` until it's checked.
+Server code went from 8,727 lines in 71 files to 13,564 in 112: types, input checks, and
+the fixes below; the biggest files were split.
+
+| Finding | Why it mattered | Change |
+|---|---|---|
+| Untyped JavaScript, one shape per call site | renames and wrong fields found only at runtime | `src/types/*` contracts; strict checks; no `any` in server code; about a dozen casts left, each commented and at a boundary (the Postgres driver, JSON we wrote or ship, the model's answers); request bodies are checked field by field |
+| `memory/pg.mjs` (980 lines), `http/api.mjs`, `engine/session.mjs` (1,050 lines) | hard to read, test or change one part | memory: users, call scope, calls, post-call, search, stores; HTTP: router, access, static, one route file per area; engine: timing, hedged stream, clips, turn rules, call record, telemetry (the last two shared by both engines) |
+| An unknown caller among several users got the first user's memory | someone else's customers in his call | a number not on file is nobody: empty memory, nothing saved |
+| Gemini Live ran tools that need his yes with the yes assumed | a quote could go out without his OK | his last words checked in code, as on the cascade |
+| Tool writes weren't recorded anywhere (`tool_runs` existed, unused) | no audit of what a call changed | every write's outcome recorded, keyed per call and input |
+| Crash paths: a frame that throws, a late socket, a time limit ignored | one bad frame could end every call on the instance | the call host never rejects; engines guard every frame; the time limit always ends the call |
+| Races: two approvals of one request, a queue job's lease lost mid-run, a stuck outbound errand | duplicate objectives; a job finished twice; questions blocked forever | conditional transitions; fenced, renewed leases; sweeps that end stuck errands |
+| Money as floats in quotes | 32.5 × 19.99 off by a cent | cents in integers; quantities ≤ 0 and absurd amounts refused |
+| The pages: HTML built by string concatenation, polling while hidden, a stale load overwriting a newer one | injection risk, cost on Cloud Run, wrong buttons after Approve | one escaping template, nothing polls while hidden, the latest load wins; typed modules under `web/` |
 
 **Decisions worth knowing:**
 - **Postgres as queue and bus** rather than Cloud Tasks, Pub/Sub or Redis: one dependency,

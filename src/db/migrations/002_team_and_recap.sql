@@ -1,4 +1,4 @@
--- Who can log in to the admin page (src/admin/team.mjs). An owner invites someone by
+-- Who can log in to the admin page (src/admin/team.ts). An owner invites someone by
 -- email; they set their name and password on the link (it works once, for 7 days).
 -- Passwords are scrypt hashes; an invite is kept as the SHA-256 of its token.
 -- session_version ends someone's sessions: a new password bumps it, removal deletes the row.
@@ -17,6 +17,6 @@ create table members (
 );
 alter table members enable row level security;
 
--- The call's summary for the dashboard (src/calls/recap.mjs): title, overview, topics,
+-- The call's summary for the dashboard (src/calls/recap.ts): title, overview, topics,
 -- action items, open questions. Written by the after-call job, or on demand.
 alter table calls add column recap jsonb;
