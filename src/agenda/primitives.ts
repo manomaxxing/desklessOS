@@ -193,6 +193,10 @@ const ask: Primitive = {
     return [
       `${c.r(s.title ?? "MAX'S QUESTION")}${purpose ? ` (${purpose})` : ""}: ${questions.length === 1 ? "ask this" : "ask these, one at a time"}.${written}`,
       ...questions.map(q => `   ${q.id}: "${q.ask}"${q.probe ? ` If his answer is vague, one follow-up: "${q.probe}"` : ""}${q.required ? "" : " (only if he has time)"}`),
+      // Not a questionnaire: Max's wording is what to find out, not a script.
+      "   Not a questionnaire: ask in your own words, short and casual, never read out word for word; don't announce how",
+      "   many there are or number them. Let him answer as long as he likes and react in two or three words before the",
+      "   next; link it to what he just said when you can. One he already answered along the way counts: skip it.",
     ].join("\n");
   },
   output: (s, c) => ({

@@ -145,9 +145,10 @@ test("his day: a conversation by his time of day, picking up where the last call
   const morning = first.prompt({ lang: "de", now: new Date("2026-10-14T06:40:00Z") });
   assert.match(morning, /it's 08:40, early morning, his day has barely started for him/);
   assert.match(morning, /"Wie war's gestern\? Oder was steht heute an\?"/);
-  assert.match(morning, /LISTEN MORE THAN YOU ASK/);
-  assert.match(morning, /A reaction on its own \("Verstehe\.", "Ah, okay\."[^]*two or three plain words, then stop/, "neutral reactions from the locale pack");
-  assert.match(morning, /When a question is due, say it in THIS reply/);
+  assert.match(morning, /IT'S A CHAT, NOT AN INTERVIEW/);
+  assert.match(morning, /a reaction \("Verstehe\.", "Ah, okay\."[^]*two or three plain words, then stop/, "neutral reactions from the locale pack");
+  assert.match(morning, /an invitation to go on \("Erzähl mal\."/, "and invitations to go on");
+  assert.match(morning, /A question goes in THIS reply/);
   assert.doesNotMatch(morning, /FROM EARLIER CALLS/);
   assert.match(first.prompt({ lang: "de", now: new Date("2026-10-14T16:10:00Z") }), /it's 18:10, evening for him/);
 
