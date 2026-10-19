@@ -18,6 +18,7 @@
     "report": "node --env-file-if-exists=.env scripts/report.ts",
     "regress": "node --env-file-if-exists=.env scripts/regress.ts",
     "eval": "node --env-file-if-exists=.env scripts/eval.ts",
+    "eval:full": "JUDGE_MODEL=gemini-2.5-pro node --env-file-if-exists=.env scripts/eval.ts 3",
     "locale:check": "node scripts/locale-check.ts",
     "admin:totp": "node scripts/admin-totp.ts",
     "migrate:pg": "node --env-file-if-exists=.env scripts/migrate-json-to-pg.ts",

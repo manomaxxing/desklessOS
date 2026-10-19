@@ -1,11 +1,18 @@
-// Conversation quality, offline: Toni's real prompts in 12 situations (most from real calls:
+// Conversation quality, offline: Toni's real prompts in ~20 situations (most from real calls:
 // an impossible request, a one-word "Okay", unclear audio, "00:00", a goodbye with research due,
 // his checklist, quality levels, the summary, the quote offer, a briefing, his to-dos, a sentence
-// broken off), each model × K samples, judged by gemini-2.5-pro against a fixed rubric (general
-// rules + one per situation). Text stands in for his audio, so it measures what Toni says, not
-// how fast she hears. Run it before and after a prompt change.
-//   npm run eval -- [K=3] [models=gemini-3.5-flash] [out.json]     ONLY=terse_okay,agenda for some
-import { writeFileSync } from "node:fs";
+// broken off, his day), each model × K samples, against a fixed rubric (general rules + one per
+// situation). Text stands in for his audio, so it measures what Toni says, not how fast she hears.
+// Fast enough to run on every prompt change:
+//   - in parallel (EVAL_CONCURRENCY, default 6; 429s back off and retry);
+//   - rules code can count (one question, none, NEXT wait, no goodbye, two sentences) are checked
+//     in code; only the rest goes to the judge (JUDGE_MODEL, default gemini-3.5-flash);
+//   - cached by what goes in (the system prompt, the history, the model, the sample): a run after a
+//     change to his day re-asks only the situations whose prompt changed. FRESH=1 ignores the cache.
+//   npm run eval -- [K=1] [models=gemini-3.5-flash] [out.json]     ONLY=terse_okay,agenda for some
+//   npm run eval:full                                               K=3, judged by gemini-2.5-pro
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadSkillFromTemplates } from "../src/skills/from-templates.ts";
@@ -17,7 +24,7 @@ import { quoteSend } from "../src/tools/quote.ts";
 import { declaration } from "../src/tools/registry.ts";
 import type { Schema } from "../src/types/gemini.ts";
 
-const [K = 3, modelList = "gemini-3.5-flash", outFile = path.join(tmpdir(), "deskless-eval.json")] = process.argv.slice(2);
+const [K = 1, modelList = "gemini-3.5-flash", outFile = path.join(tmpdir(), "deskless-eval.json")] = process.argv.slice(2);
 const MODELS = modelList.split(",");
 const endpoint = geminiEndpoint(process.env);
 const skill = loadSkillFromTemplates("pilot");
@@ -103,17 +110,37 @@ function agendaFor(s) {
   return skill.createAgenda({ user: o.user, direction: o.direction ?? "inbound", objectives: o.objectives ?? [], discovery: o.discovery ? research() : null });
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function reply(model, s) {
-  for (let i = 0; ; i++) {
-    try { return await replyOnce(model, s); } catch (e) { if (i >= 5 || !/429|timeout|aborted/i.test(e.message)) throw e; await sleep(2000 * (i + 1) ** 1.5); }
-  }
-}
-async function replyOnce(model, s) {
+const JUDGE_MODEL = process.env.JUDGE_MODEL || "gemini-3.5-flash";
+const CONCURRENCY = Math.max(1, Number(process.env.EVAL_CONCURRENCY) || 6);
+
+// ---------- the cache: what goes in → what came out ----------
+const CACHE_DIR = path.join("data", "eval-cache");
+mkdirSync(CACHE_DIR, { recursive: true });
+const keyOf = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 32);
+const cached = <T>(key: string): T | null => {
+  if (process.env.FRESH) return null;
+  try { return JSON.parse(readFileSync(path.join(CACHE_DIR, `${key}.json`), "utf8")); } catch { return null; }
+};
+const keep = (key: string, v: unknown) => writeFileSync(path.join(CACHE_DIR, `${key}.json`), JSON.stringify(v));
+const stats = { replies: 0, repliesCached: 0, judged: 0, judgedCached: 0, byCode: 0 };
+
+// A fixed clock (Friday evening for him), so the same prompt comes out every run and the cache can hit.
+const EVAL_NOW = new Date("2026-10-16T16:00:00Z");
+// What one situation sends: its system prompt, history, his words and tools.
+function inputOf(s) {
   const agenda = agendaFor(s);
   const tools = s.setup.quote ? [declaration(quoteSend({ memory: { user: { id: "x", orgId: "x", name: "Niko", lang: "de", timezone: "Europe/Berlin", profile: {} } }, quotes: null }))] : [];
-  const system = agenda.prompt({ lang: "de", note: s.note ?? {}, missing: s.note ? agenda.missing(s.note) : undefined, memory: s.setup.memory ?? "", tools: tools.map(t => t.name) });
+  const system = agenda.prompt({ lang: "de", note: s.note ?? {}, missing: s.note ? agenda.missing(s.note) : undefined, memory: s.setup.memory ?? "", tools: tools.map(t => t.name), now: EVAL_NOW });
+  return { system, history: s.history, says: s.says, tools };
+}
+async function reply(model, input) {
+  for (let i = 0; ; i++) {
+    try { return await replyOnce(model, input); } catch (e) { if (i >= 5 || !/429|timeout|aborted/i.test(e.message)) throw e; await sleep(2000 * (i + 1) ** 1.5); }
+  }
+}
+async function replyOnce(model, { system, history, says, tools }) {
   const t0 = performance.now(); let first = null, text = "", call = null;
-  for await (const ev of streamTurn({ endpoint, model, system, history: s.history, text: s.says, tools: tools.length ? tools : undefined })) {
+  for await (const ev of streamTurn({ endpoint, model, system, history, text: says, tools: tools.length ? tools : undefined })) {
     if (ev.type === "text") { first ??= performance.now() - t0; text += ev.text; }
     if (ev.type === "call") { first ??= performance.now() - t0; call = ev.call; }
   }
@@ -121,9 +148,24 @@ async function replyOnce(model, s) {
   const spoken = text.split("\n").filter(l => !/^\s*(HEARD|LANG|NEXT|DO):/.test(l)).join(" ").replace(/\s+/g, " ").trim();
   return { next, spoken: call ? `${spoken} [CALLED TOOL ${call.name} ${JSON.stringify(call.args)}]`.trim() : spoken, firstMs: Math.round(first ?? -1), raw: text };
 }
+
+// ---------- checks code can decide: id → pass (null: the judge decides) ----------
+const LONG_OK = /^(summary|brief|todos):/; // situations that ask for more than two sentences
+const questions = (t: string) => (t.match(/\?/g) ?? []).length;
+const sentences = (t: string) => t.split(/(?<=[.!?])\s+/).filter(x => /\w/.test(x)).length;
+const GOODBYE = /\b(tschüss|tschau|ciao|bis dann|bis später|bis bald|schönen (abend|tag)|mach's gut|gute fahrt)\b/i;
+const CODE: Record<string, (r, s) => boolean | null> = {
+  one_question: r => questions(r.spoken) <= 1,
+  no_question: r => questions(r.spoken) === 0 && r.next === "listen",
+  waits: r => r.next === "wait" && !r.spoken,
+  no_hangup: r => r.next !== "hangup" && !GOODBYE.test(r.spoken),
+  concise: (r, s) => (s.checks.some(c => LONG_OK.test(c)) ? null : sentences(r.spoken) <= 2),
+};
+const idOf = (check: string) => check.split(":")[0].trim();
+const byCode = (check: string, r, s) => CODE[idOf(check)]?.(r, s) ?? null;
+
 const JUDGE: Schema = { type: "OBJECT", properties: { checks: { type: "ARRAY", items: { type: "OBJECT", properties: { id: { type: "STRING" }, pass: { type: "BOOLEAN" }, why: { type: "STRING" } }, required: ["id", "pass", "why"] } } }, required: ["checks"] };
-async function judge(s, r) {
-  const checks = [...(s.noGeneric ? [] : GENERIC), ...s.checks];
+async function judge(s, r, checks: string[]) {
   const prompt = `You grade one reply of Toni, a German AI phone assistant for tradespeople (he calls from his car). Grade strictly but fairly, one verdict per check.
 
 Conversation so far:
@@ -138,21 +180,48 @@ Checks (id: rule):
 ${checks.map(c => `- ${c}`).join("\n")}
 
 Return one entry per check, id = the word before the colon.`;
-  return (await extractJsonResilient<{ checks: { id: string; pass: boolean; why: string }[] }>({ endpoint, models: ["gemini-2.5-pro"], system: "You are a meticulous evaluator of voice-assistant replies.", prompt, schema: JUDGE, think: true, timeoutMs: 120000, retries429: 5 })).checks;
+  return (await extractJsonResilient<{ checks: { id: string; pass: boolean; why: string }[] }>({ endpoint, models: [JUDGE_MODEL], system: "You are a meticulous evaluator of voice-assistant replies.", prompt, schema: JUDGE, think: true, timeoutMs: 120000, retries429: 5 })).checks;
 }
+
+// One sample: the reply (cached by its input), code checks, then the judge for the rest (cached by the reply).
+async function runOne(model: string, s, k: number) {
+  const input = inputOf(s);
+  const replyKey = keyOf({ v: 1, model, system: input.system, history: input.history, says: input.says, tools: input.tools, k });
+  let r = cached<Awaited<ReturnType<typeof replyOnce>>>(replyKey);
+  if (r) stats.repliesCached += 1; else { r = await reply(model, input); keep(replyKey, r); stats.replies += 1; }
+  const all = [...(s.noGeneric ? [] : GENERIC), ...s.checks];
+  const decided = all.map(c => ({ c, pass: byCode(c, r, s) }));
+  const coded = decided.filter(d => d.pass !== null).map(d => ({ id: idOf(d.c), pass: d.pass!, why: "checked in code" }));
+  stats.byCode += coded.length;
+  const rest = decided.filter(d => d.pass === null).map(d => d.c);
+  let judged: { id: string; pass: boolean; why: string }[] = [];
+  if (rest.length) {
+    const judgeKey = keyOf({ v: 1, judge: JUDGE_MODEL, reply: replyKey, next: r.next, spoken: r.spoken, rest, history: s.history, says: s.says, note: s.note ?? null, memory: s.setup.memory ?? "" });
+    const hit = cached<typeof judged>(judgeKey);
+    if (hit) { judged = hit; stats.judgedCached += 1; } else { judged = await judge(s, r, rest); keep(judgeKey, judged); stats.judged += 1; }
+  }
+  return { ...r, checks: [...coded, ...judged] };
+}
+
 const results = [];
 const ONLY = process.env.ONLY ? new Set(process.env.ONLY.split(",")) : null;
-for (let k = 0; k < Number(K); k++) for (const s of S.filter(x => !ONLY || ONLY.has(x.id))) for (const model of MODELS) {
-  try {
-    const r = await reply(model, s);
-    const checks = await judge(s, r);
-    results.push({ model, situation: s.id, k, ...r, checks });
-    process.stdout.write(checks.every(c => c.pass) ? "." : "x");
-    await sleep(400);
-  } catch (e) { results.push({ model, situation: s.id, k, error: e.message.slice(0, 120) }); process.stdout.write("E"); }
-}
+const jobs: { model: string; s; k: number }[] = [];
+for (let k = 0; k < Number(K); k++) for (const s of S.filter(x => !ONLY || ONLY.has(x.id))) for (const model of MODELS) jobs.push({ model, s, k });
+const started = performance.now();
+let at = 0;
+await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, async () => {
+  while (at < jobs.length) {
+    const { model, s, k } = jobs[at++];
+    try {
+      const r = await runOne(model, s, k);
+      results.push({ model, situation: s.id, k, ...r });
+      process.stdout.write(r.checks.every(c => c.pass) ? "." : "x");
+    } catch (e) { results.push({ model, situation: s.id, k, error: e.message.slice(0, 120) }); process.stdout.write("E"); }
+  }
+}));
 writeFileSync(outFile, JSON.stringify(results, null, 1));
-console.log(`\n\nevery reply and verdict: ${outFile}\n`);
+console.log(`\n\n${jobs.length} samples in ${Math.round((performance.now() - started) / 1000)} s · replies asked ${stats.replies}, from cache ${stats.repliesCached} · judged ${stats.judged}, from cache ${stats.judgedCached} · checks in code ${stats.byCode} (judge: ${JUDGE_MODEL})`);
+console.log(`every reply and verdict: ${outFile}\n`);
 const q = (a, p) => { const s = a.filter(x => x >= 0).sort((x, y) => x - y); return s.length ? Math.round(s[Math.floor(p * (s.length - 1))]) : "-"; };
 for (const model of MODELS) {
   const r = results.filter(x => x.model === model && !x.error);
